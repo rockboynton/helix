@@ -1,0 +1,30 @@
+repo = "helix-editor/helix"
+
+remote-branch = "master"
+
+local-branch = "patchy"
+
+pull-requests = [
+  # Show the primary selection index on statusline
+  "12326",
+  # Inline git blame
+  "13133",
+  # Preview scrolling
+  "11441",
+  # tree-house
+  "12972",
+  # Picker titles
+  "12520",
+  # Persistant state
+  "9143",
+  # :trim to remove trailing whitespace
+  "8366",
+  # Toggle case commands
+  "12043",
+  # Fix matching inside/around closest pair inconsistency
+  "10611",
+  # Subword text object
+  "12026",
+  # Command history picker
+  "8354",
+]
