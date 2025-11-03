@@ -1,0 +1,40 @@
+repo = "helix-editor/helix"
+
+remote-branch = "master"
+
+local-branch = "patchy"
+
+pull-requests = [
+  # Inline git blame
+  "13133",
+  # Add per view search location and total matches to statusline
+  "11700",
+  # Preview scrolling
+  "11441",
+  # Picker titles
+  "12520",
+  # Persistant state - currently closed by contributor
+  # "9143",
+  # :trim to remove trailing whitespace
+  "8366",
+  # Toggle case commands
+  "12043",
+  # Fix matching inside/around closest pair inconsistency
+  "10611",
+  # Subword text object
+  "12026",
+  # Command history picker
+  "8354",
+  # Register history picker - draft by maintainer
+  # "11184",
+  # Picker titles
+  "12520",
+  # Show path in file picker and explorer
+  "12806",
+  # Differentiate buffers with same name by progressively adding prior path components
+  "13113",
+  # New command :paste-join
+  "13600",
+  # New command to goto hover (like goto definition)
+  "12208",
+]
