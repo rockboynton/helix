@@ -241,6 +241,7 @@ impl DiffProviderRegistry {
     }
 
     // Remove a provider, notably used when its trust setting has changed from the original setup.
+    #[cfg(feature = "git")]
     fn remove_provider(&mut self, repo_path: &Path) {
         // Ensure we d'ont
         let Self {
@@ -345,6 +346,7 @@ pub enum DiffProvider {
 
 #[cfg_attr(not(any(feature = "git", feature = "jj")), allow(unused))]
 impl DiffProvider {
+    #[cfg_attr(not(feature = "git"), allow(unused_variables))]
     pub fn needs_reload(&self, fs_event: &helix_core::file_watcher::Event) -> bool {
         match *self {
             #[cfg(feature = "git")]
@@ -412,7 +414,7 @@ impl DiffProvider {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "git"))]
 mod tests {
     use super::*;
 

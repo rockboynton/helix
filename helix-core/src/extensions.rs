@@ -59,7 +59,7 @@ pub mod steel_implementations {
 
         pub fn get_captures(&self) -> Vec<String> {
             let mut ret = vec![];
-            for (k, _) in self.captures.iter() {
+            for k in self.captures.keys() {
                 ret.push(k.to_string());
             }
             ret

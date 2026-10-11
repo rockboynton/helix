@@ -267,7 +267,8 @@ impl Registers {
     /// The latest value is the value most recently pushed to the register when
     /// using `push`, or the last value returned by the iterator passed to [write].
     pub fn latest<'a>(&'a self, name: char, editor: &'a Editor) -> Option<Cow<'a, str>> {
-        self.read(name, editor).and_then(|values| values.last())
+        self.read(name, editor)
+            .and_then(|mut values| values.next_back())
     }
 
     /// Returns the oldest value in the given register.

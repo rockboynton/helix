@@ -243,7 +243,7 @@ impl TerminaBackend {
                 decreset!(AnyEventMouse),
                 decreset!(RXVTMouse),
                 decreset!(SGRMouse),
-                &hook_reset_cursor_command,
+                hook_reset_cursor_command,
                 decreset!(BracketedPaste),
                 decreset!(FocusTracking),
                 Osc::ResetDynamicColor(osc::DynamicColorNumber::TextBackgroundColor),
@@ -465,7 +465,7 @@ impl Backend for TerminaBackend {
         write!(
             self.terminal,
             "{}{}{}{}",
-            &self.reset_cursor_command,
+            self.reset_cursor_command,
             decreset!(BracketedPaste),
             decreset!(FocusTracking),
             decreset!(ClearAndEnableAlternateScreen),
@@ -554,7 +554,7 @@ impl Backend for TerminaBackend {
                 )?;
             }
 
-            write!(self.terminal, "{}", &cell.symbol)?;
+            write!(self.terminal, "{}", cell.symbol)?;
         }
 
         write!(self.terminal, "{}", Csi::Sgr(csi::Sgr::Reset))?;
@@ -657,7 +657,7 @@ impl Drop for TerminaBackend {
             let _ = write!(
                 self.terminal,
                 "{}{}{}{}",
-                &self.reset_cursor_command,
+                self.reset_cursor_command,
                 decreset!(BracketedPaste),
                 decreset!(FocusTracking),
                 decreset!(ClearAndEnableAlternateScreen),

@@ -89,7 +89,7 @@ impl Icons {
             .try_get("symbolkind")
             .unwrap_or_else(|| theme.get("keyword"));
         if let Some(symbol_kind_icons) = &mut self.symbol_kind {
-            for (_, icon) in symbol_kind_icons.iter_mut() {
+            for icon in symbol_kind_icons.values_mut() {
                 icon.with_default_style(style);
             }
         }
@@ -98,17 +98,17 @@ impl Icons {
     /// Set the default style for all icons
     pub fn reset_styles(&mut self) {
         if let Some(mime_type_icons) = &mut self.mime_type {
-            for (_, icon) in mime_type_icons.iter_mut() {
+            for icon in mime_type_icons.values_mut() {
                 icon.style = Some(IconStyle::Default(Style::default()));
             }
         }
         if let Some(symbol_kind_icons) = &mut self.symbol_kind {
-            for (_, icon) in symbol_kind_icons.iter_mut() {
+            for icon in symbol_kind_icons.values_mut() {
                 icon.style = Some(IconStyle::Default(Style::default()));
             }
         }
         if let Some(ui_icons) = &mut self.ui {
-            for (_, icon) in ui_icons.iter_mut() {
+            for icon in ui_icons.values_mut() {
                 icon.style = Some(IconStyle::Default(Style::default()));
             }
         }

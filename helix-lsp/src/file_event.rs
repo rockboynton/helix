@@ -210,7 +210,7 @@ impl Handler {
                     state.notify(events);
                 }
                 Event::FileWritten { path } => {
-                    log::debug!("Received file event for {:?}", &path);
+                    log::debug!("Received file event for {:?}", path);
                     state.notify([(&*path, EventType::Modified)].iter().cloned());
                 }
                 Event::Register {
