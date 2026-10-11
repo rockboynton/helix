@@ -414,6 +414,7 @@ impl MappableCommand {
         code_action, "Perform code action",
         buffer_picker, "Open buffer picker",
         jumplist_picker, "Open jumplist picker",
+        command_history_picker, "Open command history picker",
         symbol_picker, "Open symbol picker",
         syntax_symbol_picker, "Open symbol picker from syntax information",
         lsp_or_syntax_symbol_picker, "Open symbol picker from LSP or syntax information",
@@ -3447,6 +3448,43 @@ fn buffer_picker(cx: &mut Context) {
         Some((meta.id.into(), lines))
     })
     .with_title("Buffers".into());
+    cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn command_history_picker(cx: &mut Context) {
+    let command_history = cx.editor.registers.read(':', cx.editor);
+
+    let items: Vec<Command> = command_history
+        .into_iter()
+        .flatten()
+        .map(|entry| Command {
+            args: entry.to_string(),
+        })
+        .collect();
+
+    struct Command {
+        args: String,
+    }
+
+    let columns = [PickerColumn::new("command", |command: &Command, _| {
+        format!(":{}", command.args).into()
+    })];
+
+    let picker = Picker::new(columns, 0, items, (), |cx, option, _action| {
+        let args = option.args.clone();
+
+        cx.jobs.callback(async move {
+            let callback = |editor: &mut Editor, compositor: &mut Compositor| {
+                let prompt = command_mode_prompt().with_line(args, editor);
+
+                compositor.push(Box::new(prompt));
+            };
+
+            Ok(Callback::EditorCompositor(Box::new(callback)))
+        })
+    })
+    .with_title("Command History".into());
+
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
