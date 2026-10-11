@@ -810,6 +810,7 @@ checksum = "fa8b2e38ebfc4484dfef8580ddcaf8abb7285e6f3eb6413ff6775d104ae96ca6"
 dependencies = [
  "gix-actor 0.41.1",
  "gix-attributes 0.33.2",
+ "gix-blame",
  "gix-command 0.9.1",
  "gix-commitgraph 0.37.1",
  "gix-config 0.58.0",
@@ -978,6 +979,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e9d28a8333a322df5c4fdc7b86a9928965e50794523c0edff57d1fbf2a520cf"
 dependencies = [
  "gix-error 0.4.0",
+]
+
+[[package]]
+name = "gix-blame"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf49c828ad8a8a674d52caaf0b61fdee1f20cc46c15439ca3d875ef3b6f64bdc"
+dependencies = [
+ "gix-commitgraph 0.37.1",
+ "gix-date 0.15.5",
+ "gix-diff 0.65.0",
+ "gix-error 0.2.4",
+ "gix-hash 0.25.1",
+ "gix-object 0.62.0",
+ "gix-revwalk 0.33.0",
+ "gix-trace 0.1.20",
+ "gix-traverse 0.59.0",
+ "gix-worktree 0.54.0",
+ "smallvec",
+ "thiserror",
 ]
 
 [[package]]
@@ -2688,6 +2709,7 @@ dependencies = [
  "gix 0.88.0",
  "helix-core",
  "helix-event",
+ "helix-stdx",
  "imara-diff",
  "jj-lib",
  "log",

@@ -10,6 +10,34 @@ use std::{collections::HashMap, path::Path, sync::Arc};
 mod git;
 #[cfg(feature = "jj")]
 mod jj;
+#[cfg(feature = "git")]
+pub use git::blame::FileBlame;
+
+/// Unavailable blame provider in builds without Git support.
+#[cfg(not(feature = "git"))]
+#[derive(Debug)]
+pub struct FileBlame;
+
+#[cfg(not(feature = "git"))]
+impl FileBlame {
+    pub fn try_new(_file: std::path::PathBuf) -> Result<Self> {
+        anyhow::bail!("Git blame support is not compiled in")
+    }
+
+    pub fn blame_for_line(&self, _line: u32, _inserted: u32, _removed: u32) -> LineBlame {
+        LineBlame
+    }
+}
+
+#[cfg(not(feature = "git"))]
+pub struct LineBlame;
+
+#[cfg(not(feature = "git"))]
+impl LineBlame {
+    pub fn parse_format(self, _format: &str) -> String {
+        String::new()
+    }
+}
 
 mod diff;
 

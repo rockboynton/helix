@@ -22,6 +22,13 @@ use crate::FileChange;
 #[cfg(test)]
 mod test;
 
+pub mod blame;
+
+#[inline]
+fn get_repo_dir(file: &Path) -> Result<&Path> {
+    file.parent().context("file has no parent directory")
+}
+
 pub(super) fn get_diff_base(repo: &ThreadSafeRepository, file: &Path) -> Result<Vec<u8>> {
     debug_assert!(!file.exists() || file.is_file());
     debug_assert!(file.is_absolute());
