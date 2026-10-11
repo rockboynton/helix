@@ -480,6 +480,20 @@ pub mod completers {
             .collect()
     }
 
+    pub fn icons(_editor: &Editor, input: &str) -> Vec<Completion> {
+        let mut names = helix_loader::read_toml_names(&helix_loader::config_dir().join("icons"));
+        for dir in helix_loader::runtime_dirs() {
+            names.extend(helix_loader::read_toml_names(&dir.join("icons")));
+        }
+        names.push("default".into());
+        names.sort();
+        names.dedup();
+        fuzzy_match(input, names, false)
+            .into_iter()
+            .map(|(name, _)| ((0..), name.into()))
+            .collect()
+    }
+
     /// Recursive function to get all keys from this value and add them to vec
     fn get_keys(value: &serde_json::Value, vec: &mut Vec<String>, scope: Option<&str>) {
         if let Some(map) = value.as_object() {

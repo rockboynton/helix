@@ -24,6 +24,7 @@
 - [Configuration](./configuration.md)
   - [Editor](./editor.md)
   - [Themes](./themes.md)
+  - [Icons](./icons.md)
   - [Key remapping](./remapping.md)
   - [Languages](./languages.md)
 - [Guides](./guides/README.md)

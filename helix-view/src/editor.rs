@@ -475,6 +475,25 @@ pub struct Config {
     pub enable_steel: bool,
     /// Workspace-trust configuration.
     pub workspace_trust: WorkspaceTrustConfig,
+    pub icons: IconsConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct IconsConfig {
+    pub bufferline: bool,
+    pub picker: bool,
+    pub statusline: bool,
+}
+
+impl Default for IconsConfig {
+    fn default() -> Self {
+        Self {
+            bufferline: true,
+            picker: true,
+            statusline: true,
+        }
+    }
 }
 
 /// User-facing configuration for `[editor.workspace-trust]`.
@@ -846,6 +865,7 @@ pub enum StatusLineElement {
 
     /// The file type (language ID or "text")
     FileType,
+    FileTypeIcon,
 
     /// A summary of the number of errors and warnings
     Diagnostics,
@@ -1347,6 +1367,7 @@ impl Default for Config {
             #[cfg(not(feature = "steel"))]
             enable_steel: false,
             workspace_trust: WorkspaceTrustConfig::default(),
+            icons: IconsConfig::default(),
         }
     }
 }
@@ -1405,6 +1426,8 @@ pub struct Editor {
 
     pub syn_loader: Arc<ArcSwap<syntax::Loader>>,
     pub theme_loader: Arc<theme::Loader>,
+    pub icons_loader: Arc<crate::icons::Loader>,
+    pub icons: crate::icons::Icons,
     /// last_theme is used for theme previews. We store the current theme here,
     /// and if previewing is cancelled, we can return to it.
     pub last_theme: Option<Theme>,
@@ -1541,6 +1564,10 @@ impl Editor {
         let language_servers = helix_lsp::Registry::new(syn_loader.clone());
         let conf = config.load();
         let auto_pairs = (&conf.auto_pairs).into();
+        let mut icon_dirs = vec![helix_loader::config_dir()];
+        icon_dirs.extend(helix_loader::runtime_dirs().iter().cloned());
+        let icons_loader = Arc::new(crate::icons::Loader::new(&icon_dirs));
+        let icons = icons_loader.default(&theme_loader.default());
 
         // HAXX: offset the render area height by 1 to account for prompt/commandline
         area.height -= 1;
@@ -1565,6 +1592,8 @@ impl Editor {
             breakpoints: HashMap::new(),
             syn_loader,
             theme_loader,
+            icons_loader,
+            icons,
             last_theme: None,
             last_selection: None,
             registers: Registers::new(Box::new(arc_swap::access::Map::new(
@@ -1730,8 +1759,15 @@ impl Editor {
 
         self._refresh();
         self.config_events.0.send(ConfigEvent::ThemeChanged)?;
+        self.icons.set_diagnostic_icons_base_style(&self.theme);
+        self.icons.set_symbolkind_icons_base_style(&self.theme);
 
         Ok(())
+    }
+
+    pub fn set_icons(&mut self, icons: crate::icons::Icons) {
+        self.icons = icons;
+        self.needs_redraw = true;
     }
 
     #[inline]

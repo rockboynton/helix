@@ -238,6 +238,8 @@ impl<T, D> Column<T, D> {
 type DynQueryCallback<T, D> =
     fn(&str, &mut Editor, Arc<D>, &Injector<T, D>) -> BoxFuture<'static, anyhow::Result<()>>;
 
+type IconFn<T> = dyn Fn(&Editor, &T) -> Option<helix_view::icons::Icon>;
+
 pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     columns: Arc<[Column<T, D>]>,
     primary_column: usize,
@@ -275,6 +277,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     preview_height: u16,
     cursor_picker: u32,
     title: Option<Spans<'static>>,
+    icon_fn: Option<Box<IconFn<T>>>,
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
@@ -405,6 +408,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             preview_height: 0,
             cursor_picker: 0,
             title: None,
+            icon_fn: None,
         }
     }
 
@@ -426,6 +430,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn with_title(mut self, title: Spans<'static>) -> Self {
         self.title = Some(title);
+        self
+    }
+
+    pub fn with_icon(
+        mut self,
+        icon: impl Fn(&Editor, &T) -> Option<helix_view::icons::Icon> + 'static,
+    ) -> Self {
+        self.icon_fn = Some(Box::new(icon));
         self
     }
 
@@ -821,6 +833,25 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let options = snapshot.matched_items(offset..end).map(|item| {
             let mut widths = self.widths.iter_mut();
             let mut matcher_index = 0;
+            let mut icon = if cx.editor.config().icons.picker {
+                self.icon_fn
+                    .as_ref()
+                    .and_then(|icon| icon(cx.editor, item.data))
+                    .or_else(|| {
+                        self.file_fn.as_ref().and_then(|file_fn| {
+                            let (path, _) = file_fn(cx.editor, item.data)?;
+                            let path = match path {
+                                PathOrId::Path(path) => Some(path),
+                                PathOrId::Id(id) => {
+                                    cx.editor.document(id).and_then(|doc| doc.path())
+                                }
+                            };
+                            cx.editor.icons.icon_from_path(path).cloned()
+                        })
+                    })
+            } else {
+                None
+            };
 
             Row::new(self.columns.iter().map(|column| {
                 if column.hidden {
@@ -831,7 +862,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     unreachable!();
                 };
                 let mut cell = column.format(item.data, &self.editor_data);
-                let width = if column.filter {
+                let mut width = if column.filter {
                     snapshot.pattern().column_pattern(matcher_index).indices(
                         item.matcher_columns[matcher_index].slice(..),
                         &mut matcher,
@@ -887,6 +918,16 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                         .unwrap_or_default()
                 };
 
+                if let Some(icon) = icon.take() {
+                    if let Some(line) = cell.content.lines.first_mut() {
+                        let prefix = Span::styled(
+                            format!("{} ", icon.icon_char),
+                            icon.style.map(Into::into).unwrap_or_default(),
+                        );
+                        width += prefix.width();
+                        line.0.insert(0, prefix);
+                    }
+                }
                 if width as u16 > *max_width {
                     *max_width = width as u16;
                 }

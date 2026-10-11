@@ -757,8 +757,24 @@ impl EditorView {
 
         let mut x = viewport.x;
         let current_doc = view!(editor).doc;
+        let config = editor.config();
+        let icons_enabled = config.icons.bufferline;
 
         for doc in editor.documents() {
+            let filetype_icon = doc
+                .language_config()
+                .and_then(|config| {
+                    config
+                        .file_types
+                        .iter()
+                        .filter_map(|filetype| match filetype {
+                            helix_core::syntax::config::FileType::Extension(s) => Some(s),
+                            helix_core::syntax::config::FileType::Glob(_) => None,
+                        })
+                        .find_map(|filetype| editor.icons.icon_from_filetype(filetype))
+                })
+                .or_else(|| editor.icons.icon_from_path(doc.path()));
+
             let fname = doc
                 .path()
                 .unwrap_or(&scratch)
@@ -777,6 +793,22 @@ impl EditorView {
             let used_width = viewport.x.saturating_sub(x);
             let rem_width = surface.area.width.saturating_sub(used_width);
 
+            if icons_enabled {
+                if let Some(icon) = filetype_icon {
+                    x = surface
+                        .set_stringn(
+                            x,
+                            viewport.y,
+                            &format!(" {}", icon.icon_char),
+                            rem_width as usize,
+                            match icon.style {
+                                Some(s) => style.patch(s.into()),
+                                None => style,
+                            },
+                        )
+                        .0;
+                }
+            }
             x = surface
                 .set_stringn(x, viewport.y, &text, rem_width as usize, style)
                 .0;

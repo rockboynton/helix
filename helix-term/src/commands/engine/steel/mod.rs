@@ -2985,6 +2985,7 @@ impl HelixConfiguration {
                         "file-line-ending" => StatusLineElement::FileLineEnding,
                         "file-indent-style" => StatusLineElement::FileIndentStyle,
                         "file-type" => StatusLineElement::FileType,
+                        "file-type-icon" => StatusLineElement::FileTypeIcon,
                         "diagnostics" => StatusLineElement::Diagnostics,
                         "workspace-diagnostics" => StatusLineElement::WorkspaceDiagnostics,
                         "selections" => StatusLineElement::Selections,

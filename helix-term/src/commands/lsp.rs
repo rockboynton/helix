@@ -314,6 +314,14 @@ fn diag_picker(
     )
     .with_preview(move |_editor, diag| location_to_file_location(&diag.location))
     .with_title("Diagnostics".into())
+    .with_icon(|editor, item| {
+        Some(match item.diag.severity {
+            Some(lsp::DiagnosticSeverity::ERROR) => editor.icons.diagnostic.error.clone(),
+            Some(lsp::DiagnosticSeverity::WARNING) => editor.icons.diagnostic.warning.clone(),
+            Some(lsp::DiagnosticSeverity::INFORMATION) => editor.icons.diagnostic.info.clone(),
+            _ => editor.icons.diagnostic.hint.clone(),
+        })
+    })
     .truncate_start(false)
 }
 
@@ -443,6 +451,12 @@ pub fn symbol_picker(cx: &mut Context) {
             )
             .with_preview(move |_editor, item| location_to_file_location(&item.location))
             .with_title("Document Symbols".into())
+            .with_icon(|editor, item| {
+                editor
+                    .icons
+                    .icon_from_symbol_kind(display_symbol_kind(item.symbol.kind))
+                    .cloned()
+            })
             .truncate_start(false);
 
             compositor.push(Box::new(overlaid(picker)))
@@ -571,6 +585,12 @@ pub fn workspace_symbol_picker(cx: &mut Context) {
     .with_preview(|_editor, item| location_to_file_location(&item.location))
     .with_dynamic_query(get_symbols, None)
     .with_title("Workspace Symbols".into())
+    .with_icon(|editor, item| {
+        editor
+            .icons
+            .icon_from_symbol_kind(display_symbol_kind(item.symbol.kind))
+            .cloned()
+    })
     .truncate_start(false);
 
     cx.push_layer(Box::new(overlaid(picker)));

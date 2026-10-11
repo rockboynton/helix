@@ -169,6 +169,7 @@ where
         helix_view::editor::StatusLineElement::FileLineEnding => render_file_line_ending,
         helix_view::editor::StatusLineElement::FileIndentStyle => render_file_indent_style,
         helix_view::editor::StatusLineElement::FileType => render_file_type,
+        helix_view::editor::StatusLineElement::FileTypeIcon => render_file_type_icon,
         helix_view::editor::StatusLineElement::Diagnostics => render_diagnostics,
         helix_view::editor::StatusLineElement::WorkspaceDiagnostics => render_workspace_diagnostics,
         helix_view::editor::StatusLineElement::Selections => render_selections,
@@ -265,24 +266,48 @@ where
     for sev in &context.editor.config().statusline.diagnostics {
         match sev {
             Severity::Hint if hints > 0 => {
-                write(context, Span::styled("●", context.editor.theme.get("hint")));
+                write(
+                    context,
+                    Span::styled(
+                        context.editor.icons.diagnostic.hint.icon_char.to_string(),
+                        context.editor.theme.get("hint"),
+                    ),
+                );
                 write(context, format!(" {} ", hints).into());
             }
             Severity::Info if info > 0 => {
-                write(context, Span::styled("●", context.editor.theme.get("info")));
+                write(
+                    context,
+                    Span::styled(
+                        context.editor.icons.diagnostic.info.icon_char.to_string(),
+                        context.editor.theme.get("info"),
+                    ),
+                );
                 write(context, format!(" {} ", info).into());
             }
             Severity::Warning if warnings > 0 => {
                 write(
                     context,
-                    Span::styled("●", context.editor.theme.get("warning")),
+                    Span::styled(
+                        context
+                            .editor
+                            .icons
+                            .diagnostic
+                            .warning
+                            .icon_char
+                            .to_string(),
+                        context.editor.theme.get("warning"),
+                    ),
                 );
                 write(context, format!(" {} ", warnings).into());
             }
             Severity::Error if errors > 0 => {
                 write(
                     context,
-                    Span::styled("●", context.editor.theme.get("error")),
+                    Span::styled(
+                        context.editor.icons.diagnostic.error.icon_char.to_string(),
+                        context.editor.theme.get("error"),
+                    ),
                 );
                 write(context, format!(" {} ", errors).into());
             }
@@ -332,24 +357,48 @@ where
     for sev in sevs_to_show {
         match sev {
             Severity::Hint if hints > 0 => {
-                write(context, Span::styled("●", context.editor.theme.get("hint")));
+                write(
+                    context,
+                    Span::styled(
+                        context.editor.icons.diagnostic.hint.icon_char.to_string(),
+                        context.editor.theme.get("hint"),
+                    ),
+                );
                 write(context, format!(" {} ", hints).into());
             }
             Severity::Info if info > 0 => {
-                write(context, Span::styled("●", context.editor.theme.get("info")));
+                write(
+                    context,
+                    Span::styled(
+                        context.editor.icons.diagnostic.info.icon_char.to_string(),
+                        context.editor.theme.get("info"),
+                    ),
+                );
                 write(context, format!(" {} ", info).into());
             }
             Severity::Warning if warnings > 0 => {
                 write(
                     context,
-                    Span::styled("●", context.editor.theme.get("warning")),
+                    Span::styled(
+                        context
+                            .editor
+                            .icons
+                            .diagnostic
+                            .warning
+                            .icon_char
+                            .to_string(),
+                        context.editor.theme.get("warning"),
+                    ),
                 );
                 write(context, format!(" {} ", warnings).into());
             }
             Severity::Error if errors > 0 => {
                 write(
                     context,
-                    Span::styled("●", context.editor.theme.get("error")),
+                    Span::styled(
+                        context.editor.icons.diagnostic.error.icon_char.to_string(),
+                        context.editor.theme.get("error"),
+                    ),
                 );
                 write(context, format!(" {} ", errors).into());
             }
@@ -499,6 +548,27 @@ where
     write(context, title.into());
 }
 
+fn render_file_type_icon<'a, F>(context: &mut RenderContext<'a>, write: F)
+where
+    F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
+{
+    if !context.editor.config().icons.statusline {
+        return;
+    }
+    let doc = get_doc(context);
+    let icon = doc
+        .language_id()
+        .and_then(|language| context.editor.icons.icon_from_filetype(language))
+        .or_else(|| context.editor.icons.icon_from_path(doc.path()));
+    if let Some(icon) = icon {
+        let span = Span::styled(
+            icon.icon_char.to_string(),
+            icon.style.map(Into::into).unwrap_or_default(),
+        );
+        write(context, span);
+    }
+}
+
 fn render_file_absolute_path<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
@@ -583,6 +653,18 @@ where
         .unwrap_or_default()
         .to_string();
 
+    if !head.is_empty() && context.editor.config().icons.statusline {
+        if let Some(icon) = context
+            .editor
+            .icons
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.get("vcs_branch"))
+        {
+            write(context, Span::from(icon));
+            write(context, " ".into());
+        }
+    }
     write(context, head.into());
 }
 

@@ -1,5 +1,16 @@
 ## Editor
 
+### `[editor.icons]`
+
+Use `icons = "nerdfonts"` at the top of `config.toml` to select Nerd Font icons,
+or `:icons nerdfonts` to select them for the current session. The `default` flavor
+uses ordinary Unicode symbols. A patched terminal font is required for Nerd Font icons.
+
+`bufferline`, `picker`, and `statusline` independently enable icons in each area
+(all default to `true`). Add `file-type-icon` to your statusline to show the file icon.
+Custom icon flavors live in `~/.config/helix/icons/` and support `inherits`.
+See [Icons](icons.md) for the format.
+
 - [`[editor]` Section](#editor-section)
 - [`[editor.clipboard-provider]` Section](#editorclipboard-provider-section)
 - [`[editor.statusline]` Section](#editorstatusline-section)

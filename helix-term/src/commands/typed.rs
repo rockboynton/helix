@@ -3146,6 +3146,14 @@ fn trim_whitespace(
 
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
+        name: "icons",
+        aliases: &[],
+        doc: "Select an icon flavor.",
+        fun: set_icons,
+        completer: CommandCompleter::positional(&[completers::icons]),
+        signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
         name: "exit",
         aliases: &["x", "xit"],
         doc: "Write changes to disk if the buffer is modified and then quit. Accepts an optional path (:exit some/path.txt).",
@@ -4259,6 +4267,23 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
     },
 ];
+
+fn set_icons(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let Some(name) = args.first() else {
+        cx.editor.set_status(cx.editor.icons.name().to_owned());
+        return Ok(());
+    };
+    let icons = cx.editor.icons_loader.load(
+        name,
+        &cx.editor.theme,
+        cx.editor.config().true_color || crate::true_color(),
+    )?;
+    cx.editor.set_icons(icons);
+    Ok(())
+}
 
 pub static TYPABLE_COMMAND_MAP: LazyLock<HashMap<&'static str, &'static TypableCommand>> =
     LazyLock::new(|| {

@@ -563,6 +563,14 @@ impl Application {
             })
             .unwrap_or_else(|| editor.theme_loader.default_theme(true_color));
         let _ = editor.set_theme(theme);
+        let icons = config.icons.as_deref().map_or_else(
+            || Ok(editor.icons_loader.default(&editor.theme)),
+            |name| editor.icons_loader.load(name, &editor.theme, true_color),
+        );
+        match icons {
+            Ok(icons) => editor.set_icons(icons),
+            Err(err) => editor.set_error(format!("Failed to load icons: {err}")),
+        }
     }
 
     #[cfg(windows)]
