@@ -95,8 +95,12 @@
 | `:move!`, `:mv!` | Move the current buffer and its corresponding file to a different path creating necessary subdirectories |
 | `:yank-diagnostic` | Yank diagnostic(s) under primary cursor to register, or clipboard by default |
 | `:read`, `:r` | Load a file into buffer |
+<<<<<<< HEAD
 | `:echo` | Prints the given arguments to the statusline. |
 | `:noop` | Does nothing. |
 | `:workspace-trust` | Allow language servers and local config for the current workspace. |
 | `:workspace-untrust` | Revoke the current workspace's trust grant or exclusion. |
 | `:workspace-exclude` | Mark the current workspace as never-prompt. Never prompts for trust again. |
+=======
+| `:trim-trailing-whitespace`, `:trim` | Delete whitespace |
+>>>>>>> upstream/pr-8366

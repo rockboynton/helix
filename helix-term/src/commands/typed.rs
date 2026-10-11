@@ -3003,6 +3003,94 @@ const WRITE_NO_CODE_ACTIONS_FLAG: Flag = Flag {
     ..Flag::DEFAULT
 };
 
+fn trim_whitespace_impl(doc: &Document, selection: &Selection) -> Transaction {
+    /// Find the last non-whitespace char of a line
+    fn find_trailing(l: RopeSlice) -> Option<usize> {
+        // Handle empty docs
+        if l.len_chars() == 0 {
+            return None;
+        }
+
+        // Returns the left-wise beginning of the trailing whitespace
+        // It is +1 the index of that char so that char is not deleted
+        l.chars_at(l.len_chars())
+            .reversed()
+            .position(|ch| !ch.is_whitespace())
+            .map(|n| l.len_chars() - n)
+            .or(Some(0))
+    }
+
+    let mut deletions: Vec<helix_core::Deletion> = Vec::new();
+    let mut delete = |start, end| {
+        // Don't push empty changes
+        if start != end {
+            deletions.push((start, end));
+        }
+    };
+
+    // Assume ranges are in order and not overlapping
+    for range in selection.ranges().iter().rev() {
+        let slice = range.slice(doc.text().slice(..));
+        let lines = slice.lines_at(slice.len_lines()).reversed();
+
+        // Cap the `end` to not delete the line ending
+        let end_account_le = |line: RopeSlice, n: usize| {
+            let le_len = helix_core::line_ending::get_line_ending(&line)
+                .map(|le| le.len_chars())
+                .unwrap_or(0);
+            // Map `end` with respect to the whole doc
+            range.from() + n - le_len
+        };
+
+        // Ignore empty lines if `trailing` is true.
+        // If not `trailing`, delete trailing whitespace on lines.
+        let mut trailing = true;
+        for (idx, line) in lines.enumerate() {
+            // This subtraction cannot underflow because len_lines must be `> 0` to enter
+            // this loop and `idx` is always `< len_lines`.
+            let line_number = slice.len_lines() - 1 - idx;
+            if trailing {
+                // `n @ 1..` will ignore `Some(0)` from empty lines
+                if let Some(n @ 1..) = find_trailing(line) {
+                    let start = range.from() + slice.line_to_char(line_number) + n;
+                    // Needed to retain the last EOL of the selection, which would be selected. e.g. in `%:trim`
+                    let end = end_account_le(slice, slice.len_chars());
+                    delete(start, end);
+                    trailing = false;
+                }
+            } else if let Some(n) = find_trailing(line) {
+                let start = range.from() + slice.line_to_char(line_number) + n;
+                let end = end_account_le(line, slice.line_to_char(line_number + 1));
+                delete(start, end);
+            }
+        }
+
+        // Delete empty selections
+        if trailing {
+            let start = range.from();
+            let end = end_account_le(slice, slice.len_chars());
+            delete(start, end);
+        }
+    }
+    Transaction::delete(doc.text(), deletions.into_iter().rev())
+}
+
+fn trim_whitespace(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let (view, doc) = current!(cx.editor);
+    let selection = doc.selection(view.id);
+    let tx = trim_whitespace_impl(doc, selection);
+    doc.apply(&tx, view.id);
+    doc.append_changes_to_history(view);
+    Ok(())
+}
+
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
         name: "exit",
@@ -4108,7 +4196,15 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         fun: exclude_workspace,
         completer: CommandCompleter::none(),
         signature: Signature { positionals: (0, None), ..Signature::DEFAULT },
-    }
+    },
+    TypableCommand {
+        name: "trim-trailing-whitespace",
+        aliases: &["trim"],
+        doc: "Delete trailing whitespace from the current selections",
+        fun: trim_whitespace,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
 ];
 
 pub static TYPABLE_COMMAND_MAP: LazyLock<HashMap<&'static str, &'static TypableCommand>> =
@@ -4605,4 +4701,44 @@ fn exclude_workspace(
     cx.editor.workspace_trust.exclude(&workspace);
     cx.editor.config_events.0.send(ConfigEvent::Refresh)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod trim_tests {
+    use super::*;
+    use arc_swap::ArcSwap;
+    use helix_core::{syntax, Rope};
+    use std::sync::Arc;
+
+    fn trim(input: &str, selection: Selection) -> Rope {
+        let doc = Document::from(
+            Rope::from_str(input),
+            None,
+            Arc::new(ArcSwap::from_pointee(helix_view::editor::Config::default())),
+            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+        );
+        let transaction = trim_whitespace_impl(&doc, &selection);
+        let mut text = doc.text().clone();
+        transaction.apply(&mut text);
+        text
+    }
+
+    #[test]
+    fn unicode_and_crlf() {
+        let input = "é 🦀  \r\nsecond\t \r\n";
+        assert_eq!(
+            trim(input, Selection::single(0, input.chars().count())),
+            "é 🦀\r\nsecond\r\n"
+        );
+    }
+
+    #[test]
+    fn respects_multiple_selections_and_unselected_text() {
+        let input = "one  \ntwo  \nthree  \n";
+        let selection = Selection::new(
+            [Range::new(0, 6), Range::new(12, 20)].into_iter().collect(),
+            0,
+        );
+        assert_eq!(trim(input, selection), "one\ntwo  \nthree\n");
+    }
 }
