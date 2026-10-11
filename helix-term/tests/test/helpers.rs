@@ -302,6 +302,10 @@ pub fn test_config() -> Config {
 pub fn test_editor_config() -> helix_view::editor::Config {
     helix_view::editor::Config {
         enable_steel: false,
+        file_watcher: helix_core::file_watcher::Config {
+            enable: false,
+            ..Default::default()
+        },
         lsp: LspConfig {
             enable: false,
             ..Default::default()

@@ -4,7 +4,11 @@
 
 use anyhow::Result;
 use arc_swap::ArcSwap;
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 #[cfg(feature = "git")]
 mod git;
@@ -90,6 +94,22 @@ impl DiffProviderRegistry {
                 None
             }
         }
+    }
+
+    pub fn needs_reload(&self, fs_event: &helix_core::file_watcher::Event) -> bool {
+        self.providers
+            .values()
+            .any(|provider| provider.needs_reload(fs_event))
+    }
+
+    /// Get paths that need to be watched for VCS state changes.
+    /// These are paths like HEAD files that indicate branch/commit changes.
+    /// The workspace path is used to determine if the VCS metadata is external.
+    pub fn get_watched_paths(&self, workspace: &Path) -> Vec<PathBuf> {
+        self.providers
+            .values()
+            .filter_map(|provider| provider.get_watched_path(workspace))
+            .collect()
     }
 
     /// Fire-and-forget changed file iteration. Runs everything in a background task. Keeps
@@ -325,6 +345,33 @@ pub enum DiffProvider {
 
 #[cfg_attr(not(any(feature = "git", feature = "jj")), allow(unused))]
 impl DiffProvider {
+    pub fn needs_reload(&self, fs_event: &helix_core::file_watcher::Event) -> bool {
+        match *self {
+            #[cfg(feature = "git")]
+            DiffProvider::Git { .. } => {
+                let path = fs_event.path.as_std_path();
+                // Check for regular .git/HEAD
+                if path.ends_with(".git/HEAD") {
+                    return true;
+                }
+                // Check for worktree HEAD at .git/worktrees/<name>/HEAD
+                if path.file_name().is_some_and(|f| f == "HEAD") {
+                    // Walk up the path to check for .git/worktrees pattern
+                    if let Some(parent) = path.parent() {
+                        if let Some(grandparent) = parent.parent() {
+                            if grandparent.ends_with(".git/worktrees") {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                false
+            }
+            #[cfg(feature = "jj")]
+            DiffProvider::JJ(_) => false,
+        }
+    }
+
     fn get_diff_base(&self, file: &Path) -> Result<Vec<u8>> {
         // We need the */ref else we're matching on a reference and Rust considers all references
         // inhabited.
@@ -352,6 +399,99 @@ impl DiffProvider {
             #[cfg(feature = "jj")]
             Self::JJ(ref repo) => jj::for_each_changed_file(repo, f),
         }
+    }
+
+    /// Get the path to watch for VCS state changes (e.g., HEAD file).
+    fn get_watched_path(&self, _workspace: &Path) -> Option<PathBuf> {
+        match *self {
+            #[cfg(feature = "git")]
+            Self::Git { ref repo, .. } => Some(repo.to_thread_local().git_dir().join("HEAD")),
+            #[cfg(feature = "jj")]
+            Self::JJ(_) => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "git")]
+    #[test]
+    fn test_needs_reload_regular_git() {
+        use helix_core::file_watcher::{CanonicalPathBuf, Event, EventType};
+        use std::path::Path;
+
+        let directory = tempfile::tempdir().unwrap();
+        let repo = gix::init(directory.path()).unwrap();
+        let provider = DiffProvider::Git {
+            repo: Box::new(repo.into_sync()),
+            trust_full: false,
+        };
+
+        // Regular .git/HEAD should trigger reload
+        let event = Event {
+            path: CanonicalPathBuf::assert_canonicalized(Path::new("/home/user/repo/.git/HEAD")),
+            ty: EventType::Modified,
+        };
+        assert!(provider.needs_reload(&event));
+
+        // Other .git files should not trigger reload
+        let event = Event {
+            path: CanonicalPathBuf::assert_canonicalized(Path::new("/home/user/repo/.git/config")),
+            ty: EventType::Modified,
+        };
+        assert!(!provider.needs_reload(&event));
+    }
+
+    #[cfg(feature = "git")]
+    #[test]
+    fn test_needs_reload_worktree_head() {
+        use helix_core::file_watcher::{CanonicalPathBuf, Event, EventType};
+        use std::path::Path;
+
+        let directory = tempfile::tempdir().unwrap();
+        let repo = gix::init(directory.path()).unwrap();
+        let provider = DiffProvider::Git {
+            repo: Box::new(repo.into_sync()),
+            trust_full: false,
+        };
+
+        // Worktree HEAD at .git/worktrees/<name>/HEAD should trigger reload
+        let event = Event {
+            path: CanonicalPathBuf::assert_canonicalized(Path::new(
+                "/home/user/main-repo/.git/worktrees/my-worktree/HEAD",
+            )),
+            ty: EventType::Modified,
+        };
+        assert!(provider.needs_reload(&event));
+
+        // Nested worktree name should also work
+        let event = Event {
+            path: CanonicalPathBuf::assert_canonicalized(Path::new(
+                "/home/user/main-repo/.git/worktrees/feature-branch/HEAD",
+            )),
+            ty: EventType::Modified,
+        };
+        assert!(provider.needs_reload(&event));
+
+        // Non-HEAD files in worktrees should not trigger reload
+        let event = Event {
+            path: CanonicalPathBuf::assert_canonicalized(Path::new(
+                "/home/user/main-repo/.git/worktrees/my-worktree/index",
+            )),
+            ty: EventType::Modified,
+        };
+        assert!(!provider.needs_reload(&event));
+
+        // HEAD files not in .git/worktrees should not trigger reload
+        let event = Event {
+            path: CanonicalPathBuf::assert_canonicalized(Path::new(
+                "/home/user/other/worktrees/my-worktree/HEAD",
+            )),
+            ty: EventType::Modified,
+        };
+        assert!(!provider.needs_reload(&event));
     }
 }
 

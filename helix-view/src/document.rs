@@ -213,7 +213,14 @@ pub struct Document {
 
     // Last time we wrote to the file. This will carry the time the file was last opened if there
     // were no saves.
-    last_saved_time: SystemTime,
+    pub last_saved_time: SystemTime,
+    last_saved_file_size: Option<u64>,
+
+    /// On-disk mtime of the last external change auto-reload already surfaced for
+    /// this document (prompt/warning). Lets it show the conflict once instead of
+    /// re-prompting on every poll/focus check while the buffer stays modified.
+    pub auto_reload_seen_stamp: Option<(SystemTime, u64)>,
+    pub auto_reload_deleted: bool,
 
     last_saved_revision: usize,
     version: i32, // should be usize?
@@ -222,7 +229,7 @@ pub struct Document {
     pub(crate) diagnostics: Vec<Diagnostic>,
     pub(crate) language_servers: HashMap<LanguageServerName, Arc<Client>>,
 
-    diff_handle: Option<DiffHandle>,
+    pub diff_handle: Option<DiffHandle>,
     version_control_head: Option<Arc<ArcSwap<Box<str>>>>,
     /// Contains blame information for each line in the file
     /// We store the Result because when we access the blame manually we want to log the error
@@ -794,6 +801,9 @@ impl Document {
             history: Cell::new(History::default()),
             savepoints: Vec::new(),
             last_saved_time: SystemTime::now(),
+            last_saved_file_size: None,
+            auto_reload_seen_stamp: None,
+            auto_reload_deleted: false,
             last_saved_revision: 0,
             modified_since_accessed: false,
             language_servers: HashMap::new(),
@@ -1305,6 +1315,10 @@ impl Document {
     }
 
     pub fn pickup_last_saved_time(&mut self) {
+        self.last_saved_file_size = self
+            .path()
+            .and_then(|path| path.metadata().ok())
+            .map(|m| m.len());
         self.last_saved_time = match self.path() {
             Some(path) => match path.metadata() {
                 Ok(metadata) => match metadata.modified() {
@@ -1330,6 +1344,10 @@ impl Document {
             None => false,
             Some(p) => readonly(p),
         };
+    }
+
+    pub fn last_saved_file_size(&self) -> Option<u64> {
+        self.last_saved_file_size
     }
 
     /// Reload the document from its path.
@@ -1987,6 +2005,10 @@ impl Document {
         );
         self.last_saved_revision = rev;
         self.last_saved_time = save_time;
+        self.last_saved_file_size = self
+            .path()
+            .and_then(|path| path.metadata().ok())
+            .map(|m| m.len());
     }
 
     /// Get the document's latest saved revision.

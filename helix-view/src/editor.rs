@@ -46,6 +46,7 @@ pub use helix_core::diagnostic::Severity;
 use helix_core::{
     auto_pairs::AutoPairs,
     diagnostic::DiagnosticProvider,
+    file_watcher::{self, Watcher},
     syntax::{
         self,
         config::{AutoPairConfig, IndentationHeuristic, LanguageServerFeature, SoftWrap},
@@ -476,6 +477,9 @@ pub struct Config {
     /// Workspace-trust configuration.
     pub workspace_trust: WorkspaceTrustConfig,
     pub icons: IconsConfig,
+    #[serde(deserialize_with = "deserialize_auto_reload")]
+    pub auto_reload: AutoReloadConfig,
+    pub file_watcher: file_watcher::Config,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -606,6 +610,64 @@ pub enum KittyKeyboardProtocolConfig {
     Auto,
     Disabled,
     Enabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct AutoReloadConfig {
+    pub enable: bool,
+    pub prompt_if_modified: bool,
+    /// Poll for changes to files outside the watched workspace
+    pub poll: AutoReloadPoll,
+}
+
+// Accept the original boolean shorthand and the PR's detailed settings.
+fn deserialize_auto_reload<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<AutoReloadConfig, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Input {
+        Enabled(bool),
+        Settings(AutoReloadConfig),
+    }
+    Ok(match Input::deserialize(deserializer)? {
+        Input::Enabled(enable) => AutoReloadConfig {
+            enable,
+            ..Default::default()
+        },
+        Input::Settings(settings) => settings,
+    })
+}
+
+impl Default for AutoReloadConfig {
+    fn default() -> Self {
+        AutoReloadConfig {
+            enable: true,
+            prompt_if_modified: true,
+            poll: AutoReloadPoll::default(),
+        }
+    }
+}
+
+/// Configuration for polling unwatched files for external changes
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
+#[serde(default, rename_all = "kebab-case", deny_unknown_fields)]
+pub struct AutoReloadPoll {
+    /// Enable polling for files outside the watched workspace
+    pub enable: bool,
+    /// Polling interval in milliseconds (default: 30000). This is only a backstop:
+    /// unwatched files are normally re-checked when the terminal regains focus.
+    pub interval: u64,
+}
+
+impl Default for AutoReloadPoll {
+    fn default() -> Self {
+        AutoReloadPoll {
+            enable: true,
+            interval: 30000,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, Eq, PartialOrd, Ord)]
@@ -1368,6 +1430,8 @@ impl Default for Config {
             enable_steel: false,
             workspace_trust: WorkspaceTrustConfig::default(),
             icons: IconsConfig::default(),
+            file_watcher: file_watcher::Config::default(),
+            auto_reload: AutoReloadConfig::default(),
         }
     }
 }
@@ -1477,6 +1541,7 @@ pub struct Editor {
     pub editor_clipping: ClippingConfiguration,
 
     pub workspace_trust: WorkspaceTrust,
+    pub file_watcher: Watcher,
 }
 
 #[derive(Default)]
@@ -1569,6 +1634,15 @@ impl Editor {
         let icons_loader = Arc::new(crate::icons::Loader::new(&icon_dirs));
         let icons = icons_loader.default(&theme_loader.default());
 
+        // Initialize file watcher and diff providers
+        let mut file_watcher = Watcher::new(&conf.file_watcher);
+        let diff_providers = DiffProviderRegistry::default();
+
+        // Set up extra watched paths from VCS providers (e.g., external HEAD files for worktrees)
+        let (workspace, _) = helix_loader::find_workspace();
+        let extra_paths = diff_providers.get_watched_paths(&workspace);
+        file_watcher.set_extra_watched_paths(extra_paths);
+
         // HAXX: offset the render area height by 1 to account for prompt/commandline
         area.height -= 1;
 
@@ -1587,7 +1661,7 @@ impl Editor {
             theme: theme_loader.default(),
             language_servers,
             diagnostics: Diagnostics::new(),
-            diff_providers: DiffProviderRegistry::default(),
+            diff_providers,
             debug_adapters: dap::registry::Registry::new(),
             breakpoints: HashMap::new(),
             syn_loader,
@@ -1618,6 +1692,7 @@ impl Editor {
             editor_clipping: ClippingConfiguration::default(),
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
             workspace_trust,
+            file_watcher,
         }
     }
 
@@ -1832,12 +1907,17 @@ impl Editor {
             }
             ls.did_rename(old_path, &new_path, is_dir);
         }
-        self.language_servers
-            .file_event_handler
-            .file_changed(old_path.to_owned());
-        self.language_servers
-            .file_event_handler
-            .file_changed(new_path);
+
+        if !self.file_watcher.is_watching(old_path) {
+            self.language_servers
+                .file_event_handler
+                .file_changed(old_path.to_owned());
+        }
+        if !self.file_watcher.is_watching(&new_path) {
+            self.language_servers
+                .file_event_handler
+                .file_changed(new_path);
+        }
         Ok(())
     }
 
@@ -2408,15 +2488,22 @@ impl Editor {
 
         let path = path.map(|path| path.into());
         let doc = doc_mut!(self, &doc_id);
+        // the path that will be written: the override, else the document's own path
+        let save_path = path.clone().or_else(|| doc.path().map(ToOwned::to_owned));
         let doc_save_future = doc.save(path, force)?;
 
-        // When a file is written to, notify the file event handler.
-        // Note: This can be removed once proper file watching is implemented.
+        // When a file is written to, notify the file event handler, unless the
+        // watcher already covers it, in which case filesentry reports the write.
         let handler = self.language_servers.file_event_handler.clone();
+        let watched = save_path
+            .as_deref()
+            .is_some_and(|path| self.file_watcher.is_watching(path));
         let future = async move {
             let res = doc_save_future.await;
-            if let Ok(event) = &res {
-                handler.file_changed(event.path.clone());
+            if !watched {
+                if let Ok(event) = &res {
+                    handler.file_changed(event.path.clone());
+                }
             }
             res
         };

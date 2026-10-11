@@ -356,6 +356,34 @@ name = "rust"
 '<' = '>'
 ```
 
+### `[editor.auto-reload]` and `[editor.file-watcher]` Sections
+
+Native file watching uses Filesentry on Linux, macOS, and Windows. Clean open
+buffers reload with undo support when changed externally. Dirty buffers are
+preserved; `prompt-if-modified` selects a reload prompt instead of a warning.
+Deleted files retain their buffers. Active insert sessions and pending writes
+defer automatic reloads.
+
+```toml
+[editor.auto-reload]
+enable = true
+prompt-if-modified = true
+
+[editor.auto-reload.poll]
+enable = true
+interval = 30000 # milliseconds; also checks deferred or missed native events
+
+[editor.file-watcher]
+enable = true
+require-workspace = true # avoid recursively watching arbitrary large directories
+watch-vcs = true
+max-depth = 10
+```
+
+`auto-reload = true` or `false` under `[editor]` remains supported. Polling and
+focus checks provide a fallback for files outside watched roots and unsupported
+platforms. Filesystem events also feed registered LSP file watchers.
+
 ### `[editor.auto-save]` Section
 
 Control auto save behavior.
