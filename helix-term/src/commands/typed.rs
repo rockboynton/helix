@@ -3146,6 +3146,22 @@ fn trim_whitespace(
 
 pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand {
+        name: "global-refactor",
+        aliases: &[],
+        doc: "Search the workspace for lines to edit in a refactoring view.",
+        fun: start_refactor,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
+        name: "refactor-apply",
+        aliases: &[],
+        doc: "Apply the refactoring view to source buffers without saving files.",
+        fun: apply_refactor,
+        completer: CommandCompleter::none(),
+        signature: Signature { positionals: (0, Some(0)), ..Signature::DEFAULT },
+    },
+    TypableCommand {
         name: "icons",
         aliases: &[],
         doc: "Select an icon flavor.",
@@ -4282,6 +4298,28 @@ fn set_icons(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> an
         cx.editor.config().true_color || crate::true_color(),
     )?;
     cx.editor.set_icons(icons);
+    Ok(())
+}
+
+fn start_refactor(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        super::refactor::start(cx.editor, cx.jobs, &args[0])?;
+    }
+    Ok(())
+}
+
+fn apply_refactor(
+    cx: &mut compositor::Context,
+    _args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        super::refactor::apply(cx.editor)?;
+    }
     Ok(())
 }
 

@@ -152,7 +152,23 @@ pub struct SearchMatch {
     pub count: SearchMatchLimit,
 }
 
+#[derive(Clone)]
+pub struct RefactorState {
+    pub files: Vec<RefactorFile>,
+    pub line_count: usize,
+}
+
+#[derive(Clone)]
+pub struct RefactorFile {
+    pub path: PathBuf,
+    pub original: Rope,
+    pub disk_contents: Vec<u8>,
+    /// (source line, line in the refactoring buffer).
+    pub lines: Vec<(usize, usize)>,
+}
+
 pub struct Document {
+    pub refactor: Option<RefactorState>,
     pub(crate) id: DocumentId,
     text: Rope,
     selections: HashMap<ViewId, Selection>,
@@ -776,6 +792,7 @@ impl Document {
 
         Self {
             id: DocumentId::default(),
+            refactor: None,
             active_snippet: None,
             path: None,
             relative_path: OnceLock::new(),

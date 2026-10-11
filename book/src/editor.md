@@ -1,5 +1,12 @@
 ## Editor
 
+`global_refactor` opens a regex prompt and an editable view of matching lines
+across the workspace, restricted to the current file extension when available.
+You can also use `:global-refactor 'pattern'`. Edit the result lines, keeping their
+number unchanged, then run `:refactor-apply` or `global_refactor` again.
+Changes are undoable in each source buffer and are saved with `:write-all`.
+Application stops before editing any source if a source changed since the search.
+
 ### `[editor.icons]`
 
 Use `icons = "nerdfonts"` at the top of `config.toml` to select Nerd Font icons,

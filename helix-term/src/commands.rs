@@ -1,6 +1,7 @@
 pub(crate) mod dap;
 pub(crate) mod engine;
 pub(crate) mod lsp;
+pub(crate) mod refactor;
 pub(crate) mod syntax;
 pub(crate) mod typed;
 
@@ -411,6 +412,7 @@ impl MappableCommand {
         search_selection_detect_word_boundaries, "Use current selection as the search pattern, automatically wrapping with `\\b` on word boundaries",
         make_search_word_bounded, "Modify current search to make it word bounded",
         global_search, "Global search in workspace folder",
+        global_refactor, "Edit workspace search results and apply them to source buffers",
         extend_line, "Select current line, if already selected, extend to another line based on the anchor",
         extend_line_below, "Select current line, if already selected, extend to next line",
         extend_line_above, "Select current line, if already selected, extend to previous line",
@@ -2870,6 +2872,36 @@ fn global_search(cx: &mut Context) {
     .with_title("Search".into());
 
     cx.push_layer(Box::new(overlaid(picker)));
+}
+
+fn global_refactor(cx: &mut Context) {
+    if doc!(cx.editor).refactor.is_some() {
+        if let Err(err) = refactor::apply(cx.editor) {
+            cx.editor.set_error(err.to_string());
+        }
+        return;
+    }
+    let reg = cx.register.unwrap_or('/');
+    let completions = search_completions(cx, Some(reg));
+    ui::prompt(
+        cx,
+        "global-refactor:".into(),
+        Some(reg),
+        move |_editor, input| {
+            completions
+                .iter()
+                .filter(|s| s.starts_with(input))
+                .map(|s| (0.., tui::text::Span::raw(s.clone())))
+                .collect()
+        },
+        |cx, pattern, event| {
+            if event == PromptEvent::Validate {
+                if let Err(err) = refactor::start(cx.editor, cx.jobs, pattern) {
+                    cx.editor.set_error(err.to_string());
+                }
+            }
+        },
+    );
 }
 
 enum Extend {
