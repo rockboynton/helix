@@ -9,6 +9,22 @@ mod rotate_selection_contents;
 mod write;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn backward_search_after_the_last_match_without_wraparound() -> anyhow::Result<()> {
+    let mut config = test_config();
+    config.editor.search.wrap_around = false;
+    test_with_config(
+        AppBuilder::new().with_config(config),
+        (
+            "old x old x #[|z]#\n",
+            "?old<ret>",
+            "old x #[|old]# x z\n",
+            LineFeedHandling::AsIs,
+        ),
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn search_selection_detect_word_boundaries_at_eof() -> anyhow::Result<()> {
     // <https://github.com/helix-editor/helix/issues/12609>
     test((
