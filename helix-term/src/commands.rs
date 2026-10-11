@@ -622,6 +622,7 @@ impl MappableCommand {
         goto_prev_tabstop, "Goto next snippet placeholder",
         rotate_selections_first, "Make the first selection your primary one",
         rotate_selections_last, "Make the last selection your primary one",
+        select_register_history, "Select an item from a register's history",
     );
 }
 
@@ -2460,7 +2461,7 @@ fn search_next_or_prev_impl(cx: &mut Context, movement: Movement, direction: Dir
         .unwrap_or(cx.editor.registers.last_search_register);
     let config = cx.editor.config();
     let scrolloff = config.scrolloff;
-    if let Some(query) = cx.editor.registers.first(register, cx.editor) {
+    if let Some(query) = cx.editor.registers.latest(register, cx.editor) {
         let search_config = &config.search;
         let case_insensitive = if search_config.smart_case {
             !query.chars().any(char::is_uppercase)
@@ -2586,7 +2587,7 @@ fn make_search_word_bounded(cx: &mut Context) {
     let register = cx
         .register
         .unwrap_or(cx.editor.registers.last_search_register);
-    let regex = match cx.editor.registers.first(register, cx.editor) {
+    let regex = match cx.editor.registers.latest(register, cx.editor) {
         Some(regex) => regex,
         None => return,
     };
@@ -4975,7 +4976,7 @@ fn yank_joined_impl(editor: &mut Editor, separator: &str, register: char) {
             acc
         });
 
-    match editor.registers.write(register, vec![joined]) {
+    match editor.registers.write(register, [joined]) {
         Ok(_) => editor.set_status(format!(
             "joined and yanked {selections} selection{} to register {register}",
             if selections == 1 { "" } else { "s" }
@@ -5013,7 +5014,7 @@ pub(crate) fn yank_main_selection_to_register(editor: &mut Editor, register: cha
 
     let selection = doc.selection(view.id).primary().fragment(text).to_string();
 
-    match editor.registers.write(register, vec![selection]) {
+    match editor.registers.write(register, [selection]) {
         Ok(_) => editor.set_status(format!("yanked primary selection to register {register}",)),
         Err(err) => editor.set_error(err.to_string()),
     }
@@ -7045,7 +7046,7 @@ fn record_macro(cx: &mut Context) {
     if let Some((reg, mut keys)) = cx.editor.macro_recording.take() {
         // Remove the keypress which ends the recording
         keys.pop();
-        let s = keys
+        let s: String = keys
             .into_iter()
             .map(|key| {
                 let s = key.to_string();
@@ -7055,8 +7056,8 @@ fn record_macro(cx: &mut Context) {
                     format!("<{}>", s)
                 }
             })
-            .collect::<String>();
-        match cx.editor.registers.write(reg, vec![s]) {
+            .collect();
+        match cx.editor.registers.write(reg, [s]) {
             Ok(_) => cx
                 .editor
                 .set_status(format!("Recorded to register [{}]", reg)),
@@ -7345,4 +7346,75 @@ fn lsp_or_syntax_workspace_symbol_picker(cx: &mut Context) {
     } else {
         syntax_workspace_symbol_picker(cx);
     }
+}
+
+fn select_register_history(cx: &mut Context) {
+    struct HistoryEntry {
+        index: usize,
+        last_value: String,
+        values: Vec<String>,
+    }
+
+    // TODO: only show the registers that support selecting from history.
+    cx.editor.autoinfo = Some(Info::from_registers(
+        "Register History",
+        &cx.editor.registers,
+    ));
+    cx.on_next_key(move |cx, event| {
+        cx.editor.autoinfo = None;
+        let Some(register) = event.char() else { return };
+        let Some(history) = cx.editor.registers.history(register) else {
+            cx.editor
+                .set_error(format!("No history for register '{register}'"));
+            return;
+        };
+
+        let items = history.map(|(index, entry)| HistoryEntry {
+            index,
+            values: entry.clone().cloned().collect(),
+            last_value: entry
+                .last()
+                .and_then(|s| s.lines().next())
+                .unwrap_or("<empty>")
+                .to_string(),
+        });
+        let columns = vec![
+            PickerColumn::new("entry", |entry: &HistoryEntry, _| {
+                entry.index.to_string().into()
+            }),
+            PickerColumn::new("contents", |entry: &HistoryEntry, _| {
+                entry.last_value.as_str().into()
+            }),
+        ];
+
+        let picker = Picker::new(
+            columns,
+            1, // "contents"
+            items,
+            (),
+            move |cx, entry, _action| {
+                // The picker can outlive changes to the register (last_picker).
+                // Find the selected values again rather than trusting a stale index.
+                let index = cx
+                    .editor
+                    .registers
+                    .history(register)
+                    .and_then(|mut history| {
+                        history.find_map(|(index, values)| {
+                            values.eq(entry.values.iter()).then_some(index)
+                        })
+                    });
+                let result = if let Some(index) = index {
+                    cx.editor.registers.select_history_entry(register, index)
+                } else {
+                    cx.editor.registers.write(register, entry.values.clone())
+                };
+                if let Err(err) = result {
+                    cx.editor.set_error(err.to_string());
+                }
+            },
+        )
+        .with_title("Register History".into());
+        cx.push_layer(Box::new(overlaid(picker)));
+    })
 }
