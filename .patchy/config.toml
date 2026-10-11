@@ -1,0 +1,44 @@
+repo = "helix-editor/helix"
+
+remote-branch = "master"
+
+local-branch = "patchy"
+
+pull-requests = [
+  # Inline git blame
+  "13133",
+  # Add per view search location and total matches to statusline
+  "11700",
+  # Preview scrolling
+  "11441",
+  # :trim to remove trailing whitespace
+  "8366",
+  # Toggle case commands
+  "12043",
+  # Fix matching inside/around closest pair inconsistency
+  "10611",
+  # Subword text object
+  "12026",
+  # Command history picker
+  "8354",
+  # Register history picker - draft by maintainer
+  "11184",
+  # Picker titles
+  "12520",
+  # Show path in file picker and explorer
+  "12806",
+  # auto-reload when file changes externally
+  "1125", # or #14544 if filesentry can support macos too
+  # Add Steel plugin system and config
+  "8675",
+  # View based refactoring (needs to be finished)
+  "4381",
+  # Icon support
+  "2869",
+  # Support jujutsu as a diff provider
+  "12022",
+  # Goto hover action
+  "15187",
+  # Make transparent backgrounds work in zellij
+  "16217",
+]

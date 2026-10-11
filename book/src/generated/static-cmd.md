@@ -86,6 +86,7 @@
 | `search_selection_detect_word_boundaries` | Use current selection as the search pattern, automatically wrapping with `\b` on word boundaries | normal: `` * ``, select: `` * `` |
 | `make_search_word_bounded` | Modify current search to make it word bounded |  |
 | `global_search` | Global search in workspace folder | normal: `` <space>/ ``, select: `` <space>/ `` |
+| `global_refactor` | Edit workspace search results and apply them to source buffers |  |
 | `extend_line` | Select current line, if already selected, extend to another line based on the anchor |  |
 | `extend_line_below` | Select current line, if already selected, extend to next line | normal: `` x ``, select: `` x `` |
 | `extend_line_above` | Select current line, if already selected, extend to previous line |  |
@@ -112,6 +113,7 @@
 | `code_action` | Perform code action | normal: `` <space>a ``, select: `` <space>a `` |
 | `buffer_picker` | Open buffer picker | normal: `` <space>b ``, select: `` <space>b `` |
 | `jumplist_picker` | Open jumplist picker | normal: `` <space>j ``, select: `` <space>j `` |
+| `command_history_picker` | Open command history picker | normal: `` <space>: ``, select: `` <space>: `` |
 | `symbol_picker` | Open symbol picker |  |
 | `syntax_symbol_picker` | Open symbol picker from syntax information |  |
 | `lsp_or_syntax_symbol_picker` | Open symbol picker from LSP or syntax information | normal: `` <space>s ``, select: `` <space>s `` |
@@ -321,3 +323,4 @@
 | `blame_line` | Show blame for the current line | normal: `` <space>B ``, select: `` <space>B `` |
 | `rotate_selections_first` | Make the first selection your primary one |  |
 | `rotate_selections_last` | Make the last selection your primary one |  |
+| `select_register_history` | Select an item from a register's history | normal: `` <C-r> ``, select: `` <C-r> `` |

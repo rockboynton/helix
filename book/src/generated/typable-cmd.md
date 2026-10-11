@@ -1,5 +1,8 @@
 | Name | Description |
 | --- | --- |
+| `:global-refactor` | Search the workspace for lines to edit in a refactoring view. |
+| `:refactor-apply` | Apply the refactoring view to source buffers without saving files. |
+| `:icons` | Select an icon flavor. |
 | `:exit`, `:x`, `:xit` | Write changes to disk if the buffer is modified and then quit. Accepts an optional path (:exit some/path.txt). |
 | `:exit!`, `:x!`, `:xit!` | Force write changes to disk, creating necessary subdirectories, if the buffer is modified and then quit. Accepts an optional path (:exit! some/path.txt). |
 | `:quit`, `:q` | Close the current view. |
@@ -95,12 +98,9 @@
 | `:move!`, `:mv!` | Move the current buffer and its corresponding file to a different path creating necessary subdirectories |
 | `:yank-diagnostic` | Yank diagnostic(s) under primary cursor to register, or clipboard by default |
 | `:read`, `:r` | Load a file into buffer |
-<<<<<<< HEAD
 | `:echo` | Prints the given arguments to the statusline. |
 | `:noop` | Does nothing. |
 | `:workspace-trust` | Allow language servers and local config for the current workspace. |
 | `:workspace-untrust` | Revoke the current workspace's trust grant or exclusion. |
 | `:workspace-exclude` | Mark the current workspace as never-prompt. Never prompts for trust again. |
-=======
-| `:trim-trailing-whitespace`, `:trim` | Delete whitespace |
->>>>>>> upstream/pr-8366
+| `:trim-trailing-whitespace`, `:trim` | Delete trailing whitespace from the current selections |
