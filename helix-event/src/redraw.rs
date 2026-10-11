@@ -29,6 +29,14 @@ pub fn request_redraw() {
     REDRAW_NOTIFY.notify_one();
 }
 
+/// Capture the owning editor's redraw signal before handing it to a native
+/// worker thread. In integration tests those threads do not enter Tokio, so
+/// resolving a runtime-local signal inside the callback would panic.
+pub fn redraw_callback() -> impl Fn() + Send + Sync + 'static {
+    let notify: &'static Notify = &REDRAW_NOTIFY;
+    move || notify.notify_one()
+}
+
 /// Returns a future that will yield once a redraw has been asynchronously
 /// requested using [`request_redraw`].
 pub fn redraw_requested() -> impl Future<Output = ()> {
@@ -52,11 +60,22 @@ pub fn lock_frame() -> RenderLockGuard {
     RENDER_LOCK.read()
 }
 
-/// A zero sized type that requests a redraw via [request_redraw] when the type [Drop]s.
-pub struct RequestRedrawOnDrop;
+/// Requests a redraw of the owning editor when dropped, even on native threads.
+#[derive(Clone)]
+pub struct RequestRedrawOnDrop {
+    notify: &'static Notify,
+}
+
+impl Default for RequestRedrawOnDrop {
+    fn default() -> Self {
+        Self {
+            notify: &REDRAW_NOTIFY,
+        }
+    }
+}
 
 impl Drop for RequestRedrawOnDrop {
     fn drop(&mut self) {
-        request_redraw();
+        self.notify.notify_one();
     }
 }
