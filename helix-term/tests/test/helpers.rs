@@ -301,6 +301,7 @@ pub fn test_config() -> Config {
 
 pub fn test_editor_config() -> helix_view::editor::Config {
     helix_view::editor::Config {
+        enable_steel: false,
         lsp: LspConfig {
             enable: false,
             ..Default::default()

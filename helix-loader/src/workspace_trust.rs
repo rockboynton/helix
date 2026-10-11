@@ -148,7 +148,7 @@ pub fn build_trusted_globs(patterns: &[String]) -> GlobSet {
 }
 
 /// Runtime workspace-trust state. Cheap to clone (shared `Arc`).
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct WorkspaceTrust {
     inner: Arc<Mutex<HashMap<PathBuf, CacheEntry>>>,
     config: Config,
@@ -366,6 +366,8 @@ impl WorkspaceTrust {
 fn has_local_config(workspace: &Path) -> bool {
     workspace.join(".helix").join("config.toml").exists()
         || workspace.join(".helix").join("languages.toml").exists()
+        || workspace.join(".helix").join("helix.scm").exists()
+        || workspace.join(".helix").join("init.scm").exists()
 }
 
 fn demote_for_query(status: TrustStatus, query: TrustQuery) -> TrustStatus {

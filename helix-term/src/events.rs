@@ -2,8 +2,8 @@ use helix_event::{events, register_event};
 use helix_view::document::Mode;
 use helix_view::events::{
     ConfigDidChange, DiagnosticsDidChange, DocumentDidChange, DocumentDidClose, DocumentDidOpen,
-    DocumentFocusLost, EditorConfigDidChange, LanguageServerExited, LanguageServerInitialized,
-    SelectionDidChange,
+    DocumentFocusLost, DocumentSaved, EditorConfigDidChange, LanguageServerExited,
+    LanguageServerInitialized, SelectionDidChange,
 };
 
 use crate::commands;
@@ -13,17 +13,22 @@ events! {
     OnModeSwitch<'a, 'cx> { old_mode: Mode, new_mode: Mode, cx: &'a mut commands::Context<'cx> }
     PostInsertChar<'a, 'cx> { c: char, cx: &'a mut commands::Context<'cx> }
     PostCommand<'a, 'cx> { command: & 'a MappableCommand, cx: &'a mut commands::Context<'cx> }
+    TerminalFocusGained<'a, 'cx> { cx: &'a mut commands::Context<'cx> }
+    TerminalFocusLost<'a, 'cx> { cx: &'a mut commands::Context<'cx> }
 }
 
 pub fn register() {
     register_event::<OnModeSwitch>();
     register_event::<PostInsertChar>();
     register_event::<PostCommand>();
+    register_event::<TerminalFocusGained>();
+    register_event::<TerminalFocusLost>();
     register_event::<DocumentDidOpen>();
     register_event::<DocumentDidChange>();
     register_event::<EditorConfigDidChange>();
     register_event::<DocumentDidClose>();
     register_event::<DocumentFocusLost>();
+    register_event::<DocumentSaved>();
     register_event::<SelectionDidChange>();
     register_event::<DiagnosticsDidChange>();
     register_event::<LanguageServerInitialized>();

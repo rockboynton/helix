@@ -4,7 +4,7 @@ use crate::{
     document::{
         DocumentOpenError, DocumentSavedEventFuture, DocumentSavedEventResult, Mode, SavePoint,
     },
-    events::{DocumentDidClose, DocumentDidOpen, DocumentFocusLost},
+    events::{DocumentDidClose, DocumentDidOpen, DocumentFocusLost, DocumentSaved},
     graphics::{CursorKind, Rect},
     handlers::Handlers,
     info::Info,
@@ -467,7 +467,12 @@ pub struct Config {
     pub rainbow_brackets: bool,
     /// Whether to enable Kitty Keyboard Protocol
     pub kitty_keyboard_protocol: KittyKeyboardProtocolConfig,
+
     pub buffer_picker: BufferPickerConfig,
+
+    /// Whether or not to use steel for configuration. Defaults to `true`. If set to `false`,
+    /// the steel engine will not be initialized.
+    pub enable_steel: bool,
     /// Workspace-trust configuration.
     pub workspace_trust: WorkspaceTrustConfig,
 }
@@ -721,8 +726,11 @@ pub struct SearchConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct StatusLineConfig {
+    #[serde(serialize_with = "serialize_status_line_elements")]
     pub left: Vec<StatusLineElement>,
+    #[serde(serialize_with = "serialize_status_line_elements")]
     pub center: Vec<StatusLineElement>,
+    #[serde(serialize_with = "serialize_status_line_elements")]
     pub right: Vec<StatusLineElement>,
     pub separator: String,
     pub mode: ModeConfig,
@@ -758,6 +766,33 @@ impl Default for StatusLineConfig {
     }
 }
 
+fn serialize_status_line_elements<S>(
+    elements: &[StatusLineElement],
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.collect_seq(elements.iter().filter(|element| !element.is_custom()))
+}
+
+impl StatusLineConfig {
+    pub fn restore_custom_elements(&mut self, previous: &StatusLineConfig, key: &str) {
+        let targets =
+            |list: &str| key == "statusline" || key.starts_with(&format!("statusline.{list}"));
+
+        if !targets("left") {
+            self.left = previous.left.clone();
+        }
+        if !targets("center") {
+            self.center = previous.center.clone();
+        }
+        if !targets("right") {
+            self.right = previous.right.clone();
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case", default, deny_unknown_fields)]
 pub struct ModeConfig {
@@ -776,7 +811,7 @@ impl Default for ModeConfig {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum StatusLineElement {
     /// The editor mode (Normal, Insert, Visual/Selection)
@@ -852,6 +887,21 @@ pub enum StatusLineElement {
     CodeActionHint,
     /// Search index and count
     SearchPosition,
+
+    #[cfg(feature = "steel")]
+    #[serde(skip)]
+    Custom(crate::extension::steel_implementations::CustomStatusElement),
+}
+
+impl StatusLineElement {
+    pub fn is_custom(&self) -> bool {
+        #[cfg(feature = "steel")]
+        if let Self::Custom(_) = self {
+            return true;
+        }
+
+        false
+    }
 }
 
 // Cursor shape is read and used on every rendered frame and so needs
@@ -860,6 +910,10 @@ pub enum StatusLineElement {
 pub struct CursorShapeConfig([CursorKind; 3]);
 
 impl CursorShapeConfig {
+    pub fn update(&mut self, mode: Mode, kind: CursorKind) {
+        self.0[mode as usize] = kind;
+    }
+
     pub fn from_mode(&self, mode: Mode) -> CursorKind {
         self.get(mode as usize).copied().unwrap_or_default()
     }
@@ -1288,6 +1342,10 @@ impl Default for Config {
             rainbow_brackets: false,
             kitty_keyboard_protocol: Default::default(),
             buffer_picker: BufferPickerConfig::default(),
+            #[cfg(feature = "steel")]
+            enable_steel: true,
+            #[cfg(not(feature = "steel"))]
+            enable_steel: false,
             workspace_trust: WorkspaceTrustConfig::default(),
         }
     }
@@ -1392,7 +1450,18 @@ pub struct Editor {
 
     pub mouse_down_range: Option<Range>,
     pub cursor_cache: CursorCache,
+
+    pub editor_clipping: ClippingConfiguration,
+
     pub workspace_trust: WorkspaceTrust,
+}
+
+#[derive(Default)]
+pub struct ClippingConfiguration {
+    pub top: Option<u16>,
+    pub bottom: Option<u16>,
+    pub left: Option<u16>,
+    pub right: Option<u16>,
 }
 
 pub type Motion = Box<dyn Fn(&mut Editor)>;
@@ -1411,6 +1480,7 @@ pub enum EditorEvent {
 pub enum ConfigEvent {
     Refresh,
     Update(Box<Config>),
+    Change,
     ThemeChanged,
 }
 
@@ -1516,6 +1586,7 @@ impl Editor {
             handlers,
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
+            editor_clipping: ClippingConfiguration::default(),
             dir_stack: VecDeque::with_capacity(DIR_STACK_CAP),
             workspace_trust,
         }
@@ -1987,6 +2058,8 @@ impl Editor {
     pub fn switch(&mut self, id: DocumentId, action: Action) {
         use crate::tree::Layout;
 
+        log::info!("Switching view: {:?}", id);
+
         if !self.documents.contains_key(&id) {
             log::error!("cannot switch to document that does not exist (anymore)");
             return;
@@ -2322,6 +2395,11 @@ impl Editor {
 
         self.write_count += 1;
 
+        dispatch(DocumentSaved {
+            editor: self,
+            doc: doc_id,
+        });
+
         Ok(())
     }
 
@@ -2593,7 +2671,9 @@ impl Editor {
         }
 
         self.mode = Mode::Normal;
-        let (view, doc) = current!(self);
+        let Some((view, doc)) = try_current!(self) else {
+            return;
+        };
 
         try_restore_indent(doc, view);
 

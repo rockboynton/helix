@@ -2,6 +2,7 @@ use arc_swap::{access::Map, ArcSwap};
 use futures_util::Stream;
 use helix_core::{diagnostic::Severity, pos_at_coords, syntax, Range, Selection};
 use helix_lsp::{
+    jsonrpc,
     lsp::{self, notification::Notification},
     util::lsp_range_to_range,
     LanguageServerId, LspProgressMap,
@@ -22,6 +23,7 @@ use tui::backend::Backend;
 
 use crate::{
     args::Args,
+    commands::ScriptingEngine,
     compositor::{Compositor, Event},
     config::Config,
     handlers,
@@ -55,11 +57,11 @@ use tui::backend::CrosstermBackend;
 use tui::backend::TestBackend;
 
 #[cfg(all(not(windows), not(feature = "integration")))]
-type TerminalBackend = TerminaBackend;
+pub type TerminalBackend = TerminaBackend;
 #[cfg(all(windows, not(feature = "integration")))]
-type TerminalBackend = CrosstermBackend<std::io::Stdout>;
+pub type TerminalBackend = CrosstermBackend<std::io::Stdout>;
 #[cfg(feature = "integration")]
-type TerminalBackend = TestBackend;
+pub type TerminalBackend = TestBackend;
 
 #[cfg(not(windows))]
 type TerminalEvent = termina::Event;
@@ -67,6 +69,8 @@ type TerminalEvent = termina::Event;
 type TerminalEvent = crossterm::event::Event;
 
 type Terminal = tui::terminal::Terminal<TerminalBackend>;
+
+const LSP_SHOW_MESSAGE_REQUEST_ID: &str = "lsp-show-message-request";
 
 pub struct Application {
     compositor: Compositor,
@@ -138,9 +142,29 @@ impl Application {
             &config.keys
         }));
         let editor_view = Box::new(ui::EditorView::new(Keymaps::new(keys)));
+
         compositor.push(editor_view);
 
-        let jobs = Jobs::new();
+        let mut jobs = Jobs::new();
+        {
+            let syn_loader = editor.syn_loader.clone();
+
+            let mut cx = crate::commands::Context {
+                register: None,
+                count: std::num::NonZeroUsize::new(1),
+                editor: &mut editor,
+                callback: Vec::new(),
+                on_next_key_callback: None,
+                jobs: &mut jobs,
+            };
+
+            crate::commands::ScriptingEngine::run_initialization_script(
+                &mut cx,
+                config.clone(),
+                syn_loader,
+                crate::commands::engine::TerminalEventReaderHandle::new(terminal.backend()),
+            );
+        }
 
         if args.load_tutor {
             let path = helix_loader::runtime_file(Path::new("tutor"));
@@ -350,6 +374,10 @@ impl Application {
                     }
                     self.render().await;
                 }
+                Some(callback) = self.jobs.local_futures.next() => {
+                    self.jobs.handle_local_callback(&mut self.editor, &mut self.compositor, callback);
+                    self.render().await;
+                }
                 event = self.editor.wait_event() => {
                     let _idle_handled = self.handle_editor_event(event).await;
 
@@ -396,6 +424,7 @@ impl Application {
                 };
                 self.config.store(Arc::new(app_config));
             }
+            ConfigEvent::Change => {}
             ConfigEvent::ThemeChanged => {
                 let _ = self.terminal.backend_mut().set_background_color(
                     self.editor
@@ -458,6 +487,32 @@ impl Application {
             self.terminal.reconfigure((&default_config.editor).into())?;
             // Store new config
             self.config.store(Arc::new(default_config));
+
+            {
+                crate::commands::ScriptingEngine::reinitialize();
+
+                let syn_loader = self.editor.syn_loader.clone();
+                let config = self.config.clone();
+
+                let mut cx = crate::commands::Context {
+                    register: None,
+                    count: std::num::NonZeroUsize::new(1),
+                    editor: &mut self.editor,
+                    callback: Vec::new(),
+                    on_next_key_callback: None,
+                    jobs: &mut self.jobs,
+                };
+
+                crate::commands::ScriptingEngine::run_initialization_script(
+                    &mut cx,
+                    config.clone(),
+                    syn_loader,
+                    crate::commands::engine::TerminalEventReaderHandle::new(
+                        self.terminal.backend(),
+                    ),
+                );
+            }
+
             Ok(())
         };
 
@@ -981,6 +1036,21 @@ impl Application {
                         // Remove the language server from the registry.
                         self.editor.language_servers.remove_by_id(server_id);
                     }
+                    Notification::Other(event_name, params) => {
+                        let mut cx = crate::compositor::Context {
+                            editor: &mut self.editor,
+                            scroll: None,
+                            jobs: &mut self.jobs,
+                        };
+
+                        ScriptingEngine::handle_lsp_call(
+                            &mut cx,
+                            server_id,
+                            event_name,
+                            jsonrpc::Id::Null,
+                            params,
+                        );
+                    }
                 }
             }
             Call::MethodCall(helix_lsp::jsonrpc::MethodCall {
@@ -1134,6 +1204,32 @@ impl Application {
                         let result = self.handle_show_document(params, offset_encoding);
                         Ok(json!(result))
                     }
+                    Ok(MethodCall::Other(event_name, params)) => {
+                        let mut cx = crate::compositor::Context {
+                            editor: &mut self.editor,
+                            scroll: None,
+                            jobs: &mut self.jobs,
+                        };
+
+                        let reply = ScriptingEngine::handle_lsp_call(
+                            &mut cx,
+                            server_id,
+                            event_name,
+                            id.clone(),
+                            params,
+                        );
+
+                        if let Some(reply) = reply {
+                            let language_server = language_server!();
+                            if let Err(err) = language_server.reply(id.clone(), reply) {
+                                log::error!(
+                                    "Failed to send reply to server '{}' request {id}: {err}",
+                                    language_server.name()
+                                );
+                            }
+                        };
+                        return;
+                    }
                     Ok(MethodCall::WorkspaceDiagnosticRefresh) => {
                         let server_id = language_server!().id();
                         handlers::diagnostics::request_all_document_diagnostics_for_language_server(
@@ -1169,9 +1265,10 @@ impl Application {
                                         }
                                     }
                                 },
-                            );
+                            )
+                            .with_id(LSP_SHOW_MESSAGE_REQUEST_ID);
                             self.compositor
-                                .replace_or_push("lsp-show-message-request", select);
+                                .replace_or_push(LSP_SHOW_MESSAGE_REQUEST_ID, select);
                             // Avoid sending a reply. The `Select` callback above sends the reply.
                             return;
                         } else {
@@ -1189,6 +1286,7 @@ impl Application {
                     );
                 }
             }
+
             Call::Invalid { id } => log::error!("LSP invalid method call id={:?}", id),
         }
     }
@@ -1333,6 +1431,8 @@ impl Application {
         self.event_loop(input_stream).await;
 
         let close_errs = self.close().await;
+
+        ScriptingEngine::shutdown();
 
         self.restore_term()?;
 

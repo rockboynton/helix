@@ -116,6 +116,7 @@ fn select(workspace: PathBuf) -> ui::Select<TrustChoice> {
             }
         },
     )
+    .with_id(ID)
 }
 
 impl crate::ui::menu::Item for TrustChoice {

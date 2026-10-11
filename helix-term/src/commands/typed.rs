@@ -1,4 +1,3 @@
-use std::fmt::Write;
 use std::io::BufReader;
 use std::ops::{self, Deref};
 
@@ -17,6 +16,8 @@ use helix_view::expansion;
 use helix_view::handlers::BlameEvent;
 use serde_json::Value;
 use ui::completers::{self, Completer};
+
+use std::fmt::Write;
 
 #[derive(Clone)]
 pub struct TypableCommand {
@@ -40,21 +41,21 @@ pub struct CommandCompleter {
 }
 
 impl CommandCompleter {
-    const fn none() -> Self {
+    pub const fn none() -> Self {
         Self {
             positional_args: &[],
             var_args: completers::none,
         }
     }
 
-    const fn positional(completers: &'static [Completer]) -> Self {
+    pub const fn positional(completers: &'static [Completer]) -> Self {
         Self {
             positional_args: completers,
             var_args: completers::none,
         }
     }
 
-    const fn all(completer: Completer) -> Self {
+    pub const fn all(completer: Completer) -> Self {
         Self {
             positional_args: &[],
             var_args: completer,
@@ -824,6 +825,8 @@ pub(super) fn buffers_remaining_impl(editor: &mut Editor) -> anyhow::Result<()> 
     let modified_ids: Vec<_> = editor
         .documents()
         .filter(|doc| doc.is_modified())
+        // Named scratch documents should not be included here
+        .filter(|doc| doc.name.is_none())
         .map(|doc| doc.id())
         .collect();
 
@@ -876,7 +879,13 @@ pub fn write_all_impl(
             if !doc.is_modified() {
                 return None;
             }
-            if doc.path().is_none() {
+
+            // This is a named buffer. We'll skip it in the saves for now
+            if doc.name.is_some() {
+                return None;
+            }
+
+            if doc.path().is_none() && doc.name.is_none() {
                 if options.write_scratch {
                     errors.push("cannot write a buffer without a filename");
                 }
@@ -1131,7 +1140,8 @@ fn theme(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow
                     .editor
                     .theme_loader
                     .load(theme_name)
-                    .map_err(|err| anyhow::anyhow!("Could not load theme: {}", err))?;
+                    .map_err(|err| anyhow::anyhow!("could not load theme: {}", err))?;
+
                 if !(true_color || theme.is_16_color()) {
                     bail!("Unsupported theme: theme requires true color support");
                 }
@@ -2332,12 +2342,16 @@ fn set_option(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     } else {
         arg.parse().map_err(field_error)?
     };
-    let config = serde_json::from_value(config).map_err(field_error)?;
+    let mut config: helix_view::editor::Config =
+        serde_json::from_value(config).map_err(field_error)?;
+    config
+        .statusline
+        .restore_custom_elements(&cx.editor.config().statusline, key);
 
     cx.editor
         .config_events
         .0
-        .send(ConfigEvent::Update(config))?;
+        .send(ConfigEvent::Update(Box::new(config)))?;
     Ok(())
 }
 
@@ -2426,13 +2440,16 @@ fn toggle_option(
     };
 
     let status = format!("'{key}' is now set to {value}");
-    let config = serde_json::from_value(config)
+    let mut config: helix_view::editor::Config = serde_json::from_value(config)
         .map_err(|err| anyhow::anyhow!("Failed to parse config: {err}"))?;
+    config
+        .statusline
+        .restore_custom_elements(&cx.editor.config().statusline, key);
 
     cx.editor
         .config_events
         .0
-        .send(ConfigEvent::Update(config))?;
+        .send(ConfigEvent::Update(Box::new(config)))?;
     cx.editor.set_status(status);
     Ok(())
 }
@@ -4270,10 +4287,40 @@ fn execute_command_line(
         return execute_command(cx, cmd, command, event);
     }
 
-    match typed::TYPABLE_COMMAND_MAP.get(command) {
-        Some(cmd) => execute_command(cx, cmd, rest, event),
-        None if event == PromptEvent::Validate => Err(anyhow!("no such command: '{command}'")),
-        None => Ok(()),
+    if event == PromptEvent::Validate {
+        let parts = rest.split_whitespace().collect::<Vec<_>>();
+        if ScriptingEngine::call_typed_command(cx, command, &parts, event) {
+            // Engine handles the other cases
+            let mappable_command = MappableCommand::Typable {
+                name: command.to_string(),
+                args: parts.join(" "),
+                doc: "".to_string(),
+            };
+
+            let mut ctx = Context {
+                register: None,
+                count: None,
+                editor: cx.editor,
+                callback: Vec::new(),
+                on_next_key_callback: None,
+                jobs: cx.jobs,
+            };
+
+            helix_event::dispatch(crate::events::PostCommand {
+                command: &mappable_command,
+                cx: &mut ctx,
+            });
+
+            Ok(())
+        } else if let Some(cmd) = typed::TYPABLE_COMMAND_MAP.get(command) {
+            execute_command(cx, cmd, rest, event)
+        } else {
+            Err(anyhow!("1 no such command: '{command}'"))
+        }
+    } else if let Some(cmd) = typed::TYPABLE_COMMAND_MAP.get(command) {
+        execute_command(cx, cmd, rest, event)
+    } else {
+        Ok(())
     }
 }
 
@@ -4293,7 +4340,30 @@ pub(super) fn execute_command(
             .expect("arg parsing cannot fail when validation is turned off")
     };
 
-    (cmd.fun)(cx, args, event).map_err(|err| anyhow!("'{}': {err}", cmd.name))
+    let res = (cmd.fun)(cx, args, event).map_err(|err| anyhow!("'{}': {err}", cmd.name));
+
+    let mappable_command = MappableCommand::Typable {
+        name: cmd.name.to_string(),
+        args: String::new(),
+        doc: "".to_string(),
+    };
+
+    let mut ctx = Context {
+        register: None,
+        count: None,
+        editor: cx.editor,
+        callback: Vec::new(),
+        on_next_key_callback: None,
+        jobs: cx.jobs,
+    };
+
+    // // TODO: Figure this out?
+    helix_event::dispatch(crate::events::PostCommand {
+        command: &mappable_command,
+        cx: &mut ctx,
+    });
+
+    res
 }
 
 #[allow(clippy::unnecessary_unwrap)]
@@ -4322,8 +4392,15 @@ pub(super) fn command_mode_prompt() -> Prompt {
 }
 
 fn command_line_doc(input: &str) -> Option<Cow<'_, str>> {
-    let (command, _, _) = command_line::split(input);
-    let command = TYPABLE_COMMAND_MAP.get(command)?;
+    let (command_name, _, _) = command_line::split(input);
+
+    if let Some(doc) = ScriptingEngine::get_doc_for_identifier(command_name).map(|x| x.into()) {
+        return Some(doc);
+    }
+
+    let command = TYPABLE_COMMAND_MAP.get(command_name);
+
+    let command = command?;
 
     if command.aliases.is_empty() && command.signature.flags.is_empty() {
         return Some(Cow::Borrowed(command.doc));
@@ -4399,7 +4476,10 @@ fn complete_command_line(editor: &Editor, input: &str) -> Vec<ui::prompt::Comple
     if complete_command {
         fuzzy_match(
             input,
-            TYPABLE_COMMAND_LIST.iter().map(|command| command.name),
+            TYPABLE_COMMAND_LIST
+                .iter()
+                .map(|command| Cow::from(command.name))
+                .chain(crate::commands::engine::ScriptingEngine::available_commands()),
             false,
         )
         .into_iter()
