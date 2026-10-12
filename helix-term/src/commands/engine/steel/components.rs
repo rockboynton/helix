@@ -38,6 +38,109 @@ use super::{
     present_error_inside_engine_context, with_context_guard, WrappedDynComponent, CTX,
 };
 
+/// Generic plugin Markdown popup with explicit, keyboard-openable HTTPS links.
+/// Only user input opens a URL; rendering reads already-prepared text.
+struct LinkedMarkdown {
+    markdown: ui::Markdown,
+    content: String,
+    links: Vec<(String, String)>,
+    selected: usize,
+}
+
+impl LinkedMarkdown {
+    fn update_links(&mut self) {
+        self.markdown.contents.clone_from(&self.content);
+        if !self.links.is_empty() {
+            self.markdown
+                .contents
+                .push_str("\n\n---\nTab: choose link · Enter: open · Esc: close\n\n");
+            for (index, (label, url)) in self.links.iter().enumerate() {
+                let marker = if index == self.selected { ">" } else { " " };
+                self.markdown
+                    .contents
+                    .push_str(&format!("{marker} **{label}**: {url}\n\n"));
+            }
+        }
+    }
+}
+
+impl Component for LinkedMarkdown {
+    fn render(&mut self, area: Rect, frame: &mut Buffer, ctx: &mut compositor::Context) {
+        self.markdown.render(area, frame, ctx);
+    }
+
+    fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
+        self.markdown.required_size(viewport)
+    }
+
+    fn handle_event(
+        &mut self,
+        event: &Event,
+        ctx: &mut compositor::Context,
+    ) -> compositor::EventResult {
+        let Event::Key(key) = event else {
+            return compositor::EventResult::Ignored(None);
+        };
+        if self.links.is_empty() {
+            return compositor::EventResult::Ignored(None);
+        }
+        match key.code {
+            KeyCode::Tab if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
+                let step = if key.modifiers == KeyModifiers::SHIFT {
+                    self.links.len() - 1
+                } else {
+                    1
+                };
+                self.selected = (self.selected + step) % self.links.len();
+                self.update_links();
+                compositor::EventResult::Consumed(None)
+            }
+            KeyCode::Enter if key.modifiers.is_empty() => {
+                if let Err(error) = open::that_detached(&self.links[self.selected].1) {
+                    ctx.editor
+                        .set_error(format!("Could not open link: {error}"));
+                }
+                compositor::EventResult::Consumed(None)
+            }
+            _ => compositor::EventResult::Ignored(None),
+        }
+    }
+}
+
+fn safe_link(url: &str) -> bool {
+    let Some(rest) = url.strip_prefix("https://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    url.len() <= 4096
+        && !url
+            .chars()
+            .any(|c| c.is_control() || c.is_whitespace() || c == '\\')
+        && !authority.is_empty()
+        && authority
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b".-:[]".contains(&c))
+}
+
+#[cfg(test)]
+mod linked_markdown_tests {
+    use super::safe_link;
+
+    #[test]
+    fn links_only_open_well_formed_https_urls_without_credentials_or_controls() {
+        assert!(safe_link("https://github.com/owner/repo/pull/123"));
+        for url in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "https://",
+            "https://user:secret@github.com/",
+            "https://github.com/\u{1b}[2J",
+        ] {
+            assert!(!safe_link(url), "accepted unsafe URL");
+        }
+    }
+}
+
 #[derive(Clone)]
 struct AsyncReader {
     // Take that, and write it back to a terminal session that is
@@ -347,6 +450,62 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
                 WrappedDynComponent {
                     inner: Some(Box::new(markdown)),
                 }
+            },
+        )
+        .register_fn_with_ctx(
+            CTX,
+            "markdown-popup",
+            |ctx: &mut Context,
+             contents: String,
+             links: Vec<(String, String)>|
+             -> anyhow::Result<WrappedDynComponent> {
+                anyhow::ensure!(
+                    links.iter().all(|(_, url)| safe_link(url)),
+                    "Popup links must be HTTPS URLs without control characters"
+                );
+                let content: String = contents
+                    .chars()
+                    .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
+                    .collect();
+                let links = links
+                    .into_iter()
+                    .map(|(label, url)| (label.chars().filter(|c| !c.is_control()).collect(), url))
+                    .collect();
+                let mut markdown = LinkedMarkdown {
+                    markdown: ui::Markdown::new(content.clone(), ctx.editor.syn_loader.clone()),
+                    content,
+                    links,
+                    selected: 0,
+                };
+                markdown.update_links();
+                Ok(WrappedDynComponent {
+                    inner: Some(Box::new(
+                        ui::Popup::new("steel-markdown-links", markdown).auto_close(true),
+                    )),
+                })
+            },
+        )
+        .register_fn_with_ctx(
+            CTX,
+            "update-markdown-popup!",
+            |ctx: &mut Context, component: &mut WrappedDynComponent| {
+                let Some(inner) = component.inner.take() else {
+                    return;
+                };
+                ctx.jobs.local_callback(async move {
+                    let callback: Box<super::LocalJobCallback> =
+                        Box::new(move |_, compositor, _| {
+                            // A late network reply must never reopen a dismissed popup.
+                            if compositor
+                                .find_id::<ui::Popup<LinkedMarkdown>>("steel-markdown-links")
+                                .is_some()
+                            {
+                                compositor.remove("steel-markdown-links");
+                                compositor.push(inner);
+                            }
+                        });
+                    Ok(callback)
+                });
             },
         )
         .register_fn("overlaid", |component: &mut WrappedDynComponent| {

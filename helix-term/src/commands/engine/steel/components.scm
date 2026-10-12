@@ -404,6 +404,15 @@
 ;; ```
 (define markdown-component helix.components.markdown-component)
 
+(provide markdown-popup)
+;; (markdown-popup contents (list (list label https-url) ...)) -> component.
+;; Tab selects a link, Enter opens it, Esc closes; Ctrl-d/u scrolls.
+(define markdown-popup helix.components.markdown-popup)
+
+(provide update-markdown-popup!)
+;; Replace an existing Markdown popup only; closed popups stay closed.
+(define update-markdown-popup! helix.components.update-markdown-popup!)
+
 (provide overlaid)
 (define overlaid helix.components.overlaid)
 

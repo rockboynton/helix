@@ -2,10 +2,12 @@
 (require (prefix-in editing. "editing.scm"))
 (require (prefix-in appearance. "appearance.scm"))
 (require (prefix-in keys. "keybindings.scm"))
+(require "gitlens.scm")
 
-(provide configure-personal!)
+(provide configure-personal! gitlens-blame)
 
 (define (configure-personal!)
   (editing.configure-editing!)
   (appearance.configure-appearance!)
-  (keys.configure-keybindings!))
+  (keys.configure-keybindings!)
+  (configure-gitlens!))

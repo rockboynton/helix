@@ -1,4 +1,5 @@
 pub mod components;
+mod services;
 
 use arc_swap::{ArcSwap, ArcSwapAny};
 use helix_core::{
@@ -4058,6 +4059,9 @@ fn load_misc_api(engine: &mut Engine, generate_sources: bool) {
     let builtin_misc_module = include_str!("misc.scm").to_string();
 
     module
+        .register_fn_with_ctx(CTX, "line-blame-at-cursor", services::line_blame)
+        .register_fn_with_ctx(CTX, "line-blame-current?", services::blame_current)
+        .register_fn("run-command-async", services::run_command)
         .register_fn_with_ctx(CTX, "hx.cx->pos", cx_pos_within_text)
         .register_fn_with_ctx(CTX, "cursor-position", cx_pos_within_text)
         .register_fn("mode-switch-old", OnModeSwitchEvent::get_old_mode)

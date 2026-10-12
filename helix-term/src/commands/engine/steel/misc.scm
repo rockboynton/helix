@@ -1,4 +1,12 @@
 (require-builtin helix/core/misc as helix.)
+
+(provide line-blame-at-cursor line-blame-current? run-command-async)
+;; Returns a future of a cursor snapshot and native cached commit metadata.
+(define line-blame-at-cursor helix.line-blame-at-cursor)
+;; Replies are usable only while the document/version/cursor line still matches.
+(define line-blame-current? helix.line-blame-current?)
+;; (run-command-async program argument-list timeout-ms) -> future of result hash.
+(define run-command-async helix.run-command-async)
 (provide hx.cx->pos)
 ;;@doc
 ;;DEPRECATED: Please use `cursor-position`

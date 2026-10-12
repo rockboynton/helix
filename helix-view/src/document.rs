@@ -1782,6 +1782,24 @@ impl Document {
 
     /// Get the line blame for this view
     pub fn line_blame(&self, cursor_line: u32, format: &str) -> Result<String, LineBlameError<'_>> {
+        let (inserted_lines, deleted_lines) = self.blame_line_offsets(cursor_line)?;
+        let file_blame = match &self.file_blame {
+            None => return Err(LineBlameError::NotReadyYet),
+            Some(Err(err)) => {
+                return Err(LineBlameError::NoFileBlame(
+                    cursor_line.saturating_add(1),
+                    err,
+                ))
+            }
+            Some(Ok(blame)) => blame,
+        };
+        Ok(file_blame
+            .blame_for_line(cursor_line, inserted_lines, deleted_lines)
+            .parse_format(format))
+    }
+
+    /// Translate a committed cursor line to the blame snapshot without repository I/O.
+    pub fn blame_line_offsets(&self, cursor_line: u32) -> Result<(u32, u32), LineBlameError<'_>> {
         // how many lines were inserted and deleted before the cursor line
         let (inserted_lines, deleted_lines) = self
             .diff_handle()
@@ -1812,26 +1830,7 @@ impl Document {
                 },
             )
             .ok_or(LineBlameError::NotCommittedYet)?;
-
-        let file_blame = match &self.file_blame {
-            None => return Err(LineBlameError::NotReadyYet),
-            Some(result) => match result {
-                Err(err) => {
-                    return Err(LineBlameError::NoFileBlame(
-                        // convert 0-based line into 1-based line
-                        cursor_line.saturating_add(1),
-                        err,
-                    ));
-                }
-                Ok(file_blame) => file_blame,
-            },
-        };
-
-        let line_blame = file_blame
-            .blame_for_line(cursor_line, inserted_lines, deleted_lines)
-            .parse_format(format);
-
-        Ok(line_blame)
+        Ok((inserted_lines, deleted_lines))
     }
 
     /// Apply a [`Transaction`] to the [`Document`] to change its text
