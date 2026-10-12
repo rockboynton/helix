@@ -17,6 +17,17 @@ mod jj;
 #[cfg(feature = "git")]
 pub use git::blame::FileBlame;
 
+/// Local commit data for editor integrations. No hosting-service assumptions.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BlameDetails {
+    pub commit: Option<String>,
+    pub author: Option<String>,
+    pub email: Option<String>,
+    pub datetime: Option<String>,
+    pub title: Option<String>,
+    pub body: Option<String>,
+}
+
 /// Unavailable blame provider in builds without Git support.
 #[cfg(not(feature = "git"))]
 #[derive(Debug)]
@@ -24,6 +35,9 @@ pub struct FileBlame;
 
 #[cfg(not(feature = "git"))]
 impl FileBlame {
+    pub fn remote_urls(&self) -> &[String] {
+        &[]
+    }
     pub fn try_new(_file: std::path::PathBuf) -> Result<Self> {
         anyhow::bail!("Git blame support is not compiled in")
     }
@@ -38,6 +52,9 @@ pub struct LineBlame;
 
 #[cfg(not(feature = "git"))]
 impl LineBlame {
+    pub fn details(&self) -> BlameDetails {
+        BlameDetails::default()
+    }
     pub fn parse_format(self, _format: &str) -> String {
         String::new()
     }

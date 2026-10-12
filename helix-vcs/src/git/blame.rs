@@ -1,107 +1,43 @@
 use anyhow::Context as _;
 use anyhow::Result;
-use parking_lot::Mutex;
-use std::collections::HashMap;
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 
 use super::{get_repo_dir, open_repo};
 
-/// Allows us to save compute resources when requesting blame for the same line
-/// To go from an `ObjectId` (which represents a commit) to `LineBLame`, we have to perform some work.
-///
-/// With this struct, we only do this work once. Getting `LineBlame` for the same line for the 2nd and subsequent
-/// times is going to be free. This is important because we do this step on every render, in the main thread.
-#[derive(Debug)]
-enum LineBlameUnit {
-    /// The raw object id of the commit for a line.
-    /// It will take a bit of compute in order to obtain the `LineBlame` for it.
-    Unprocessed(gix::ObjectId),
-    /// Fully processed line blame information.
-    Processed(LineBlame),
-}
-
-/// Stores information about the blame for a file
+/// Immutable metadata, fully decoded by the background blame worker.
+/// Rendering only performs a map lookup and copies already-cached strings.
 #[derive(Debug)]
 pub struct FileBlame {
-    /// A map from line numbers to blame for that line
-    blame: Mutex<HashMap<u32, LineBlameUnit>>,
-    /// The owning repository for this file's `ObjectId`s
-    repo: gix::ThreadSafeRepository,
+    blame: HashMap<u32, Arc<LineBlame>>,
+    remote_urls: Vec<String>,
 }
 
 impl FileBlame {
-    /// Get the blame information corresponding to a line in the file and diff for that line
     #[inline]
     pub fn blame_for_line(&self, line: u32, inserted_lines: u32, removed_lines: u32) -> LineBlame {
-        // Because gix_blame doesn't care about stuff that is not commited, we have to "normalize" the
-        // line number to account for uncommited code.
-        //
-        // You'll notice that blame_line can be 0 when, for instance we have:
-        // - removed 0 lines
-        // - added 10 lines
-        // - cursor_line is 8
-        //
-        // So when our cursor is on the 10th added line or earlier, blame_line will be 0. This means
-        // the blame will be incorrect. But that's fine, because when the cursor_line is on some hunk,
-        // we can show to the user nothing at all. This is detected in the editor
         let blame_line = line.saturating_sub(inserted_lines) + removed_lines;
-        let repo = self.repo.to_thread_local();
-
-        let mut blame = self.blame.lock();
-        let line_blame_unit = blame.get_mut(&blame_line);
-
-        let commit = match line_blame_unit {
-            // Slow path: This is the first time we're trying to get the blame for this line
-            Some(LineBlameUnit::Unprocessed(object_id)) => repo.find_commit(*object_id).ok(),
-            // Fast path: We've already processed this line before so we don't need to
-            // search all of the repo's commits to compute the blame
-            Some(LineBlameUnit::Processed(line_blame)) => return line_blame.clone(),
-            // This line does not have any blame associated with it
-            None => None,
-        };
-
-        let message = commit.as_ref().and_then(|c| c.message().ok());
-        let author = commit.as_ref().and_then(|c| c.author().ok());
-        let time = author.and_then(|a| a.time.parse::<gix::date::Time>().ok());
-
-        let line_blame = LineBlame {
-            commit_hash: commit
-                .as_ref()
-                .and_then(|c| c.short_id().map(|id| id.to_string()).ok()),
-            author_name: author.map(|a| a.name.to_string()),
-            author_email: author.map(|a| a.email.to_string()),
-            commit_date: time.and_then(|time| time.format(gix::date::time::format::SHORT).ok()),
-            commit_title: message.as_ref().map(|msg| msg.title.to_string()),
-            commit_body: message
-                .as_ref()
-                .and_then(|msg| msg.body.map(|body| body.to_string())),
-            time_stamp: time.map(|time| (time.seconds, time.offset)),
-            time_ago: None,
-        };
-
-        // we know that `line_blame_unit` here is not processed
-        if let Some(line_blame_unit) = line_blame_unit {
-            *line_blame_unit = LineBlameUnit::Processed(line_blame.clone());
-        };
-
-        line_blame
+        self.blame
+            .get(&blame_line)
+            .map(|value| (**value).clone())
+            .unwrap_or_default()
     }
 
-    /// Compute blame for this file (expensive)
+    pub fn remote_urls(&self) -> &[String] {
+        &self.remote_urls
+    }
+
+    /// Expensive history traversal and commit decoding: never call on a render path.
     pub fn try_new(file: PathBuf) -> Result<Self> {
         let thread_safe_repo =
             open_repo(get_repo_dir(&file)?, false).context("Failed to open git repo")?;
         let repo = thread_safe_repo.to_thread_local();
         let head = repo.head()?.peel_to_commit()?.id;
-
         let mut resource_cache = repo.diff_resource_cache_for_tree_diff()?;
-        let file_blame = gix::blame::file(
+        let entries = gix::blame::file(
             &repo.objects,
             head,
             None,
             &mut resource_cache,
-            // NOTE: bstr always uses unix separators `/`, even on
-            // Windows which uses the `\` separator
             &gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(
                 file.strip_prefix(
                     repo.workdir()
@@ -111,28 +47,62 @@ impl FileBlame {
             gix::blame::Options::default(),
         )?
         .entries;
-
-        Ok(Self {
-            blame: Mutex::new(
-                file_blame
-                    .into_iter()
-                    .flat_map(|blame| {
-                        (blame.start_in_blamed_file..blame.start_in_blamed_file + blame.len.get())
-                            .map(move |i| (i, LineBlameUnit::Unprocessed(blame.commit_id)))
-                    })
-                    .collect(),
-            ),
-            repo: thread_safe_repo,
-        })
+        let mut commits = HashMap::new();
+        let mut blame = HashMap::new();
+        for entry in entries {
+            let metadata = commits
+                .entry(entry.commit_id)
+                .or_insert_with(|| Arc::new(decode_commit(&repo, entry.commit_id)));
+            for line in entry.start_in_blamed_file..entry.start_in_blamed_file + entry.len.get() {
+                blame.insert(line, Arc::clone(metadata));
+            }
+        }
+        // Prefer upstream in forks, where the original PR usually lives.
+        let remote_urls = ["upstream", "origin"]
+            .into_iter()
+            .filter_map(|name| {
+                // Read only the URL string: do not enable trust-sensitive filters,
+                // URL rewrites, remote helpers, or transport execution.
+                repo.config_snapshot()
+                    .string(format!("remote.{name}.url").as_str())
+                    .map(|url| url.to_string())
+            })
+            .collect();
+        Ok(Self { blame, remote_urls })
     }
 }
 
-#[derive(Clone, PartialEq, PartialOrd, Ord, Eq, Debug)]
+fn decode_commit(repo: &gix::Repository, id: gix::ObjectId) -> LineBlame {
+    let commit = repo.find_commit(id).ok();
+    let message = commit.as_ref().and_then(|c| c.message().ok());
+    let author = commit.as_ref().and_then(|c| c.author().ok());
+    let time = author.and_then(|a| a.time.parse::<gix::date::Time>().ok());
+    LineBlame {
+        commit_hash: commit
+            .as_ref()
+            .and_then(|c| c.short_id().map(|id| id.to_string()).ok()),
+        full_commit_hash: commit.as_ref().map(|c| c.id.to_string()),
+        author_name: author.map(|a| a.name.to_string()),
+        author_email: author.map(|a| a.email.to_string()),
+        commit_date: time.and_then(|t| t.format(gix::date::time::format::SHORT).ok()),
+        commit_datetime: time.and_then(|t| t.format(gix::date::time::format::ISO8601_STRICT).ok()),
+        commit_title: message.as_ref().map(|m| m.title.to_string()),
+        commit_body: message
+            .as_ref()
+            .and_then(|m| m.body.map(|body| body.to_string())),
+        time_stamp: time.map(|t| (t.seconds, t.offset)),
+        time_ago: None,
+    }
+}
+
+#[derive(Clone, Default, PartialEq, PartialOrd, Ord, Eq, Debug)]
 pub struct LineBlame {
     commit_hash: Option<String>,
+    full_commit_hash: Option<String>,
     author_name: Option<String>,
     author_email: Option<String>,
     commit_date: Option<String>,
+    commit_datetime: Option<String>,
     commit_title: Option<String>,
     commit_body: Option<String>,
     /// Used to compute `time-ago`
@@ -146,6 +116,16 @@ pub struct LineBlame {
 }
 
 impl LineBlame {
+    pub fn details(&self) -> crate::BlameDetails {
+        crate::BlameDetails {
+            commit: self.full_commit_hash.clone(),
+            author: self.author_name.clone(),
+            email: self.author_email.clone(),
+            datetime: self.commit_datetime.clone(),
+            title: self.commit_title.clone(),
+            body: self.commit_body.clone(),
+        }
+    }
     /// # Returns
     ///
     /// None => Invalid variable
@@ -158,6 +138,7 @@ impl LineBlame {
                 "commit" => &self.commit_hash,
                 "author" => &self.author_name,
                 "date" => &self.commit_date,
+                "datetime" => &self.commit_datetime,
                 "title" => &self.commit_title,
                 "email" => &self.author_email,
                 "body" => &self.commit_body,
@@ -551,14 +532,59 @@ mod test {
     fn bob() -> LineBlame {
         LineBlame {
             commit_hash: Some("f14ab1cf".to_owned()),
+            full_commit_hash: Some("f14ab1cf".to_owned()),
             author_name: Some("Bob TheBuilder".to_owned()),
             author_email: Some("bob@bob.com".to_owned()),
             commit_date: Some("2028-01-10".to_owned()),
+            commit_datetime: Some("2028-01-10T12:00:00+00:00".to_owned()),
             commit_title: Some("feat!: extend house".to_owned()),
             commit_body: Some("BREAKING CHANGE: Removed door".to_owned()),
             time_stamp: None,
             time_ago: None,
         }
+    }
+
+    #[test]
+    fn metadata_is_ready_before_rendering_and_survives_repository_removal() {
+        use super::super::test::{create_commit_with_message, empty_git_repo};
+        let repo = empty_git_repo();
+        let path = repo.path().join("file.txt");
+        std::fs::write(&path, "first\nsecond\n").unwrap();
+        create_commit_with_message(repo.path(), true, "feat: cached metadata\n\nBody text");
+        super::super::test::exec_git_cmd(
+            &[
+                "remote",
+                "add",
+                "origin",
+                "https://github.com/owner/repo.git",
+            ],
+            repo.path(),
+        );
+        let blame = FileBlame::try_new(path).unwrap();
+        assert_eq!(blame.remote_urls(), &["https://github.com/owner/repo.git"]);
+        assert!(std::sync::Arc::ptr_eq(
+            blame.blame.get(&0).unwrap(),
+            blame.blame.get(&1).unwrap()
+        ));
+        let before = blame.blame_for_line(0, 0, 0).details();
+        assert_eq!(before.commit.as_ref().unwrap().len(), 40);
+        assert_eq!(before.author.as_deref(), Some("author"));
+        assert_eq!(
+            before.datetime.as_deref(),
+            Some("2000-01-01T00:00:00+00:00")
+        );
+        assert_eq!(before.title.as_deref(), Some("feat: cached metadata"));
+        // Move only this test fixture's Git data out of the repository path.
+        std::fs::rename(repo.path().join(".git"), repo.path().join("git-backup")).unwrap();
+        assert_eq!(blame.blame_for_line(1, 0, 0).details(), before);
+        assert_eq!(
+            blame.blame_for_line(99, 0, 0).details(),
+            crate::BlameDetails::default()
+        );
+        assert!(blame
+            .blame_for_line(0, 0, 0)
+            .parse_format("{datetime}")
+            .contains("00:00:00"));
     }
 
     #[test]
