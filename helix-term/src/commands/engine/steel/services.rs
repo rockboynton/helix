@@ -297,7 +297,7 @@ mod tests {
             (format-blame (hash 'author "A *name*" 'email "a@example.com"
                                 'datetime "2026-10-11T12:00:00-07:00" 'commit "abcdef"
                                 'title "Title" 'body "Body")
-                          0 (list (hash 'number "123" 'title "PR title" 'state "closed")) "")
+                          (list (hash 'number "123" 'title "PR title" 'state "closed")) "")
         "#,
             )
             .unwrap();
@@ -306,6 +306,9 @@ mod tests {
         assert!(text.contains("PR #123"));
         assert!(text.contains("A \\*name\\*"));
         assert!(text.contains("Body"));
+        assert!(!text.contains("**Line:**"));
+        assert!(text.contains(">\n**Authored:**"));
+        assert!(text.contains("abcdef\n## Title\n\nBody\n**PR #123"));
         let hints = engine
             .run(
                 r#"

@@ -88,23 +88,23 @@
                     (string c)))
               (string->list text))))
 
-(define (format-blame data line pulls note)
+(define (format-blame data pulls note)
   (string-append
     "# Line blame\n\n"
     "**Author:** " (literal-text (text-field data 'author "Unknown"))
-    " <" (literal-text (text-field data 'email "unknown email")) ">\n\n"
-    "**Authored:** " (text-field data 'datetime "Unknown") "\n\n"
-    "**Commit:** " (text-field data 'commit "Unknown") "\n\n"
-    "**Line:** " (number->string (exact (+ line 1))) "\n\n"
+    " <" (literal-text (text-field data 'email "unknown email")) ">\n"
+    "**Authored:** " (text-field data 'datetime "Unknown") "\n"
+    "**Commit:** " (text-field data 'commit "Unknown") "\n"
     "## " (literal-text (text-field data 'title "Untitled commit")) "\n\n"
-    (literal-text (text-field data 'body "")) "\n\n"
+    (let ([body (trim-end-matches (text-field data 'body "") "\n")])
+      (if (equal? body "") "" (string-append (literal-text body) "\n")))
     (apply string-append
       (map (lambda (pr)
              (string-append "**PR #" (text-field pr 'number "?") ":** "
                             (literal-text (text-field pr 'title "Untitled"))
                             " (" (if (hash-try-get pr 'inferred) "unverified message hint"
                                      (if (string? (hash-try-get pr 'merged_at)) "merged"
-                                      (text-field pr 'state "unknown"))) ")\n\n")) pulls))
+                                      (text-field pr 'state "unknown"))) ")\n")) pulls))
     note))
 
 (define (popup-links data repo pulls)
@@ -122,7 +122,7 @@
     (set-status! "Line blame ready")
     (let ([data (hash-ref snapshot 'data)])
       (update-markdown-popup!
-        (markdown-popup (format-blame data (hash-ref snapshot 'line) pulls note)
+        (markdown-popup (format-blame data pulls note)
                         (popup-links data repo pulls))))))
 
 (define (refresh-pulls! id snapshot repo fallback)

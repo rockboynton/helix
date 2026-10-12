@@ -53,7 +53,7 @@ impl LinkedMarkdown {
         if !self.links.is_empty() {
             let (label, url) = &self.links[self.selected];
             self.markdown.contents.push_str(&format!(
-                "**Link {} of {}: {label}**\n\n{url}\n\nTab/Shift-Tab: choose · Enter: open · Esc: close\n\n---\n\n",
+                "**Link {} of {}: {label}**\n{url}\nTab/Shift-Tab: choose · Enter: open · Esc: close\n",
                 self.selected + 1, self.links.len()));
         }
         self.markdown.contents.push_str(&self.content);
