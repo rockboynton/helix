@@ -16,6 +16,12 @@
 
 </div>
 
+## Neohelix
+
+This fork includes Steel configuration and an on-demand GitLens plugin.
+See the [GitLens guide](docs/gitlens.md) and
+[Neohelix configuration](neohelix-config/README.md).
+
 ![Screenshot](./screenshot.png)
 
 A [Kakoune](https://github.com/mawww/kakoune) / [Neovim](https://github.com/neovim/neovim) inspired editor, written in Rust.

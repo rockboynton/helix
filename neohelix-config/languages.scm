@@ -1,4 +1,4 @@
-;; Personal language overrides. Imports do not apply settings; startup calls the
+;; Neohelix language overrides. Imports do not apply settings; startup calls the
 ;; exported function. Built-in grammars, roots, and unrelated language fields stay intact.
 (require "helix/configuration.scm")
 (require-builtin helix/core/configuration as configuration.)

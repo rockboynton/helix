@@ -5,9 +5,9 @@
 (require (prefix-in keys. "keybindings.scm"))
 (require "gitlens.scm")
 
-(provide configure-personal! gitlens-blame gitlens-clear-cache)
+(provide configure-neohelix! gitlens-blame gitlens-clear-cache)
 
-(define (configure-personal!)
+(define (configure-neohelix!)
   (editing.configure-editing!)
   (languages.configure-languages!)
   (appearance.configure-appearance!)

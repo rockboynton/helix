@@ -37,7 +37,7 @@ fn comparable(mut value: serde_json::Value) -> serde_json::Value {
 }
 
 #[test]
-fn personal_languages_match_toml_overrides_and_preserve_defaults() {
+fn neohelix_languages_match_toml_overrides_and_preserve_defaults() {
     let base = helix_loader::config::default_lang_config();
     let loader = helix_core::syntax::Loader::new(base.clone().try_into().unwrap()).unwrap();
     let config = Arc::new(Mutex::new(HelixConfiguration {
@@ -90,7 +90,7 @@ fn personal_languages_match_toml_overrides_and_preserve_defaults() {
     engine
         .run(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../personal-config/languages.scm"
+            "/../neohelix-config/languages.scm"
         )))
         .unwrap();
     assert_eq!(

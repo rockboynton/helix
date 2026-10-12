@@ -1,0 +1,126 @@
+# GitLens-style blame
+
+### Try it
+
+Load the GitLens modules through your Steel configuration; the
+[Neohelix example configuration](../neohelix-config/README.md) includes them.
+
+1. Launch this build with `hx path/to/file`.
+2. Trust the repository with `:workspace-trust`.
+3. Put the cursor on a committed line and press **Shift-B** (`B`) in normal mode.
+4. Use **Tab** to select a link, **Enter** to open it, or **d** to inspect the commit diff.
+5. Press **d** again to return to blame details, or **Esc** to close the popup.
+
+`B` overrides Helix's default backward-WORD motion. `Space B` still invokes
+native statusline blame. Inline blame is disabled by default in the Neohelix
+configuration; the popup does not require enabling it.
+
+### What the popup shows
+
+- The current line's commit author and email.
+- A human-readable authored date and time, including the original timezone
+  (for example, `Oct 11, 2026 at 01:49 (UTC-07:00)`).
+- The full commit SHA, commit title, and commit-message body.
+- Associated GitHub PR numbers, titles, and open/closed/merged status.
+- Selectable commit and PR links, with the commit selected initially when available.
+- Immediate PR hints from recognizable `Title (#123)` or merge-commit messages.
+  These are explicitly unverified until GitHub confirms the association.
+- Original upstream PR hints from `Source:` provenance in ported commits.
+  `Source:` is part of the commit message, not an extra metadata service.
+
+There is no separate line-number section or keybinding hint line in the popup.
+The layout is compact, with blank rows before headings and between headings and
+their body. Height fits the content; long content scrolls. Near the bottom of the
+screen, the popup prefers to expand upward when that offers more room.
+
+### Controls
+
+| Key / command | Action |
+| --- | --- |
+| `B` in normal mode | Open blame details for the current line |
+| `Tab` / `Shift-Tab` | Select the next / previous commit or PR link |
+| `Enter` | Open the selected link in your default browser |
+| `c` | Copy the selected link |
+| `y` | Copy the full commit hash, including from the diff view |
+| `d` | Open the full commit diff; press again to return to blame details |
+| `Ctrl-d` / `Ctrl-u`, `Page Down` / `Page Up` | Scroll the popup |
+| `Esc` | Dismiss the popup |
+| `:gitlens-blame` | Open the popup without using the keybinding |
+| `:gitlens-clear-cache` | Clear saved PR metadata |
+
+Both copy actions write Helix's default yank register and the system clipboard.
+If the clipboard is unavailable, the value remains available for `p`. Links are
+keyboard-actionable, not mouse-click/OSC-8 terminal hyperlinks; only HTTPS links
+can be opened.
+
+### Commit diff
+
+**d** opens the full local commit patch in a syntax-highlighted diff block,
+independent of GitHub. This is a unified Git patch, not a Delta-style side-by-side
+or word-level diff renderer.
+
+Press **d** again, even while loading, to restore the original GitLens popup's
+selected link and scroll position without repeating the PR lookup. PR enrichment
+can finish in the background while the diff is open and appears on return.
+
+The patch is loaded through asynchronous `git show`, with a five-second timeout
+and a 1 MiB output limit. External diff commands and textconv are disabled.
+Oversized patches display an explicit error. Merge commits compare against their
+first parent; binary changes use Git's summary.
+
+### Performance and caching
+
+Local metadata is native and loaded in a background worker. GitHub enrichment uses
+`gh api` with your existing GitHub authentication, a five-second timeout, no shell
+interpolation, bounded output, and a five-minute/128-entry persistent cache. Only
+Shift-B initiates a plugin lookup; no plugin network work runs on startup or render.
+Saved metadata survives editor restarts; stale details remain visible while
+refreshing, for up to seven days. The cache is lazy-loaded on the first request,
+stored in Helix's cache directory under `plugins/gitlens-pr-v1.json` (normally
+`$XDG_CACHE_HOME/helix/plugins/gitlens-pr-v1.json`, or
+`~/.cache/helix/plugins/gitlens-pr-v1.json` on Linux), and contains metadata only,
+never authentication tokens. Unix files are mode `0600`; private repository titles
+may be present. Run `:gitlens-clear-cache` to discard saved details.
+The existing `inline-blame.auto-fetch` setting is independent of this plugin.
+Enrichment preserves selection and scroll position. Replies for changed
+documents/versions/cursor lines are ignored, and late replies cannot reopen
+dismissed popups or replace a diff view you have already left.
+
+### Forks and upstream PR links
+
+Origin is preferred for actual commit lookups and commit links. Upstream provides
+original commit-message PR hints in forks. Up to 20 associated PRs are displayed
+using the [commit-to-PR API](https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit).
+
+Ported commits with `Source:` provenance use the fork for commit association
+checks and retain the upstream PR as a separate unverified message hint.
+Verified PR links retain GitHub's canonical repository, which can differ from
+the commit lookup repository. Bare message references remain unverified hints.
+Older cache records with rewritten links are invalidated automatically.
+Confirmed unpublished commits omit the dead commit link; publishing the branch
+makes that hash available on GitHub.
+
+### Requirements and limitations
+
+- The repository must be trusted. Uncommitted lines have no historical blame.
+- GitHub enrichment requires `gh` and its existing authentication. Missing `gh`,
+  offline/authentication failures, and non-GitHub repositories still show local
+  commit metadata.
+- GitHub.com is supported; GitHub Enterprise hosts are not.
+- The full commit patch requires the `git` executable and local commit history.
+- This is line/commit inspection, not the entire VS Code GitLens feature set:
+  there is no file-history browser or general issue-reference resolver.
+
+### Implementation and disabling
+
+The core Steel bindings provide asynchronous native metadata, generic bounded
+process execution, private JSON cache storage, and a linked Markdown popup.
+GitHub endpoint choice, cache policy,
+formatting, and the binding live in this Scheme module. To disable the plugin,
+remove `(configure-gitlens!)` from `helix.scm` and restore your desired `B` binding.
+
+The PR cache holds 128 repository–commit pairs total, not 128 lines. Lines
+sharing a commit share an entry. Adding a 129th distinct commit evicts the
+oldest-fetched entry; reading an entry does not update its timestamp. Revisiting
+an evicted commit shows local blame first and fetches PR metadata again. A rebase
+that changes the blamed commit hash uses a new cache key on the next request.

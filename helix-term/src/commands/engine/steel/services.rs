@@ -274,14 +274,14 @@ mod tests {
             "gitlens-cache.scm".into(),
             include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../personal-config/gitlens-cache.scm"
+                "/../neohelix-config/gitlens-cache.scm"
             ))
             .into(),
         );
         engine
             .run(include_str!(concat!(
                 env!("CARGO_MANIFEST_DIR"),
-                "/../personal-config/gitlens.scm"
+                "/../neohelix-config/gitlens.scm"
             )))
             .unwrap();
         for (url, expected) in [
