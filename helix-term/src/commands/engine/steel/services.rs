@@ -37,6 +37,7 @@ pub(super) fn line_blame(cx: &mut Context) -> anyhow::Result<SteelVal> {
     let mut identity = json!({
         "document-id": helix_view::extension::document_id_to_usize(&doc.id()),
         "version": doc.version(), "line": line, "path": path.to_string_lossy(),
+        "directory": path.parent().map(|parent| parent.to_string_lossy()),
     });
     let cached = (!doc.is_blame_potentially_out_of_date)
         .then_some(doc.file_blame.as_ref())
@@ -244,9 +245,11 @@ mod tests {
         engine.register_steel_module(
             "helix/components.scm".into(),
             r#"
-            (provide markdown-popup update-markdown-popup!)
+            (provide markdown-popup update-markdown-popup! markdown-popup-keybinding! markdown-code-block)
             (define (markdown-popup . args) args)
             (define (update-markdown-popup! x) #f)
+            (define (markdown-popup-keybinding! . args) #f)
+            (define (markdown-code-block language body) (string-append "````" language "\n" body "\n````"))
         "#
             .into(),
         );
@@ -302,7 +305,7 @@ mod tests {
             )
             .unwrap();
         let text = String::from_steelval(result.last().unwrap()).unwrap();
-        assert!(text.contains("2026-10-11T12:00:00-07:00"));
+        assert!(text.contains("Oct 11, 2026 at 12:00 (UTC-07:00)"));
         assert!(text.contains("PR #123"));
         assert!(text.contains("A \\*name\\*"));
         assert!(text.contains("Body"));
@@ -338,6 +341,28 @@ mod tests {
         let cached = Value::try_from(cache.last().unwrap().clone()).unwrap();
         assert_eq!(cached[0][0]["title"], "Saved");
         assert_eq!(cached[1], true);
+        let formatting = engine.run(r#"
+            (list (human-datetime "Unknown")
+                  (human-datetime "2024-12-05T11:13:00-06:00")
+                  (repository-for (hash 'body "Source: helix-editor/helix#8675, abc."
+                                        'remotes (list "https://github.com/helix-editor/helix.git"
+                                                       "git@github.com:rockboynton/helix.git")))
+                  (local-hints (hash 'body "Source: helix-editor/helix#8675, abc.") "rockboynton/helix")
+                  (format-diff "diff --git a/test b/test\n+```\n")
+                  (unpublished-commit? (hash 'stdout "{\"message\":\"No commit found for SHA: abc\"}"))
+                  (unpublished-commit? (hash 'stdout "")))
+        "#).unwrap();
+        let formatting = Value::try_from(formatting.last().unwrap().clone()).unwrap();
+        assert_eq!(formatting[0], "Unknown");
+        assert_eq!(formatting[1], "Dec 5, 2024 at 11:13 (UTC-06:00)");
+        assert_eq!(formatting[2], "rockboynton/helix");
+        assert_eq!(
+            formatting[3][0]["html_url"],
+            "https://github.com/helix-editor/helix/pull/8675"
+        );
+        assert!(formatting[4].as_str().unwrap().contains("````diff"));
+        assert_eq!(formatting[5], true);
+        assert_eq!(formatting[6], false);
     }
 
     #[test]

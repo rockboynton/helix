@@ -57,17 +57,27 @@ may be present. Run `:gitlens-clear-cache` to discard saved details.
 The existing `inline-blame.auto-fetch` setting is independent of this plugin.
 Missing `gh`, offline/authentication failures, and non-GitHub repositories still
 show local metadata. GitHub.com is supported, not GitHub Enterprise hosts. Upstream
-is preferred over origin in forks, and up to 20 associated PRs are displayed using
+provides original message hints in forks; origin is preferred for actual commit
+lookups and links. Up to 20 associated PRs are displayed using
 the [commit-to-PR API](https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit).
 
 Links are keyboard-actionable: **Tab/Shift-Tab** selects a PR or commit link;
+**d** loads the full local commit patch into the popup, independent of GitHub.
+This runs bounded asynchronous `git show` (five seconds, 1 MiB), with external
+diff and textconv disabled. Oversized patches display an explicit error.
+Merge commits compare against their first parent; binary changes use Git's summary.
 Commit is selected initially. Enrichment preserves selection and scroll position
 instead of replacing the popup. Height fits the content (long bodies scroll),
-with blank rows only between headings and their body in this compact popup.
+with blank rows before headings and between headings and their body.
+Popups in the bottom half of the screen prefer to expand upward.
 **Enter** opens it in your default browser. **Ctrl-d/u** or Page Down/Up scrolls,
 and **Esc** dismisses/cancels the popup. These are not mouse-click/OSC-8 terminal
 hyperlinks. Replies for changed documents/versions/cursor lines are ignored, and
 late replies cannot reopen dismissed popups. Only HTTPS links can be opened.
+Ported commits with `Source:` provenance use the fork for commit association
+checks and retain the upstream PR as a separate unverified message hint.
+Confirmed unpublished commits omit the dead commit link; publishing the branch
+makes that hash available on GitHub.
 
 The core Steel bindings provide asynchronous native metadata, generic bounded
 process execution, private JSON cache storage, and a linked Markdown popup.

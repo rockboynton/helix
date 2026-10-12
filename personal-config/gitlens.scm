@@ -5,7 +5,7 @@
 (require "helix/keymaps.scm")
 (require "gitlens-cache.scm")
 
-(provide gitlens-blame gitlens-clear-cache configure-gitlens! github-repository format-blame inferred-pulls)
+(provide gitlens-blame gitlens-clear-cache configure-gitlens! github-repository format-blame inferred-pulls human-datetime source-reference format-diff)
 
 (define request-id 0)
 
@@ -38,8 +38,8 @@
               (and (= (length parts) 2) (every? valid-name? parts) path))
             (loop (cdr prefixes))))))
 
-(define (repository-for data)
-  (let loop ([remotes (hash-ref data 'remotes)])
+(define (repository-from-remotes remotes)
+  (let loop ([remotes remotes])
     (if (null? remotes) #f
         (or (github-repository (car remotes)) (loop (cdr remotes))))))
 
@@ -47,6 +47,37 @@
   (and (string? number) (> (string-length number) 0) (<= (string-length number) 10)
        (not (starts-with? number "0"))
        (every? (lambda (c) (member c (string->list "0123456789"))) (string->list number))))
+
+(define (source-reference data)
+  (let ([body (text-field data 'body "")])
+    (and (starts-with? body "Source: ")
+         (let* ([reference (car (split-many (trim-start-matches body "Source: ") ","))]
+                [parts (split-many reference "#")])
+           (and (= (length parts) 2)
+                (github-repository (string-append "https://github.com/" (car parts)))
+                (valid-pr-number? (cadr parts)) parts)))))
+
+(define (repository-for data)
+  ;; Commits belong to this fork, including new commits without Source provenance.
+  (repository-from-remotes (reverse (hash-ref data 'remotes))))
+
+(define (local-hints data repo)
+  (let ([source (source-reference data)])
+    (if source
+        (list (hash 'number (cadr source) 'title "Original upstream PR" 'inferred #t
+                    'html_url (string-append "https://github.com/" (car source) "/pull/" (cadr source))))
+        (inferred-pulls (text-field data 'title "")
+                        (or (repository-from-remotes (hash-ref data 'remotes)) repo)))))
+
+(define (human-datetime datetime)
+  (with-handler (lambda (_) datetime)
+    (let* ([months '("Jan" "Feb" "Mar" "Apr" "May" "Jun" "Jul" "Aug" "Sep" "Oct" "Nov" "Dec")]
+           [month (exact (string->number (substring datetime 5 7)))]
+           [day (exact (string->number (substring datetime 8 10)))]
+           [offset (substring datetime 19 (string-length datetime))])
+      (string-append (list-ref months (- month 1)) " " (number->string day) ", "
+                     (substring datetime 0 4) " at " (substring datetime 11 16)
+                     " (UTC" (if (or (equal? offset "Z") (equal? offset "+00:00")) "" offset) ")"))))
 
 (define (message-pr-number title)
   (cond
@@ -93,7 +124,7 @@
     "# Line blame\n\n"
     "**Author:** " (literal-text (text-field data 'author "Unknown"))
     " <" (literal-text (text-field data 'email "unknown email")) ">\n"
-    "**Authored:** " (text-field data 'datetime "Unknown") "\n"
+    "**Authored:** " (human-datetime (text-field data 'datetime "Unknown")) "\n"
     "**Commit:** " (text-field data 'commit "Unknown") "\n"
     "## " (literal-text (text-field data 'title "Untitled commit")) "\n\n"
     (let ([body (trim-end-matches (text-field data 'body "") "\n")])
@@ -110,7 +141,8 @@
 (define (popup-links data repo pulls)
   (append
     (if repo
-        (list (list "Commit" (string-append "https://github.com/" repo "/commit/"
+        (list (list "Commit" (string-append "https://github.com/"
+                                           (or (repository-from-remotes (reverse (hash-ref data 'remotes))) repo) "/commit/"
                                            (hash-ref data 'commit))))
         '())
     (map (lambda (pr)
@@ -121,9 +153,40 @@
   (when (and (= id request-id) (line-blame-current? snapshot))
     (set-status! "Line blame ready")
     (let ([data (hash-ref snapshot 'data)])
-      (update-markdown-popup!
-        (markdown-popup (format-blame data pulls note)
-                        (popup-links data repo pulls))))))
+      (let ([popup (markdown-popup (format-blame data pulls note)
+                                   (popup-links data repo pulls))])
+        (markdown-popup-keybinding! popup #\d (lambda () (show-diff! snapshot)))
+        (update-markdown-popup! popup)))))
+
+(define (format-diff patch)
+  (string-append "# Commit diff\n\n" (markdown-code-block "diff" patch)))
+
+(define (show-diff! snapshot)
+  (when (line-blame-current? snapshot)
+    ;; Invalidate PR enrichment so it cannot overwrite the diff view.
+    (set! request-id (+ request-id 1))
+    (let ([id request-id]
+          [commit (hash-ref (hash-ref snapshot 'data) 'commit)])
+      (pop-last-component-by-name! "steel-markdown-links")
+      (push-component! (markdown-popup "# Commit diff\n\nLoading…" '()))
+      (await-callback
+        (run-command-async "git"
+          (list "-C" (hash-ref snapshot 'directory) "--no-pager" "show"
+                "--no-ext-diff" "--no-textconv" "--format=fuller" "--patch"
+                "--diff-merges=first-parent" commit "--") 5000)
+        (lambda (result)
+          (when (and (= id request-id) (line-blame-current? snapshot))
+            (update-markdown-popup!
+              (markdown-popup
+                (if (hash-ref result 'ok) (format-diff (hash-ref result 'stdout))
+                    "# Commit diff\n\nDiff unavailable: Git failed, timed out, or the patch exceeded the 1 MiB limit.")
+                '()))))))))
+
+(define (unpublished-commit? result)
+  (with-handler (lambda (_) #f)
+    (let ([error (string->jsexpr (hash-ref result 'stdout))])
+      (and (hash? error) (string? (hash-try-get error 'message))
+           (starts-with? (hash-ref error 'message) "No commit found for SHA:")))))
 
 (define (refresh-pulls! id snapshot repo fallback)
   (let ([commit (hash-ref (hash-ref snapshot 'data) 'commit)]
@@ -146,13 +209,16 @@
                   (remember-prs! repo commit pulls))
                 (show-blame! id snapshot repo (if (null? pulls) fallback pulls)
                              (if (null? pulls) "PR: no associated PR found. Message hints remain unverified." "PR: verified by GitHub."))))
-            (show-blame! id snapshot repo fallback
-              "PR: lookup unavailable; local hints/cached details remain available."))))))
+            (if (unpublished-commit? result)
+                (show-blame! id snapshot #f fallback
+                  "PR: commit not published in this GitHub repository; source/message hints remain available.")
+                (show-blame! id snapshot repo fallback
+                  "PR: lookup unavailable (network, authentication, or GitHub error); local details remain available.")))))))
 
 (define (enrich-blame! id snapshot repo)
   (let* ([data (hash-ref snapshot 'data)]
          [commit (hash-ref data 'commit)]
-         [hints (inferred-pulls (text-field data 'title "") repo)])
+         [hints (local-hints data repo)])
     ;; Immediate local content; neither disk cache loading nor GitHub gates it.
     (show-blame! id snapshot repo hints "PR: checking saved cache…")
     (with-pr-cache!
@@ -180,7 +246,7 @@
         [future (line-blame-at-cursor)])
     (set-status! "Looking up line blame…")
     (pop-last-component-by-name! "steel-markdown-links")
-    (push-component! (markdown-popup "# Line blame\n\nLoading commit details…\n\nEsc: cancel" '()))
+    (push-component! (markdown-popup "# Line blame\n\nLoading commit details…" '()))
     (await-callback
       future
       (lambda (snapshot)

@@ -19,6 +19,16 @@ const MIN_HEIGHT: u16 = 6;
 const MAX_HEIGHT: u16 = 26;
 const MAX_WIDTH: u16 = 120;
 
+fn roomier_side(row: u16, viewport: Rect) -> Open {
+    let above = row.saturating_sub(viewport.y);
+    let below = viewport.bottom().saturating_sub(row.saturating_add(1));
+    if above > below {
+        Open::Above
+    } else {
+        Open::Below
+    }
+}
+
 struct RenderInfo {
     area: Rect,
     child_height: u16,
@@ -34,6 +44,7 @@ pub struct Popup<T: Component> {
     position: Option<Position>,
     area: Rect,
     position_bias: Open,
+    prefer_more_space: bool,
     scroll_half_pages: usize,
     auto_close: bool,
     ignore_escape_key: bool,
@@ -47,6 +58,7 @@ impl<T: Component> Popup<T> {
             contents,
             position: None,
             position_bias: Open::Below,
+            prefer_more_space: false,
             area: Rect::new(0, 0, 0, 0),
             scroll_half_pages: 0,
             auto_close: false,
@@ -75,6 +87,12 @@ impl<T: Component> Popup<T> {
     /// chosen direction.
     pub fn position_bias(mut self, bias: Open) -> Self {
         self.position_bias = bias;
+        self
+    }
+
+    /// Choose the side with more screen space, rather than only a minimum fit.
+    pub fn prefer_more_space(mut self) -> Self {
+        self.prefer_more_space = true;
         self
     }
 
@@ -154,7 +172,13 @@ impl<T: Component> Popup<T> {
         // if we're on the bottom part, do above
         let can_put_below = viewport.height > rel_y + MIN_HEIGHT;
         let can_put_above = rel_y.checked_sub(MIN_HEIGHT).is_some();
-        let final_pos = match self.position_bias {
+        let preferred_side = roomier_side(rel_y, viewport);
+        let bias = if self.prefer_more_space {
+            &preferred_side
+        } else {
+            &self.position_bias
+        };
+        let final_pos = match bias {
             Open::Below => match can_put_below {
                 true => Open::Below,
                 false => Open::Above,
@@ -386,5 +410,22 @@ impl<T: Component> Component for Popup<T> {
 
     fn id(&self) -> Option<&'static str> {
         Some(self.id)
+    }
+}
+
+#[cfg(test)]
+mod placement_tests {
+    use super::*;
+
+    #[test]
+    fn opens_toward_available_space_including_last_row() {
+        let viewport = Rect::new(0, 0, 80, 24);
+        assert!(matches!(roomier_side(1, viewport), Open::Below));
+        assert!(matches!(roomier_side(13, viewport), Open::Above));
+        assert!(matches!(roomier_side(23, viewport), Open::Above));
+        assert!(matches!(
+            roomier_side(11, Rect::new(0, 10, 80, 24)),
+            Open::Below
+        ));
     }
 }

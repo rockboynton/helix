@@ -409,6 +409,14 @@
 ;; Tab selects a link, Enter opens it, Esc closes; Ctrl-d/u scrolls.
 (define markdown-popup helix.components.markdown-popup)
 
+(provide markdown-popup-keybinding!)
+;; Add an unmodified character key and a zero-argument action to a popup.
+(define markdown-popup-keybinding! helix.components.markdown-popup-keybinding!)
+
+(provide markdown-code-block)
+;; Fence arbitrary text safely without interpreting its Markdown contents.
+(define markdown-code-block helix.components.markdown-code-block)
+
 (provide update-markdown-popup!)
 ;; Replace an existing Markdown popup only; closed popups stay closed.
 (define update-markdown-popup! helix.components.update-markdown-popup!)

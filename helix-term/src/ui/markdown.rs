@@ -274,6 +274,14 @@ impl Markdown {
                     spans.push(Span::styled(prefix, bullet_style));
                 }
                 Event::Start(tag) => {
+                    if self.compact
+                        && matches!(tag, Tag::Heading { .. })
+                        && lines
+                            .last()
+                            .is_some_and(|line: &Spans<'_>| !line.0.is_empty())
+                    {
+                        lines.push(Spans::default());
+                    }
                     tags.push(tag);
                     if spans.is_empty() && !list_stack.is_empty() {
                         // TODO: could push indent + 2 or 3 spaces to align with

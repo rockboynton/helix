@@ -45,6 +45,7 @@ struct LinkedMarkdown {
     content: String,
     links: Vec<(String, String)>,
     selected: usize,
+    keybindings: HashMap<char, (usize, RootedSteelVal)>,
 }
 
 impl LinkedMarkdown {
@@ -53,8 +54,10 @@ impl LinkedMarkdown {
         if !self.links.is_empty() {
             let (label, url) = &self.links[self.selected];
             self.markdown.contents.push_str(&format!(
-                "**Link {} of {}: {label}**\n{url}\nTab/Shift-Tab: choose · Enter: open · Esc: close\n",
-                self.selected + 1, self.links.len()));
+                "**Link {} of {}: {label}**\n{url}\n",
+                self.selected + 1,
+                self.links.len()
+            ));
         }
         self.markdown.contents.push_str(&self.content);
     }
@@ -113,6 +116,27 @@ impl Component for LinkedMarkdown {
                 }
                 compositor::EventResult::Consumed(None)
             }
+            KeyCode::Char(c) if key.modifiers.is_empty() && self.keybindings.contains_key(&c) => {
+                let (generation, callback) = &self.keybindings[&c];
+                if is_current_generation(*generation) {
+                    let callback = callback.value().clone();
+                    let mut context = with_context_guard(ctx);
+                    let result = enter_engine(|engine| {
+                        engine
+                            .with_mut_reference::<Context, Context>(&mut context)
+                            .consume_once(move |engine, arguments| {
+                                engine.update_value(CTX, arguments.into_iter().next().unwrap());
+                                engine.call_function_with_args_from_mut_slice(callback, &mut [])
+                            })
+                    });
+                    if let Err(error) = result {
+                        context
+                            .editor
+                            .set_error(format!("Popup action failed: {error}"));
+                    }
+                }
+                compositor::EventResult::Consumed(None)
+            }
             _ => compositor::EventResult::Ignored(None),
         }
     }
@@ -133,9 +157,33 @@ fn safe_link(url: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || b".-:[]".contains(&c))
 }
 
+fn markdown_code_block(language: String, body: String) -> anyhow::Result<String> {
+    anyhow::ensure!(
+        language
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c)),
+        "Invalid code language"
+    );
+    let (mut run, mut longest) = (0, 2);
+    for c in body.bytes() {
+        run = if c == b'`' { run + 1 } else { 0 };
+        longest = longest.max(run);
+    }
+    let fence = "`".repeat(longest + 1);
+    Ok(format!("{fence}{language}\n{body}\n{fence}"))
+}
+
 #[cfg(test)]
 mod linked_markdown_tests {
     use super::{safe_link, LinkedMarkdown};
+
+    #[test]
+    fn fenced_diff_cannot_escape_its_code_block() {
+        let block = super::markdown_code_block("diff".into(), "+```\n".into()).unwrap();
+        assert!(block.starts_with("````diff\n"));
+        assert!(block.ends_with("````"));
+        assert!(super::markdown_code_block("diff\n# injected".into(), String::new()).is_err());
+    }
 
     fn popup(links: &[(&str, &str)]) -> LinkedMarkdown {
         let mut popup = LinkedMarkdown {
@@ -152,6 +200,7 @@ mod linked_markdown_tests {
                 .map(|(label, url)| (label.to_string(), url.to_string()))
                 .collect(),
             selected: 0,
+            keybindings: Default::default(),
         };
         popup.update_links();
         popup
@@ -227,14 +276,14 @@ mod linked_markdown_tests {
             "# Blame\n\nAuthor: Test\nCommit: abc\n\n## Title\n\nBody\n\nPR: verified".into();
         popup.update_links();
         let compact = popup.markdown.parse(None);
-        assert_eq!(compact.lines.len(), 8);
+        assert_eq!(compact.lines.len(), 9);
         let empty_rows: Vec<_> = compact
             .lines
             .iter()
             .enumerate()
             .filter_map(|(index, row)| row.0.is_empty().then_some(index))
             .collect();
-        assert_eq!(empty_rows, [1, 5]);
+        assert_eq!(empty_rows, [1, 4, 6]);
         let regular_markdown = crate::ui::Markdown::new(
             popup.content.clone(),
             std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
@@ -560,6 +609,7 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
                 None
             },
         )
+        .register_fn("markdown-code-block", markdown_code_block)
         .register_fn_with_ctx(
             CTX,
             "markdown-component",
@@ -596,13 +646,38 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
                     content,
                     links,
                     selected: 0,
+                    keybindings: HashMap::new(),
                 };
                 markdown.update_links();
                 Ok(WrappedDynComponent {
                     inner: Some(Box::new(
-                        ui::Popup::new("steel-markdown-links", markdown).auto_close(true),
+                        ui::Popup::new("steel-markdown-links", markdown)
+                            .prefer_more_space()
+                            .auto_close(true),
                     )),
                 })
+            },
+        )
+        .register_fn(
+            "markdown-popup-keybinding!",
+            |component: &mut WrappedDynComponent,
+             key: char,
+             callback: SteelVal|
+             -> anyhow::Result<()> {
+                let popup = component
+                    .inner
+                    .as_mut()
+                    .and_then(|inner| {
+                        inner
+                            .as_any_mut()
+                            .downcast_mut::<ui::Popup<LinkedMarkdown>>()
+                    })
+                    .ok_or_else(|| anyhow::anyhow!("Expected a linked Markdown popup"))?;
+                popup
+                    .contents_mut()
+                    .keybindings
+                    .insert(key, (load_generation(), callback.as_rooted()));
+                Ok(())
             },
         )
         .register_fn_with_ctx(
