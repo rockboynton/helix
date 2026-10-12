@@ -1,0 +1,13 @@
+#!/bin/sh
+# Use this fork's Steel config without loading the normal global editor TOML.
+set -eu
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+binary=${HELIX_PERSONAL_BINARY:-"$repo_root/target/release/hx"}
+if [ ! -x "$binary" ]; then
+    printf '%s\n' "Release Helix not found: $binary" "Build it with: nix develop --command cargo build --release --locked -p helix-term" >&2
+    exit 1
+fi
+export HELIX_RUNTIME="$repo_root/runtime"
+export HELIX_STEEL_CONFIG="$repo_root/personal-config"
+exec "$binary" --config /dev/null "$@"
+
