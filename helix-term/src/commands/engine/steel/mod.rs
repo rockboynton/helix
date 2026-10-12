@@ -2,6 +2,8 @@ pub mod components;
 #[cfg(test)]
 mod language_config_tests;
 mod services;
+#[cfg(test)]
+mod startup_tests;
 
 use arc_swap::{ArcSwap, ArcSwapAny};
 use helix_core::{
@@ -2252,29 +2254,49 @@ pub fn is_keymap(keymap: SteelVal) -> bool {
     }
 }
 
-fn local_config_exists() -> bool {
-    let workspace = find_workspace().0;
-    if !SCRIPT_WORKSPACE_TRUST.get().is_some_and(|trust| {
-        trust
-            .query(
-                &workspace,
-                helix_loader::workspace_trust::TrustQuery::LocalConfig,
-            )
-            .is_trusted()
-    }) {
-        return false;
-    }
-    let local_helix = workspace.join(".helix");
-    local_helix.join("helix.scm").exists() && local_helix.join("init.scm").exists()
-}
-
 fn preferred_config_path(file_name: &str) -> PathBuf {
     if let Ok(steel_config_dir) = std::env::var("HELIX_STEEL_CONFIG") {
         PathBuf::from(steel_config_dir).join(file_name)
-    } else if local_config_exists() {
-        find_workspace().0.join(".helix").join(file_name)
     } else {
         helix_loader::config_dir().join(file_name)
+    }
+}
+
+fn configuration_directories(user: PathBuf, project: PathBuf, trusted: bool) -> Vec<PathBuf> {
+    let mut directories = vec![user];
+    if trusted && project.join("helix.scm").is_file() && project.join("init.scm").is_file() {
+        // A user-selected directory may also be the project's directory.
+        let same_directory = directories[0] == project
+            || std::fs::canonicalize(&directories[0])
+                .ok()
+                .zip(std::fs::canonicalize(&project).ok())
+                .is_some_and(|(user, project)| user == project);
+        if !same_directory {
+            directories.push(project);
+        }
+    }
+    directories
+}
+
+fn run_configuration_directory(
+    directory: &std::path::Path,
+    mut run: impl FnMut(&str, PathBuf) -> Result<(), SteelErr>,
+) -> Result<(), SteelErr> {
+    let module = directory.join("helix.scm");
+    let init = directory.join("init.scm");
+    if module.is_file() {
+        run(
+            &format!("(require {:?})", module.to_string_lossy()),
+            init.clone(),
+        )?;
+    }
+    match std::fs::read_to_string(&init) {
+        Ok(contents) => run(&contents, init),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(SteelErr::new(
+            ErrorKind::Generic,
+            format!("Failed to read {}: {error}", init.display()),
+        )),
     }
 }
 
@@ -3292,8 +3314,20 @@ fn run_initialization_script(
 
     log::info!("Loading init.scm...");
 
-    let helix_module_path = helix_module_file();
-    let helix_init_path = steel_init_file();
+    let workspace = find_workspace().0;
+    let trusted = cx
+        .editor
+        .workspace_trust
+        .query(
+            &workspace,
+            helix_loader::workspace_trust::TrustQuery::LocalConfig,
+        )
+        .is_trusted();
+    let directories = configuration_directories(
+        helix_module_file().parent().unwrap().to_path_buf(),
+        workspace.join(".helix"),
+        trusted,
+    );
 
     // TODO: Report the error from requiring the file!
     enter_engine(|guard| {
@@ -3310,45 +3344,22 @@ fn run_initialization_script(
             .unwrap(),
         );
 
-        if helix_module_path.exists() {
-            log::info!("Loading helix.scm from context: {:?}", helix_init_path);
-            let res = guard.run_with_reference_from_path(
-                cx,
-                CTX,
-                &format!(r#"(require {:?})"#, helix_module_path.to_str().unwrap()),
-                helix_init_path,
-            );
-
-            // Present the error in the helix.scm loading
-            if let Err(e) = res {
-                present_error_inside_engine_context(cx, guard, e);
-                return;
+        for directory in directories {
+            log::info!("Loading Steel configuration: {}", directory.display());
+            let result = run_configuration_directory(&directory, |contents, path| {
+                guard
+                    .run_with_reference_from_path::<Context, Context>(cx, CTX, contents, path)
+                    .map(|_| ())
+            });
+            if let Err(error) = result {
+                present_error_inside_engine_context(cx, guard, error);
+                // Do not apply project overrides on top of a failed user config.
+                break;
             }
-        } else {
-            println!("Unable to find the `helix.scm` file, creating....");
-            std::fs::write(helix_module_path, "").ok();
-        }
-
-        let helix_module_path = steel_init_file();
-
-        // These contents need to be registered with the path?
-        if let Ok(contents) = std::fs::read_to_string(&helix_module_path) {
-            let res = guard.run_with_reference_from_path::<Context, Context>(
-                cx,
-                CTX,
-                &contents,
-                helix_module_path,
+            log::info!(
+                "Finished loading Steel configuration: {}",
+                directory.display()
             );
-
-            match res {
-                Ok(_) => {}
-                Err(e) => present_error_inside_engine_context(cx, guard, e),
-            }
-
-            log::info!("Finished loading init.scm!")
-        } else {
-            log::info!("No init.scm found, skipping loading.");
-            std::fs::write(helix_module_path, "").ok();
         }
     });
 
