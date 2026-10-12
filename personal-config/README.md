@@ -6,10 +6,12 @@ From this checkout, run `./contrib/hx-personal [files...]` after building
 The launcher selects this directory with `HELIX_STEEL_CONFIG`, the checkout's
 runtime with `HELIX_RUNTIME`, and `/dev/null` as the global editor TOML config.
 The regular `~/.config/helix/config.toml` is left untouched for other builds.
-Trusted workspace TOML overrides and the regular themes/languages configuration
-are still available; this migrates the editor configuration, not language servers
-or theme assets. Do not pass another `--config` unless intentionally overriding
-the launcher's choice.
+The launcher also sets `HELIX_LANGUAGE_CONFIG=/dev/null`, skipping the normal
+global language TOML. Built-in language definitions remain the base; personal
+server, formatter, and language overrides live in `languages.scm`. The regular
+themes and trusted workspace TOML overrides are still available. The NixOS repo's
+language TOML stays untouched for other builds. Do not pass another `--config`
+unless intentionally overriding the launcher's choice.
 
 ## Organization
 
@@ -17,6 +19,7 @@ the launcher's choice.
 - `helix.scm`: public entry point, imports modules with prefixes and applies them
   in an explicit order.
 - `editing.scm`: editing, completion, saving, file handling, LSP, and blame settings.
+- `languages.scm`: language servers, server options, formatters, and file associations.
 - `appearance.scm`: display, cursor shapes, statusline, diagnostics, theme, and icons.
 - `keybindings.scm`: named keymaps for editor modes and Space/tool/VCS submenus.
 - `gitlens.scm`: on-demand native blame inspection and GitHub PR enrichment.
@@ -32,6 +35,17 @@ Editing settings are applied before appearance so true-color is enabled before
 loading the theme and icons. The migrated blame settings remain `never` with
 background fetching enabled; the original `Space B` requests line blame.
 Nothing installs or replaces your normal `hx` executable.
+
+Language configuration uses the existing Steel configuration bindings and batches
+document refreshes once. It ports the active overrides from the NixOS language
+TOML, keeping Harper disabled, and adds Steel LSP for Scheme files. Install server
+executables separately through Nix (for Steel LSP, `pkgs.steel` includes it).
+`--health` runs before Steel startup, so it reports the built-in/TOML layer rather
+than these runtime overrides; use `:lsp-restart`/the LSP log to inspect runtime
+servers. Changing `HELIX_LANGUAGE_CONFIG` affects only the global language file,
+not the location of themes and grammars. Trusted project `.helix/languages.toml`
+still forms part of the initial base; explicit Steel runtime overrides take
+precedence over overlapping fields, while other project fields remain intact.
 
 ## GitLens-style blame
 

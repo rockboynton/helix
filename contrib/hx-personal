@@ -9,5 +9,6 @@ if [ ! -x "$binary" ]; then
 fi
 export HELIX_RUNTIME="$repo_root/runtime"
 export HELIX_STEEL_CONFIG="$repo_root/personal-config"
+export HELIX_LANGUAGE_CONFIG=/dev/null
 exec "$binary" --config /dev/null "$@"
 

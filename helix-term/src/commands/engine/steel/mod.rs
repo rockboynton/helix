@@ -1,4 +1,6 @@
 pub mod components;
+#[cfg(test)]
+mod language_config_tests;
 mod services;
 
 use arc_swap::{ArcSwap, ArcSwapAny};
