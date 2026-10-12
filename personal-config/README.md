@@ -11,8 +11,22 @@ are still available; this migrates the editor configuration, not language server
 or theme assets. Do not pass another `--config` unless intentionally overriding
 the launcher's choice.
 
-`init.scm` applies editor settings and merges your keybindings into Helix's defaults.
-`helix.scm` is loaded first as a module: define/export reusable plugin functions
-there. The migrated blame settings are `never` with background fetching enabled;
-the original `Space B` binding requests line blame. Nothing installs or replaces
-your normal `hx` executable.
+## Organization
+
+- `init.scm`: startup wiring; calls `configure-personal!`.
+- `helix.scm`: public entry point, imports modules with prefixes and applies them
+  in an explicit order.
+- `editing.scm`: editing, completion, saving, file handling, LSP, and blame settings.
+- `appearance.scm`: display, cursor shapes, statusline, diagnostics, theme, and icons.
+- `keybindings.scm`: named keymaps for editor modes and Space/tool/VCS submenus.
+
+Modules export only their configuration functions. Importing a module does not
+apply settings; the entry point does that explicitly. Keep related settings in
+their owning module and avoid introducing helpers for one-off options. Keymaps
+merge into Helix's defaults, so unspecified bindings retain their default behavior.
+External shell commands remain literal to preserve Helix's `%` expansions.
+
+Editing settings are applied before appearance so true-color is enabled before
+loading the theme and icons. The migrated blame settings remain `never` with
+background fetching enabled; the original `Space B` requests line blame.
+Nothing installs or replaces your normal `hx` executable.
