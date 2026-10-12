@@ -7,6 +7,12 @@
 (define line-blame-current? helix.line-blame-current?)
 ;; (run-command-async program argument-list timeout-ms) -> future of result hash.
 (define run-command-async helix.run-command-async)
+
+(provide load-plugin-cache store-plugin-cache!)
+;; Bounded asynchronous JSON cache, under Helix's cache directory. Missing/corrupt
+;; caches return #f. Names cannot contain paths; writes use private atomic files.
+(define load-plugin-cache helix.load-plugin-cache)
+(define store-plugin-cache! helix.store-plugin-cache!)
 (provide hx.cx->pos)
 ;;@doc
 ;;DEPRECATED: Please use `cursor-position`

@@ -117,6 +117,107 @@ async fn command_output(program: String, args: Vec<String>, timeout_ms: u64) -> 
     }
 }
 
+fn plugin_cache_path(name: &str) -> anyhow::Result<std::path::PathBuf> {
+    anyhow::ensure!(
+        !name.is_empty()
+            && name.len() <= 64
+            && name
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b"-_".contains(&c)),
+        "Cache names must contain only ASCII letters, digits, hyphens, or underscores"
+    );
+    Ok(helix_loader::cache_dir()
+        .join("plugins")
+        .join(format!("{name}.json")))
+}
+
+pub(super) fn load_cache(name: String) -> anyhow::Result<SteelVal> {
+    let path = plugin_cache_path(&name)?;
+    Ok(future_json(async move {
+        tokio::task::spawn_blocking(move || read_cache(&path))
+            .await
+            .unwrap_or(Value::Bool(false))
+    }))
+}
+
+fn read_cache(path: &std::path::Path) -> Value {
+    use std::io::Read;
+    let read = || -> anyhow::Result<Value> {
+        let metadata = std::fs::symlink_metadata(path)?;
+        anyhow::ensure!(
+            metadata.is_file() && metadata.len() <= 1_048_576,
+            "Invalid plugin cache"
+        );
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)?
+            .take(1_048_577)
+            .read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() <= 1_048_576, "Plugin cache too large");
+        Ok(serde_json::from_slice(&bytes)?)
+    };
+    read().unwrap_or(Value::Bool(false))
+}
+
+pub(super) fn store_cache(name: String, value: SteelVal) -> anyhow::Result<SteelVal> {
+    let path = plugin_cache_path(&name)?;
+    let bytes = serde_json::to_vec(&Value::try_from(value)?)?;
+    anyhow::ensure!(bytes.len() <= 1_048_576, "Plugin cache too large");
+    Ok(future_json(async move {
+        Value::Bool(
+            tokio::task::spawn_blocking(move || write_cache(&path, &bytes))
+                .await
+                .is_ok_and(|result| result.is_ok()),
+        )
+    }))
+}
+
+fn write_cache(path: &std::path::Path, bytes: &[u8]) -> anyhow::Result<()> {
+    use std::{
+        io::Write,
+        sync::atomic::{AtomicU64, Ordering},
+    };
+    static NEXT_FILE: AtomicU64 = AtomicU64::new(0);
+    let directory = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("Cache has no directory"))?;
+    let mut directories = std::fs::DirBuilder::new();
+    directories.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        directories.mode(0o700);
+    }
+    directories.create(directory)?;
+    let temporary = directory.join(format!(
+        ".cache-{}-{}.tmp",
+        std::process::id(),
+        NEXT_FILE.fetch_add(1, Ordering::Relaxed)
+    ));
+    let mut created = false;
+    let mut write = || -> anyhow::Result<()> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(&temporary)?;
+        created = true;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&temporary, path)?;
+        Ok(())
+    };
+    let result = write();
+    // This exact temporary file was created by this call; no glob/broad cleanup.
+    if result.is_err() && created {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -127,7 +228,8 @@ mod tests {
         let mut engine = Engine::new();
         engine.register_steel_module("helix/misc.scm".into(), r#"
             (provide line-blame-at-cursor line-blame-current? run-command-async
-                     set-status! set-error! await-callback pop-last-component-by-name! push-component!)
+                     set-status! set-error! await-callback pop-last-component-by-name! push-component!
+                     load-plugin-cache store-plugin-cache!)
             (define (line-blame-at-cursor) #f)
             (define (line-blame-current? x) #t)
             (define (run-command-async . args) #f)
@@ -136,6 +238,8 @@ mod tests {
             (define (await-callback . args) #f)
             (define (pop-last-component-by-name! x) #f)
             (define (push-component! x) #f)
+            (define (load-plugin-cache x) #f)
+            (define (store-plugin-cache! . args) #f)
         "#.into());
         engine.register_steel_module(
             "helix/components.scm".into(),
@@ -152,6 +256,14 @@ mod tests {
             (provide add-global-keybinding)
             (define (add-global-keybinding x) #f)
         "#
+            .into(),
+        );
+        engine.register_steel_module(
+            "gitlens-cache.scm".into(),
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../personal-config/gitlens-cache.scm"
+            ))
             .into(),
         );
         engine
@@ -194,6 +306,60 @@ mod tests {
         assert!(text.contains("PR #123"));
         assert!(text.contains("A \\*name\\*"));
         assert!(text.contains("Body"));
+        let hints = engine
+            .run(
+                r#"
+            (list (inferred-pulls "Fix watcher (#14544)" "owner/repo")
+                  (inferred-pulls "Merge pull request #123 from owner/branch" "owner/repo")
+                  (inferred-pulls "Fix #123" "owner/repo")
+                  (inferred-pulls "Fix (#0)" "owner/repo")
+                  (inferred-pulls "Fix (#123/evil)" "owner/repo"))
+        "#,
+            )
+            .unwrap();
+        let value = Value::try_from(hints.last().unwrap().clone()).unwrap();
+        assert_eq!(value[0][0]["number"], "14544");
+        assert_eq!(value[0][0]["inferred"], true);
+        assert_eq!(value[1][0]["number"], "123");
+        for index in 2..5 {
+            assert!(value[index].as_array().unwrap().is_empty());
+        }
+        let cache = engine
+            .run(
+                r#"
+            (remember-prs! "owner/repo" "abc" (list (hash 'number "123" 'title "Saved")))
+            (cached-pr-entry "owner/repo" "abc")
+        "#,
+            )
+            .unwrap();
+        let cached = Value::try_from(cache.last().unwrap().clone()).unwrap();
+        assert_eq!(cached[0][0]["title"], "Saved");
+        assert_eq!(cached[1], true);
+    }
+
+    #[test]
+    fn plugin_cache_is_atomic_private_and_tolerates_corruption() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("plugins/test.json");
+        assert_eq!(read_cache(&path), Value::Bool(false));
+        write_cache(&path, br#"{"version":"1","entries":{}}"#).unwrap();
+        assert_eq!(read_cache(&path)["version"], "1");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        write_cache(&path, br#"{"version":"2"}"#).unwrap();
+        assert_eq!(read_cache(&path)["version"], "2");
+        std::fs::write(&path, "invalid json").unwrap();
+        assert_eq!(read_cache(&path), Value::Bool(false));
+        std::fs::write(&path, vec![b' '; 1_048_577]).unwrap();
+        assert_eq!(read_cache(&path), Value::Bool(false));
+        assert!(plugin_cache_path("../escape").is_err());
+        assert!(plugin_cache_path("").is_err());
     }
 
     #[cfg(unix)]

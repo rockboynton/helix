@@ -20,6 +20,7 @@ the launcher's choice.
 - `appearance.scm`: display, cursor shapes, statusline, diagnostics, theme, and icons.
 - `keybindings.scm`: named keymaps for editor modes and Space/tool/VCS submenus.
 - `gitlens.scm`: on-demand native blame inspection and GitHub PR enrichment.
+- `gitlens-cache.scm`: lazy, persistent PR metadata cache.
 
 Modules export only their configuration functions. Importing a module does not
 apply settings; the entry point does that explicitly. Keep related settings in
@@ -42,8 +43,17 @@ with `:workspace-trust`. Uncommitted lines have no historical blame.
 
 Local metadata is native and loaded in a background worker. GitHub enrichment uses
 `gh api` with your existing GitHub authentication, a five-second timeout, no shell
-interpolation, bounded output, and a five-minute/128-entry session cache. Only
+interpolation, bounded output, and a five-minute/128-entry persistent cache. Only
 Shift-B initiates a plugin lookup; no plugin network work runs on startup or render.
+Recognizable `Title (#123)` and merge-commit titles provide immediate PR links,
+explicitly marked as unverified hints until the API confirms an association.
+Saved metadata survives editor restarts; stale details remain visible while
+refreshing, for up to seven days. The cache is lazy-loaded on the first request,
+stored in Helix's cache directory under `plugins/gitlens-pr-v1.json` (normally
+`$XDG_CACHE_HOME/helix/plugins/gitlens-pr-v1.json`, or
+`~/.cache/helix/plugins/gitlens-pr-v1.json` on Linux), and contains metadata only,
+never authentication tokens. Unix files are mode `0600`; private repository titles
+may be present. Run `:gitlens-clear-cache` to discard saved details.
 The existing `inline-blame.auto-fetch` setting is independent of this plugin.
 Missing `gh`, offline/authentication failures, and non-GitHub repositories still
 show local metadata. GitHub.com is supported, not GitHub Enterprise hosts. Upstream
@@ -51,12 +61,17 @@ is preferred over origin in forks, and up to 20 associated PRs are displayed usi
 the [commit-to-PR API](https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit).
 
 Links are keyboard-actionable: **Tab/Shift-Tab** selects a PR or commit link;
+Commit is selected initially. Enrichment preserves selection, scroll position,
+and popup size instead of replacing the popup.
 **Enter** opens it in your default browser. **Ctrl-d/u** or Page Down/Up scrolls,
 and **Esc** dismisses/cancels the popup. These are not mouse-click/OSC-8 terminal
 hyperlinks. Replies for changed documents/versions/cursor lines are ignored, and
 late replies cannot reopen dismissed popups. Only HTTPS links can be opened.
 
 The core Steel bindings provide asynchronous native metadata, generic bounded
-process execution, and a linked Markdown popup. GitHub endpoint choice, caching,
+process execution, private JSON cache storage, and a linked Markdown popup.
+GitHub endpoint choice, cache policy,
 formatting, and the binding live in this Scheme module. To disable the plugin,
 remove `(configure-gitlens!)` from `helix.scm` and restore your desired `B` binding.
+
+See [Octocrab research](octocrab-research.md) for the native-client assessment.

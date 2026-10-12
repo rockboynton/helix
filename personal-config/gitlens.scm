@@ -3,14 +3,11 @@
 (require "helix/misc.scm")
 (require "helix/components.scm")
 (require "helix/keymaps.scm")
-(require-builtin steel/time)
+(require "gitlens-cache.scm")
 
-(provide gitlens-blame configure-gitlens! github-repository format-blame)
+(provide gitlens-blame gitlens-clear-cache configure-gitlens! github-repository format-blame inferred-pulls)
 
 (define request-id 0)
-(define pr-cache (hash))
-(define cache-ttl-ms 300000)
-(define cache-limit 128)
 
 (define (every? predicate values)
   (or (null? values)
@@ -46,6 +43,42 @@
     (if (null? remotes) #f
         (or (github-repository (car remotes)) (loop (cdr remotes))))))
 
+(define (valid-pr-number? number)
+  (and (string? number) (> (string-length number) 0) (<= (string-length number) 10)
+       (not (starts-with? number "0"))
+       (every? (lambda (c) (member c (string->list "0123456789"))) (string->list number))))
+
+(define (message-pr-number title)
+  (cond
+    [(starts-with? title "Merge pull request #")
+     (let ([parts (split-many (trim-start-matches title "Merge pull request #") " from ")])
+       (and (= (length parts) 2) (valid-pr-number? (car parts)) (car parts)))]
+    [(ends-with? title ")")
+     (let ([parts (split-many title " (#")])
+       (and (= (length parts) 2)
+            (let ([number (substring (cadr parts) 0 (- (string-length (cadr parts)) 1))])
+              (and (valid-pr-number? number) number))))]
+    [else #f]))
+
+(define (inferred-pulls title repo)
+  (let ([number (and repo (message-pr-number title))])
+    (if number
+        (list (hash 'number number 'title "Inferred from commit message" 'inferred #t
+                    'state "unverified"
+                    'html_url (string-append "https://github.com/" repo "/pull/" number)))
+        '())))
+
+(define (safe-pulls repo pulls)
+  (if (not (list? pulls)) '()
+      (map (lambda (pr)
+             ;; Build links from validated numbers/repository, not cache/API URLs.
+             (hash-insert pr 'html_url (string-append "https://github.com/" repo "/pull/"
+                                                    (hash-ref pr 'number))))
+           (filter (lambda (pr)
+                     (and (hash? pr) (valid-pr-number? (hash-try-get pr 'number))
+                          (string? (hash-try-get pr 'title))
+                          (<= (string-length (hash-ref pr 'title)) 1000))) pulls))))
+
 ;; Commit messages are displayed as text, not interpreted as Markdown commands/links.
 (define (literal-text text)
   (apply string-append
@@ -69,19 +102,20 @@
       (map (lambda (pr)
              (string-append "**PR #" (text-field pr 'number "?") ":** "
                             (literal-text (text-field pr 'title "Untitled"))
-                            " (" (if (string? (hash-try-get pr 'merged_at)) "merged"
-                                      (text-field pr 'state "unknown")) ")\n\n")) pulls))
+                            " (" (if (hash-try-get pr 'inferred) "unverified message hint"
+                                     (if (string? (hash-try-get pr 'merged_at)) "merged"
+                                      (text-field pr 'state "unknown"))) ")\n\n")) pulls))
     note))
 
 (define (popup-links data repo pulls)
   (append
-    (map (lambda (pr)
-           (list (string-append "PR #" (text-field pr 'number "?"))
-                 (text-field pr 'html_url ""))) pulls)
     (if repo
         (list (list "Commit" (string-append "https://github.com/" repo "/commit/"
                                            (hash-ref data 'commit))))
-        '())))
+        '())
+    (map (lambda (pr)
+           (list (string-append "PR #" (text-field pr 'number "?"))
+                 (text-field pr 'html_url ""))) pulls)))
 
 (define (show-blame! id snapshot repo pulls note)
   (when (and (= id request-id) (line-blame-current? snapshot))
@@ -91,41 +125,54 @@
         (markdown-popup (format-blame data (hash-ref snapshot 'line) pulls note)
                         (popup-links data repo pulls))))))
 
-(define (cached-pulls key)
-  (let ([entry (hash-try-get pr-cache key)])
-    (and entry (< (- (current-milliseconds) (car entry)) cache-ttl-ms) (cadr entry))))
-
-(define (remember-pulls! key pulls)
-  (when (>= (hash-length pr-cache) cache-limit) (set! pr-cache (hash)))
-  (set! pr-cache (hash-insert pr-cache key (list (current-milliseconds) pulls))))
+(define (refresh-pulls! id snapshot repo fallback)
+  (let ([commit (hash-ref (hash-ref snapshot 'data) 'commit)]
+        [cache-generation (pr-cache-generation)])
+    (await-callback
+      (run-command-async
+        "gh" (list "api" "--hostname" "github.com" "-H"
+                   "Accept: application/vnd.github+json"
+                   "-H" "X-GitHub-Api-Version: 2022-11-28"
+                   (string-append "repos/" repo "/commits/" commit "/pulls?per_page=20")
+                   "--jq" "[.[] | {number:(.number|tostring), title, html_url, state, merged_at}]")
+        5000)
+      (lambda (result)
+        (if (hash-ref result 'ok)
+            (with-handler
+              (lambda (_) (show-blame! id snapshot repo fallback "PR: response unavailable; showing local hints/cached details."))
+              (let* ([raw (string->jsexpr (hash-ref result 'stdout))]
+                     [pulls (if (list? raw) (safe-pulls repo raw) (error "Expected PR array"))])
+                (when (= cache-generation (pr-cache-generation))
+                  (remember-prs! repo commit pulls))
+                (show-blame! id snapshot repo (if (null? pulls) fallback pulls)
+                             (if (null? pulls) "PR: no associated PR found. Message hints remain unverified." "PR: verified by GitHub."))))
+            (show-blame! id snapshot repo fallback
+              "PR: lookup unavailable; local hints/cached details remain available."))))))
 
 (define (enrich-blame! id snapshot repo)
-  (let* ([commit (hash-ref (hash-ref snapshot 'data) 'commit)]
-         [key (string-append repo "/" commit)]
-         [cached (cached-pulls key)])
-    (if cached
-        (show-blame! id snapshot repo cached "")
-        (begin
-          ;; Show local data immediately; GitHub enrichment never gates the popup.
-          (show-blame! id snapshot repo '() "Looking up associated GitHub PRs…")
-          (await-callback
-            (run-command-async
-              "gh" (list "api" "--hostname" "github.com" "-H"
-                         "Accept: application/vnd.github+json"
-                         "-H" "X-GitHub-Api-Version: 2022-11-28"
-                         (string-append "repos/" repo "/commits/" commit "/pulls?per_page=20")
-                         "--jq" "[.[] | {number:(.number|tostring), title, html_url, state, merged_at}]")
-              5000)
-            (lambda (result)
-              (if (hash-ref result 'ok)
-                  (with-handler
-                    (lambda (_) (show-blame! id snapshot repo '() "Could not decode GitHub's response."))
-                    (let ([pulls (string->jsexpr (hash-ref result 'stdout))])
-                      (remember-pulls! key pulls)
-                      (show-blame! id snapshot repo pulls
-                                   (if (null? pulls) "No associated PR found." ""))))
-                  (show-blame! id snapshot repo '()
-                    "PR lookup unavailable (offline, gh missing/unauthed, or API error). Local blame still works."))))))))
+  (let* ([data (hash-ref snapshot 'data)]
+         [commit (hash-ref data 'commit)]
+         [hints (inferred-pulls (text-field data 'title "") repo)])
+    ;; Immediate local content; neither disk cache loading nor GitHub gates it.
+    (show-blame! id snapshot repo hints "PR: checking saved cache…")
+    (with-pr-cache!
+      (lambda ()
+        (when (and (= id request-id) (line-blame-current? snapshot))
+          (let* ([cached (cached-pr-entry repo commit)]
+                 [pulls (if cached (safe-pulls repo (car cached)) '())]
+                 [available (if (null? pulls) hints pulls)])
+            (if (and cached (cadr cached))
+                (show-blame! id snapshot repo available
+                             (if (null? pulls) "PR: no associated PR in saved lookup. Message hints are unverified." "PR: saved verified details."))
+                (begin
+                  (show-blame! id snapshot repo available
+                               (if cached "PR: cached details; refreshing…" "PR: looking up…"))
+                  (refresh-pulls! id snapshot repo available)))))))))
+
+(define (gitlens-clear-cache)
+  (set! request-id (+ request-id 1))
+  (clear-pr-cache!)
+  (set-status! "GitLens saved PR cache cleared"))
 
 (define (gitlens-blame)
   (set! request-id (+ request-id 1))

@@ -45,7 +45,6 @@ struct LinkedMarkdown {
     content: String,
     links: Vec<(String, String)>,
     selected: usize,
-    selection_changed: bool,
 }
 
 impl LinkedMarkdown {
@@ -66,20 +65,15 @@ impl LinkedMarkdown {
         }
         let step = if backwards { self.links.len() - 1 } else { 1 };
         self.selected = (self.selected + step) % self.links.len();
-        self.selection_changed = true;
         self.update_links();
     }
 
     fn preserve_selection(&mut self, previous: &Self) {
-        if !previous.selection_changed {
-            return;
-        }
         let Some((_, selected_url)) = previous.links.get(previous.selected) else {
             return;
         };
         if let Some(index) = self.links.iter().position(|(_, url)| url == selected_url) {
             self.selected = index;
-            self.selection_changed = true;
             self.update_links();
         }
     }
@@ -91,7 +85,11 @@ impl Component for LinkedMarkdown {
     }
 
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        self.markdown.required_size(viewport)
+        // Reserve the popup footprint from loading through network enrichment.
+        // Keep the real text height so the outer popup can still scroll long bodies.
+        let width = viewport.0.min(90);
+        let (_, text_height) = self.markdown.required_size((width, viewport.1))?;
+        Some((width, text_height.max(viewport.1)))
     }
 
     fn handle_event(
@@ -153,7 +151,6 @@ mod linked_markdown_tests {
                 .map(|(label, url)| (label.to_string(), url.to_string()))
                 .collect(),
             selected: 0,
-            selection_changed: false,
         };
         popup.update_links();
         popup
@@ -198,6 +195,28 @@ mod linked_markdown_tests {
             .markdown
             .contents
             .starts_with("**Link 2 of 2: Commit**"));
+    }
+
+    #[test]
+    fn enrichment_preserves_default_selection_and_reserved_size() {
+        let previous = popup(&[("Commit", "https://github.com/o/r/commit/abc")]);
+        let mut enriched = popup(&[
+            ("PR", "https://github.com/o/r/pull/123"),
+            ("Commit", "https://github.com/o/r/commit/abc"),
+        ]);
+        enriched.preserve_selection(&previous);
+        assert_eq!(enriched.selected, 1);
+        let mut loading = popup(&[]);
+        loading.content = "Loading…".into();
+        loading.update_links();
+        let loading_size =
+            crate::compositor::Component::required_size(&mut loading, (80, 24)).unwrap();
+        assert_eq!(loading_size, (80, 24));
+        // Large content keeps a real scroll height but a constant width.
+        let enriched_size =
+            crate::compositor::Component::required_size(&mut enriched, (80, 24)).unwrap();
+        assert_eq!(enriched_size.0, 80);
+        assert!(enriched_size.1 >= 24);
     }
 
     #[test]
@@ -550,7 +569,6 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
                     content,
                     links,
                     selected: 0,
-                    selection_changed: false,
                 };
                 markdown.update_links();
                 Ok(WrappedDynComponent {
@@ -579,9 +597,10 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
                                     .downcast_mut::<ui::Popup<LinkedMarkdown>>()
                                 {
                                     next.contents_mut().preserve_selection(previous.contents());
+                                    // Update only the contents: keep the outer popup's anchor,
+                                    // scroll position, and identity instead of replacing its layer.
+                                    std::mem::swap(previous.contents_mut(), next.contents_mut());
                                 }
-                                compositor.remove("steel-markdown-links");
-                                compositor.push(inner);
                             }
                         });
                     Ok(callback)

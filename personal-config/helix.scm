@@ -4,7 +4,7 @@
 (require (prefix-in keys. "keybindings.scm"))
 (require "gitlens.scm")
 
-(provide configure-personal! gitlens-blame)
+(provide configure-personal! gitlens-blame gitlens-clear-cache)
 
 (define (configure-personal!)
   (editing.configure-editing!)
