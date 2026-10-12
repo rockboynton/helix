@@ -62,6 +62,9 @@ lookups and links. Up to 20 associated PRs are displayed using
 the [commit-to-PR API](https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit).
 
 Links are keyboard-actionable: **Tab/Shift-Tab** selects a PR or commit link;
+**y** copies the full commit hash, and **c** copies the active link (including
+after Tab changes selection). Both write Helix's default yank register and the
+system clipboard; clipboard failures still leave the value available for `p`.
 **d** loads the full local commit patch into the popup, independent of GitHub.
 This runs bounded asynchronous `git show` (five seconds, 1 MiB), with external
 diff and textconv disabled. Oversized patches display an explicit error.

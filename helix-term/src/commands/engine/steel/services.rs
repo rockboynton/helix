@@ -245,10 +245,11 @@ mod tests {
         engine.register_steel_module(
             "helix/components.scm".into(),
             r#"
-            (provide markdown-popup update-markdown-popup! markdown-popup-keybinding! markdown-code-block)
+            (provide markdown-popup update-markdown-popup! markdown-popup-keybinding! markdown-code-block copy-text!)
             (define (markdown-popup . args) args)
             (define (update-markdown-popup! x) #f)
             (define (markdown-popup-keybinding! . args) #f)
+            (define (copy-text! . args) #f)
             (define (markdown-code-block language body) (string-append "````" language "\n" body "\n````"))
         "#
             .into(),

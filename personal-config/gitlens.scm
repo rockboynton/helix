@@ -156,19 +156,28 @@
       (let ([popup (markdown-popup (format-blame data pulls note)
                                    (popup-links data repo pulls))])
         (markdown-popup-keybinding! popup #\d (lambda () (show-diff! snapshot)))
+        (markdown-popup-keybinding! popup #\y
+          (lambda () (copy-text! (hash-ref data 'commit) "Commit hash")))
         (update-markdown-popup! popup)))))
 
 (define (format-diff patch)
   (string-append "# Commit diff\n\n" (markdown-code-block "diff" patch)))
 
+(define (diff-popup content data)
+  (let ([popup (markdown-popup content '())])
+    (markdown-popup-keybinding! popup #\y
+      (lambda () (copy-text! (hash-ref data 'commit) "Commit hash")))
+    popup))
+
 (define (show-diff! snapshot)
   (when (line-blame-current? snapshot)
     ;; Invalidate PR enrichment so it cannot overwrite the diff view.
     (set! request-id (+ request-id 1))
-    (let ([id request-id]
-          [commit (hash-ref (hash-ref snapshot 'data) 'commit)])
+    (let* ([id request-id]
+           [data (hash-ref snapshot 'data)]
+           [commit (hash-ref data 'commit)])
       (pop-last-component-by-name! "steel-markdown-links")
-      (push-component! (markdown-popup "# Commit diff\n\nLoading…" '()))
+      (push-component! (diff-popup "# Commit diff\n\nLoading…" data))
       (await-callback
         (run-command-async "git"
           (list "-C" (hash-ref snapshot 'directory) "--no-pager" "show"
@@ -177,10 +186,10 @@
         (lambda (result)
           (when (and (= id request-id) (line-blame-current? snapshot))
             (update-markdown-popup!
-              (markdown-popup
+              (diff-popup
                 (if (hash-ref result 'ok) (format-diff (hash-ref result 'stdout))
                     "# Commit diff\n\nDiff unavailable: Git failed, timed out, or the patch exceeded the 1 MiB limit.")
-                '()))))))))
+                data))))))))
 
 (define (unpublished-commit? result)
   (with-handler (lambda (_) #f)

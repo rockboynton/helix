@@ -71,6 +71,10 @@ impl LinkedMarkdown {
         self.update_links();
     }
 
+    fn selected_link(&self) -> Option<&str> {
+        self.links.get(self.selected).map(|(_, url)| url.as_str())
+    }
+
     fn preserve_selection(&mut self, previous: &Self) {
         let Some((_, selected_url)) = previous.links.get(previous.selected) else {
             return;
@@ -116,6 +120,14 @@ impl Component for LinkedMarkdown {
                 }
                 compositor::EventResult::Consumed(None)
             }
+            KeyCode::Char('c') if key.modifiers.is_empty() => {
+                if let Some(url) = self.selected_link() {
+                    copy_text(ctx.editor, url, "Link");
+                } else {
+                    ctx.editor.set_status("No active link to copy");
+                }
+                compositor::EventResult::Consumed(None)
+            }
             KeyCode::Char(c) if key.modifiers.is_empty() && self.keybindings.contains_key(&c) => {
                 let (generation, callback) = &self.keybindings[&c];
                 if is_current_generation(*generation) {
@@ -139,6 +151,22 @@ impl Component for LinkedMarkdown {
             }
             _ => compositor::EventResult::Ignored(None),
         }
+    }
+}
+
+fn copy_text(editor: &mut Editor, text: &str, label: &str) {
+    // Always retain a local yank even when the system clipboard is unavailable.
+    if let Err(error) = editor.registers.write('"', vec![text.to_owned()]) {
+        editor.set_error(format!("Could not yank {label}: {error}"));
+        return;
+    }
+    if editor.registers.clipboard_provider_name() == "none" {
+        editor.set_status(format!("{label} yanked; system clipboard disabled"));
+        return;
+    }
+    match editor.registers.write('+', vec![text.to_owned()]) {
+        Ok(()) => editor.set_status(format!("{label} copied to yank register and clipboard")),
+        Err(_) => editor.set_status(format!("{label} yanked; system clipboard unavailable")),
     }
 }
 
@@ -183,6 +211,24 @@ mod linked_markdown_tests {
         assert!(block.starts_with("````diff\n"));
         assert!(block.ends_with("````"));
         assert!(super::markdown_code_block("diff\n# injected".into(), String::new()).is_err());
+    }
+
+    #[test]
+    fn copy_uses_the_active_link_after_tab_selection() {
+        let mut popup = popup(&[
+            ("Commit", "https://github.com/o/r/commit/abc"),
+            ("PR", "https://github.com/o/r/pull/123"),
+        ]);
+        assert_eq!(
+            popup.selected_link(),
+            Some("https://github.com/o/r/commit/abc")
+        );
+        popup.cycle_link(false);
+        assert_eq!(
+            popup.selected_link(),
+            Some("https://github.com/o/r/pull/123")
+        );
+        assert_eq!(self::popup(&[]).selected_link(), None);
     }
 
     fn popup(links: &[(&str, &str)]) -> LinkedMarkdown {
@@ -610,6 +656,13 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
             },
         )
         .register_fn("markdown-code-block", markdown_code_block)
+        .register_fn_with_ctx(
+            CTX,
+            "copy-text!",
+            |ctx: &mut Context, text: String, label: String| {
+                copy_text(ctx.editor, &text, &label);
+            },
+        )
         .register_fn_with_ctx(
             CTX,
             "markdown-component",

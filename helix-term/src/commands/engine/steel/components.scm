@@ -417,6 +417,10 @@
 ;; Fence arbitrary text safely without interpreting its Markdown contents.
 (define markdown-code-block helix.components.markdown-code-block)
 
+(provide copy-text!)
+;; Copy text to the default yank register and system clipboard, with status feedback.
+(define copy-text! helix.components.copy-text!)
+
 (provide update-markdown-popup!)
 ;; Replace an existing Markdown popup only; closed popups stay closed.
 (define update-markdown-popup! helix.components.update-markdown-popup!)
