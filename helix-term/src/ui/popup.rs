@@ -117,6 +117,18 @@ impl<T: Component> Popup<T> {
         self.scroll_half_pages += 1;
     }
 
+    pub fn scroll_position_in_half_pages(&self) -> usize {
+        self.scroll_half_pages
+    }
+
+    pub fn set_scroll_position_in_half_pages(&mut self, position: usize) {
+        self.scroll_half_pages = position;
+    }
+
+    pub fn into_contents(self) -> T {
+        self.contents
+    }
+
     pub fn scroll_half_page_up(&mut self) {
         self.scroll_half_pages = self.scroll_half_pages.saturating_sub(1);
     }

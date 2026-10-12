@@ -425,6 +425,11 @@
 ;; Replace an existing Markdown popup only; closed popups stay closed.
 (define update-markdown-popup! helix.components.update-markdown-popup!)
 
+(provide switch-markdown-popup! restore-markdown-popup!)
+;; Switch to a child view while saving original content, selection, and scrolling.
+(define switch-markdown-popup! helix.components.switch-markdown-popup!)
+(define restore-markdown-popup! helix.components.restore-markdown-popup!)
+
 (provide overlaid)
 (define overlaid helix.components.overlaid)
 

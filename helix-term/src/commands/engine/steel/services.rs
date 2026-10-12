@@ -245,11 +245,19 @@ mod tests {
         engine.register_steel_module(
             "helix/components.scm".into(),
             r#"
-            (provide markdown-popup update-markdown-popup! markdown-popup-keybinding! markdown-code-block copy-text!)
+            (provide markdown-popup update-markdown-popup! markdown-popup-keybinding! markdown-code-block copy-text!
+                     switch-markdown-popup! restore-markdown-popup! test-popup-action test-restore-count)
             (define (markdown-popup . args) args)
             (define (update-markdown-popup! x) #f)
-            (define (markdown-popup-keybinding! . args) #f)
+            (define test-actions (hash))
+            (define restores 0)
+            (define (markdown-popup-keybinding! popup key action)
+              (set! test-actions (hash-insert test-actions key action)))
+            (define (test-popup-action key) (hash-ref test-actions key))
+            (define (test-restore-count) restores)
             (define (copy-text! . args) #f)
+            (define (switch-markdown-popup! . args) #f)
+            (define (restore-markdown-popup!) (set! restores (+ restores 1)))
             (define (markdown-code-block language body) (string-append "````" language "\n" body "\n````"))
         "#
             .into(),
@@ -364,6 +372,46 @@ mod tests {
         assert!(formatting[4].as_str().unwrap().contains("````diff"));
         assert_eq!(formatting[5], true);
         assert_eq!(formatting[6], false);
+        let canonical = engine
+            .run(
+                r#"
+            (safe-pulls "rockboynton/helix"
+              (list (hash 'number "8675" 'title "Upstream PR"
+                          'html_url "https://github.com/helix-editor/helix/pull/8675")
+                    (hash 'number "123" 'title "Fork PR"
+                          'html_url "https://github.com/rockboynton/helix/pull/123")
+                    (hash 'number "123" 'title "Wrong number"
+                          'html_url "https://github.com/helix-editor/helix/pull/124")
+                    (hash 'number "123" 'title "Unsafe host"
+                          'html_url "https://github.com.evil.test/helix-editor/helix/pull/123")
+                    (hash 'number "123" 'title "Unsafe path"
+                          'html_url "https://github.com/../helix/pull/123")
+                    (hash 'number "123" 'title "Unsafe query"
+                          'html_url "https://github.com/o/r/pull/123?token=secret")))
+        "#,
+            )
+            .unwrap();
+        let canonical = Value::try_from(canonical.last().unwrap().clone()).unwrap();
+        assert_eq!(canonical.as_array().unwrap().len(), 2);
+        assert_eq!(
+            canonical[0]["html_url"],
+            "https://github.com/helix-editor/helix/pull/8675"
+        );
+        assert_eq!(
+            canonical[1]["html_url"],
+            "https://github.com/rockboynton/helix/pull/123"
+        );
+        let deferred = engine.run(r#"
+            (define test-data (hash 'commit "abc" 'remotes (list "https://github.com/rockboynton/helix")))
+            (set! showing-diff? #t)
+            (show-blame! request-id (hash 'data test-data) "rockboynton/helix" '() "PR: verified")
+            (define queued? (not (equal? pending-blame-update #f)))
+            (diff-popup "Diff body" test-data)
+            ((test-popup-action #\d))
+            (list queued? showing-diff? pending-blame-update (test-restore-count))
+        "#).unwrap();
+        let deferred = Value::try_from(deferred.last().unwrap().clone()).unwrap();
+        assert_eq!(deferred, json!([true, false, false, 1]));
     }
 
     #[test]

@@ -46,9 +46,27 @@ struct LinkedMarkdown {
     links: Vec<(String, String)>,
     selected: usize,
     keybindings: HashMap<char, (usize, RootedSteelVal)>,
+    previous_view: Option<(Box<LinkedMarkdown>, usize)>,
 }
 
 impl LinkedMarkdown {
+    fn switch_view(&mut self, next: Self, scroll: usize) {
+        let previous = std::mem::replace(self, next);
+        self.previous_view = Some((Box::new(previous), scroll));
+    }
+
+    fn restore_view(&mut self) -> Option<usize> {
+        let (previous, scroll) = self.previous_view.take()?;
+        *self = *previous;
+        Some(scroll)
+    }
+
+    fn update_view(&mut self, mut next: Self) {
+        next.preserve_selection(self);
+        next.previous_view = self.previous_view.take();
+        *self = next;
+    }
+
     fn update_links(&mut self) {
         self.markdown.contents.clear();
         if !self.links.is_empty() {
@@ -170,6 +188,16 @@ fn copy_text(editor: &mut Editor, text: &str, label: &str) {
     }
 }
 
+fn take_popup_view(component: &mut WrappedDynComponent) -> Option<LinkedMarkdown> {
+    component
+        .inner
+        .take()?
+        .as_boxed_any()
+        .downcast::<ui::Popup<LinkedMarkdown>>()
+        .ok()
+        .map(|popup| (*popup).into_contents())
+}
+
 fn safe_link(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://") else {
         return false;
@@ -214,6 +242,30 @@ mod linked_markdown_tests {
     }
 
     #[test]
+    fn diff_round_trip_restores_original_view_selection_and_scroll() {
+        let mut view = popup(&[
+            ("Commit", "https://github.com/o/r/commit/abc"),
+            ("PR", "https://github.com/o/r/pull/123"),
+        ]);
+        view.content = "Original blame".into();
+        view.cycle_link(false);
+        for _ in 0..3 {
+            view.switch_view(popup(&[]), 3);
+            let mut loaded = popup(&[]);
+            loaded.content = "Loaded diff".into();
+            view.update_view(loaded);
+            assert_eq!(view.restore_view(), Some(3));
+            assert_eq!(view.content, "Original blame");
+            assert_eq!(
+                view.selected_link(),
+                Some("https://github.com/o/r/pull/123")
+            );
+            assert!(view.previous_view.is_none());
+        }
+        assert_eq!(view.restore_view(), None);
+    }
+
+    #[test]
     fn copy_uses_the_active_link_after_tab_selection() {
         let mut popup = popup(&[
             ("Commit", "https://github.com/o/r/commit/abc"),
@@ -247,6 +299,7 @@ mod linked_markdown_tests {
                 .collect(),
             selected: 0,
             keybindings: Default::default(),
+            previous_view: None,
         };
         popup.update_links();
         popup
@@ -700,6 +753,7 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
                     links,
                     selected: 0,
                     keybindings: HashMap::new(),
+                    previous_view: None,
                 };
                 markdown.update_links();
                 Ok(WrappedDynComponent {
@@ -737,7 +791,7 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
             CTX,
             "update-markdown-popup!",
             |ctx: &mut Context, component: &mut WrappedDynComponent| {
-                let Some(mut inner) = component.inner.take() else {
+                let Some(next) = take_popup_view(component) else {
                     return;
                 };
                 ctx.jobs.local_callback(async move {
@@ -747,21 +801,49 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
                             if let Some(previous) = compositor
                                 .find_id::<ui::Popup<LinkedMarkdown>>("steel-markdown-links")
                             {
-                                if let Some(next) = inner
-                                    .as_any_mut()
-                                    .downcast_mut::<ui::Popup<LinkedMarkdown>>()
-                                {
-                                    next.contents_mut().preserve_selection(previous.contents());
-                                    // Update only the contents: keep the outer popup's anchor,
-                                    // scroll position, and identity instead of replacing its layer.
-                                    std::mem::swap(previous.contents_mut(), next.contents_mut());
-                                }
+                                previous.contents_mut().update_view(next);
                             }
                         });
                     Ok(callback)
                 });
             },
         )
+        .register_fn_with_ctx(
+            CTX,
+            "switch-markdown-popup!",
+            |ctx: &mut Context, component: &mut WrappedDynComponent| {
+                let Some(next) = take_popup_view(component) else {
+                    return;
+                };
+                ctx.jobs.local_callback(async move {
+                    let callback: Box<super::LocalJobCallback> =
+                        Box::new(move |_, compositor, _| {
+                            if let Some(popup) = compositor
+                                .find_id::<ui::Popup<LinkedMarkdown>>("steel-markdown-links")
+                            {
+                                let scroll = popup.scroll_position_in_half_pages();
+                                popup.contents_mut().switch_view(next, scroll);
+                                popup.set_scroll_position_in_half_pages(0);
+                            }
+                        });
+                    Ok(callback)
+                });
+            },
+        )
+        .register_fn_with_ctx(CTX, "restore-markdown-popup!", |ctx: &mut Context| {
+            ctx.jobs.local_callback(async move {
+                let callback: Box<super::LocalJobCallback> = Box::new(move |_, compositor, _| {
+                    if let Some(popup) =
+                        compositor.find_id::<ui::Popup<LinkedMarkdown>>("steel-markdown-links")
+                    {
+                        if let Some(scroll) = popup.contents_mut().restore_view() {
+                            popup.set_scroll_position_in_half_pages(scroll);
+                        }
+                    }
+                });
+                Ok(callback)
+            });
+        })
         .register_fn("overlaid", |component: &mut WrappedDynComponent| {
             let inner: Option<Box<dyn Component + Send + Sync + 'static>> =
                 component.inner.take().map(|x| {

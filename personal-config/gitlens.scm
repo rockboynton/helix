@@ -8,6 +8,9 @@
 (provide gitlens-blame gitlens-clear-cache configure-gitlens! github-repository format-blame inferred-pulls human-datetime source-reference format-diff)
 
 (define request-id 0)
+(define diff-view-id 0)
+(define showing-diff? #f)
+(define pending-blame-update #f)
 
 (define (every? predicate values)
   (or (null? values)
@@ -99,16 +102,25 @@
                     'html_url (string-append "https://github.com/" repo "/pull/" number)))
         '())))
 
-(define (safe-pulls repo pulls)
+(define (canonical-pr-url pr)
+  (let ([url (hash-try-get pr 'html_url)] [number (hash-try-get pr 'number)])
+    (and (string? url) (<= (string-length url) 4096) (starts-with? url "https://github.com/")
+         (let ([parts (split-many (trim-start-matches url "https://github.com/") "/")])
+           (and (= (length parts) 4)
+                (valid-name? (car parts)) (valid-name? (cadr parts))
+                (equal? (list-ref parts 2) "pull")
+                (equal? (list-ref parts 3) number) (valid-pr-number? number)
+                url)))))
+
+(define (safe-pulls _lookup-repo pulls)
   (if (not (list? pulls)) '()
-      (map (lambda (pr)
-             ;; Build links from validated numbers/repository, not cache/API URLs.
-             (hash-insert pr 'html_url (string-append "https://github.com/" repo "/pull/"
-                                                    (hash-ref pr 'number))))
-           (filter (lambda (pr)
+      ;; PR ownership need not match the repository used to look up a commit.
+      ;; Retain the canonical GitHub URL after strict structural validation.
+      (filter (lambda (pr)
                      (and (hash? pr) (valid-pr-number? (hash-try-get pr 'number))
                           (string? (hash-try-get pr 'title))
-                          (<= (string-length (hash-ref pr 'title)) 1000))) pulls))))
+                          (<= (string-length (hash-ref pr 'title)) 1000)
+                          (canonical-pr-url pr))) pulls)))
 
 ;; Commit messages are displayed as text, not interpreted as Markdown commands/links.
 (define (literal-text text)
@@ -158,7 +170,9 @@
         (markdown-popup-keybinding! popup #\d (lambda () (show-diff! snapshot)))
         (markdown-popup-keybinding! popup #\y
           (lambda () (copy-text! (hash-ref data 'commit) "Commit hash")))
-        (update-markdown-popup! popup)))))
+        (if showing-diff?
+            (set! pending-blame-update popup)
+            (update-markdown-popup! popup))))))
 
 (define (format-diff patch)
   (string-append "# Commit diff\n\n" (markdown-code-block "diff" patch)))
@@ -167,24 +181,36 @@
   (let ([popup (markdown-popup content '())])
     (markdown-popup-keybinding! popup #\y
       (lambda () (copy-text! (hash-ref data 'commit) "Commit hash")))
+    (markdown-popup-keybinding! popup #\d
+      (lambda ()
+        ;; A pending diff reply must not replace the restored original view.
+        (set! diff-view-id (+ diff-view-id 1))
+        (set! showing-diff? #f)
+        (restore-markdown-popup!)
+        (when pending-blame-update
+          (update-markdown-popup! pending-blame-update)
+          (set! pending-blame-update #f))
+        (set-status! "Line blame ready")))
     popup))
 
 (define (show-diff! snapshot)
   (when (line-blame-current? snapshot)
-    ;; Invalidate PR enrichment so it cannot overwrite the diff view.
-    (set! request-id (+ request-id 1))
+    ;; PR enrichment continues, but its UI update is deferred until returning.
+    (set! diff-view-id (+ diff-view-id 1))
+    (set! showing-diff? #t)
     (let* ([id request-id]
+           [view-id diff-view-id]
            [data (hash-ref snapshot 'data)]
            [commit (hash-ref data 'commit)])
-      (pop-last-component-by-name! "steel-markdown-links")
-      (push-component! (diff-popup "# Commit diff\n\nLoading…" data))
+      (switch-markdown-popup! (diff-popup "# Commit diff\n\nLoading…" data))
       (await-callback
         (run-command-async "git"
           (list "-C" (hash-ref snapshot 'directory) "--no-pager" "show"
                 "--no-ext-diff" "--no-textconv" "--format=fuller" "--patch"
                 "--diff-merges=first-parent" commit "--") 5000)
         (lambda (result)
-          (when (and (= id request-id) (line-blame-current? snapshot))
+          (when (and (= id request-id) (= view-id diff-view-id) showing-diff?
+                     (line-blame-current? snapshot))
             (update-markdown-popup!
               (diff-popup
                 (if (hash-ref result 'ok) (format-diff (hash-ref result 'stdout))
@@ -251,6 +277,9 @@
 
 (define (gitlens-blame)
   (set! request-id (+ request-id 1))
+  (set! diff-view-id (+ diff-view-id 1))
+  (set! showing-diff? #f)
+  (set! pending-blame-update #f)
   (let ([id request-id]
         [future (line-blame-at-cursor)])
     (set-status! "Looking up line blame…")

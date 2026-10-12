@@ -12,6 +12,8 @@
 (define dirty? #f)
 (define generation 0)
 (define cache-name "gitlens-pr-v1")
+;; Invalidate records whose canonical upstream URLs were rewritten by the old policy.
+(define cache-version "2")
 (define fresh-ms 300000)
 (define retain-ms 604800000)
 (define entry-limit 128)
@@ -50,7 +52,7 @@
     (set! writing? #t)
     (set! dirty? #f)
     (await-callback
-      (store-plugin-cache! cache-name (hash 'version "1" 'entries entries))
+      (store-plugin-cache! cache-name (hash 'version cache-version 'entries entries))
       (lambda (_)
         (set! writing? #f)
         ;; Coalesce concurrent results; never let an older snapshot win this process's write race.
@@ -74,7 +76,7 @@
               (load-plugin-cache cache-name)
               (lambda (saved)
                 (when (= requested-generation generation)
-                  (when (and (hash? saved) (equal? (hash-try-get saved 'version) "1")
+                  (when (and (hash? saved) (equal? (hash-try-get saved 'version) cache-version)
                              (hash? (hash-try-get saved 'entries)))
                     (for-each
                       (lambda (key)

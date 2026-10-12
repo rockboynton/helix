@@ -66,6 +66,8 @@ Links are keyboard-actionable: **Tab/Shift-Tab** selects a PR or commit link;
 after Tab changes selection). Both write Helix's default yank register and the
 system clipboard; clipboard failures still leave the value available for `p`.
 **d** loads the full local commit patch into the popup, independent of GitHub.
+Press **d** again (even while loading) to return to the original GitLens popup,
+including its selected link and scroll position, without repeating the PR lookup.
 This runs bounded asynchronous `git show` (five seconds, 1 MiB), with external
 diff and textconv disabled. Oversized patches display an explicit error.
 Merge commits compare against their first parent; binary changes use Git's summary.
@@ -79,6 +81,9 @@ hyperlinks. Replies for changed documents/versions/cursor lines are ignored, and
 late replies cannot reopen dismissed popups. Only HTTPS links can be opened.
 Ported commits with `Source:` provenance use the fork for commit association
 checks and retain the upstream PR as a separate unverified message hint.
+Verified PR links retain GitHub's canonical repository, which can differ from
+the commit lookup repository. Bare message references remain unverified hints.
+Older cache records with rewritten links are invalidated automatically.
 Confirmed unpublished commits omit the dead commit link; publishing the branch
 makes that hash available on GitHub.
 
