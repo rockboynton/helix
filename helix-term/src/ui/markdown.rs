@@ -141,6 +141,7 @@ pub struct Markdown {
     pub contents: String,
 
     config_loader: Arc<ArcSwap<syntax::Loader>>,
+    compact: bool,
 }
 
 // TODO: pre-render and self reference via Pin
@@ -166,7 +167,14 @@ impl Markdown {
         Self {
             contents,
             config_loader,
+            compact: false,
         }
+    }
+
+    /// Keep heading/body separation, without blank rows after every paragraph.
+    pub fn compact(mut self) -> Self {
+        self.compact = true;
+        self
     }
 
     pub fn parse(&self, theme: Option<&Theme>) -> tui::text::Text<'_> {
@@ -238,7 +246,7 @@ impl Markdown {
                     list_stack.pop();
 
                     // whenever top-level list closes, empty line
-                    if list_stack.is_empty() {
+                    if list_stack.is_empty() && !self.compact {
                         lines.push(Spans::default());
                     }
                 }
@@ -287,7 +295,10 @@ impl Markdown {
 
                     // whenever heading, code block or paragraph closes, empty line
                     match tag {
-                        TagEnd::Heading(_) | TagEnd::Paragraph | TagEnd::CodeBlock => {
+                        TagEnd::Heading(_) => {
+                            lines.push(Spans::default());
+                        }
+                        TagEnd::Paragraph | TagEnd::CodeBlock if !self.compact => {
                             lines.push(Spans::default());
                         }
                         _ => (),
@@ -340,7 +351,9 @@ impl Markdown {
                 }
                 Event::Rule => {
                     lines.push(Spans::from(Span::styled("───", rule_style)));
-                    lines.push(Spans::default());
+                    if !self.compact {
+                        lines.push(Spans::default());
+                    }
                 }
                 // TaskListMarker(bool) true if checked
                 _ => {

@@ -61,8 +61,9 @@ is preferred over origin in forks, and up to 20 associated PRs are displayed usi
 the [commit-to-PR API](https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit).
 
 Links are keyboard-actionable: **Tab/Shift-Tab** selects a PR or commit link;
-Commit is selected initially. Enrichment preserves selection, scroll position,
-and popup size instead of replacing the popup.
+Commit is selected initially. Enrichment preserves selection and scroll position
+instead of replacing the popup. Height fits the content (long bodies scroll),
+with blank rows only between headings and their body in this compact popup.
 **Enter** opens it in your default browser. **Ctrl-d/u** or Page Down/Up scrolls,
 and **Esc** dismisses/cancels the popup. These are not mouse-click/OSC-8 terminal
 hyperlinks. Replies for changed documents/versions/cursor lines are ignored, and

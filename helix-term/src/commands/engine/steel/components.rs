@@ -85,11 +85,11 @@ impl Component for LinkedMarkdown {
     }
 
     fn required_size(&mut self, viewport: (u16, u16)) -> Option<(u16, u16)> {
-        // Reserve the popup footprint from loading through network enrichment.
-        // Keep the real text height so the outer popup can still scroll long bodies.
+        // Keep a stable wrapping width, but fit the height to actual content.
+        // The outer popup retains selection/scroll and caps long content itself.
         let width = viewport.0.min(90);
         let (_, text_height) = self.markdown.required_size((width, viewport.1))?;
-        Some((width, text_height.max(viewport.1)))
+        Some((width, text_height))
     }
 
     fn handle_event(
@@ -144,7 +144,8 @@ mod linked_markdown_tests {
                 std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
                     helix_core::syntax::Loader::default(),
                 )),
-            ),
+            )
+            .compact(),
             content: "Long commit body\n".repeat(100),
             links: links
                 .iter()
@@ -198,7 +199,7 @@ mod linked_markdown_tests {
     }
 
     #[test]
-    fn enrichment_preserves_default_selection_and_reserved_size() {
+    fn enrichment_preserves_default_selection_and_fits_content_height() {
         let previous = popup(&[("Commit", "https://github.com/o/r/commit/abc")]);
         let mut enriched = popup(&[
             ("PR", "https://github.com/o/r/pull/123"),
@@ -211,12 +212,37 @@ mod linked_markdown_tests {
         loading.update_links();
         let loading_size =
             crate::compositor::Component::required_size(&mut loading, (80, 24)).unwrap();
-        assert_eq!(loading_size, (80, 24));
+        assert_eq!(loading_size, (80, 3));
         // Large content keeps a real scroll height but a constant width.
         let enriched_size =
             crate::compositor::Component::required_size(&mut enriched, (80, 24)).unwrap();
         assert_eq!(enriched_size.0, 80);
         assert!(enriched_size.1 >= 24);
+    }
+
+    #[test]
+    fn compact_popup_only_separates_heading_from_body() {
+        let mut popup = popup(&[]);
+        popup.content =
+            "# Blame\n\nAuthor: Test\nCommit: abc\n\n## Title\n\nBody\n\nPR: verified".into();
+        popup.update_links();
+        let compact = popup.markdown.parse(None);
+        assert_eq!(compact.lines.len(), 8);
+        let empty_rows: Vec<_> = compact
+            .lines
+            .iter()
+            .enumerate()
+            .filter_map(|(index, row)| row.0.is_empty().then_some(index))
+            .collect();
+        assert_eq!(empty_rows, [1, 5]);
+        let regular_markdown = crate::ui::Markdown::new(
+            popup.content.clone(),
+            std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+                helix_core::syntax::Loader::default(),
+            )),
+        );
+        let regular = regular_markdown.parse(None);
+        assert!(regular.lines.len() > compact.lines.len());
     }
 
     #[test]
@@ -565,7 +591,8 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
                     .map(|(label, url)| (label.chars().filter(|c| !c.is_control()).collect(), url))
                     .collect();
                 let mut markdown = LinkedMarkdown {
-                    markdown: ui::Markdown::new(content.clone(), ctx.editor.syn_loader.clone()),
+                    markdown: ui::Markdown::new(content.clone(), ctx.editor.syn_loader.clone())
+                        .compact(),
                     content,
                     links,
                     selected: 0,
