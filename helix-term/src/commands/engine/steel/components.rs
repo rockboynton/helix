@@ -45,21 +45,42 @@ struct LinkedMarkdown {
     content: String,
     links: Vec<(String, String)>,
     selected: usize,
+    selection_changed: bool,
 }
 
 impl LinkedMarkdown {
     fn update_links(&mut self) {
-        self.markdown.contents.clone_from(&self.content);
+        self.markdown.contents.clear();
         if !self.links.is_empty() {
-            self.markdown
-                .contents
-                .push_str("\n\n---\nTab: choose link · Enter: open · Esc: close\n\n");
-            for (index, (label, url)) in self.links.iter().enumerate() {
-                let marker = if index == self.selected { ">" } else { " " };
-                self.markdown
-                    .contents
-                    .push_str(&format!("{marker} **{label}**: {url}\n\n"));
-            }
+            let (label, url) = &self.links[self.selected];
+            self.markdown.contents.push_str(&format!(
+                "**Link {} of {}: {label}**\n\n{url}\n\nTab/Shift-Tab: choose · Enter: open · Esc: close\n\n---\n\n",
+                self.selected + 1, self.links.len()));
+        }
+        self.markdown.contents.push_str(&self.content);
+    }
+
+    fn cycle_link(&mut self, backwards: bool) {
+        if self.links.is_empty() {
+            return;
+        }
+        let step = if backwards { self.links.len() - 1 } else { 1 };
+        self.selected = (self.selected + step) % self.links.len();
+        self.selection_changed = true;
+        self.update_links();
+    }
+
+    fn preserve_selection(&mut self, previous: &Self) {
+        if !previous.selection_changed {
+            return;
+        }
+        let Some((_, selected_url)) = previous.links.get(previous.selected) else {
+            return;
+        };
+        if let Some(index) = self.links.iter().position(|(_, url)| url == selected_url) {
+            self.selected = index;
+            self.selection_changed = true;
+            self.update_links();
         }
     }
 }
@@ -81,21 +102,13 @@ impl Component for LinkedMarkdown {
         let Event::Key(key) = event else {
             return compositor::EventResult::Ignored(None);
         };
-        if self.links.is_empty() {
-            return compositor::EventResult::Ignored(None);
-        }
         match key.code {
             KeyCode::Tab if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
-                let step = if key.modifiers == KeyModifiers::SHIFT {
-                    self.links.len() - 1
-                } else {
-                    1
-                };
-                self.selected = (self.selected + step) % self.links.len();
-                self.update_links();
+                // Consume Tab even while loading, rather than passing it to the editor.
+                self.cycle_link(key.modifiers == KeyModifiers::SHIFT);
                 compositor::EventResult::Consumed(None)
             }
-            KeyCode::Enter if key.modifiers.is_empty() => {
+            KeyCode::Enter if key.modifiers.is_empty() && !self.links.is_empty() => {
                 if let Err(error) = open::that_detached(&self.links[self.selected].1) {
                     ctx.editor
                         .set_error(format!("Could not open link: {error}"));
@@ -124,7 +137,68 @@ fn safe_link(url: &str) -> bool {
 
 #[cfg(test)]
 mod linked_markdown_tests {
-    use super::safe_link;
+    use super::{safe_link, LinkedMarkdown};
+
+    fn popup(links: &[(&str, &str)]) -> LinkedMarkdown {
+        let mut popup = LinkedMarkdown {
+            markdown: crate::ui::Markdown::new(
+                String::new(),
+                std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+                    helix_core::syntax::Loader::default(),
+                )),
+            ),
+            content: "Long commit body\n".repeat(100),
+            links: links
+                .iter()
+                .map(|(label, url)| (label.to_string(), url.to_string()))
+                .collect(),
+            selected: 0,
+            selection_changed: false,
+        };
+        popup.update_links();
+        popup
+    }
+
+    #[test]
+    fn tab_selection_is_visible_before_long_body_and_cycles_both_ways() {
+        let mut popup = popup(&[
+            ("PR #123", "https://github.com/o/r/pull/123"),
+            ("Commit", "https://github.com/o/r/commit/abc"),
+        ]);
+        assert!(popup
+            .markdown
+            .contents
+            .starts_with("**Link 1 of 2: PR #123**"));
+        popup.cycle_link(false);
+        assert_eq!(popup.selected, 1);
+        assert!(popup
+            .markdown
+            .contents
+            .starts_with("**Link 2 of 2: Commit**"));
+        popup.cycle_link(false);
+        assert_eq!(popup.selected, 0);
+        popup.cycle_link(true);
+        assert_eq!(popup.selected, 1);
+        let mut loading = self::popup(&[]);
+        loading.cycle_link(false);
+        assert_eq!(loading.selected, 0);
+    }
+
+    #[test]
+    fn enrichment_preserves_an_explicitly_selected_url() {
+        let mut previous = popup(&[("Commit", "https://github.com/o/r/commit/abc")]);
+        previous.cycle_link(false);
+        let mut enriched = popup(&[
+            ("PR #123", "https://github.com/o/r/pull/123"),
+            ("Commit", "https://github.com/o/r/commit/abc"),
+        ]);
+        enriched.preserve_selection(&previous);
+        assert_eq!(enriched.selected, 1);
+        assert!(enriched
+            .markdown
+            .contents
+            .starts_with("**Link 2 of 2: Commit**"));
+    }
 
     #[test]
     fn links_only_open_well_formed_https_urls_without_credentials_or_controls() {
@@ -476,6 +550,7 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
                     content,
                     links,
                     selected: 0,
+                    selection_changed: false,
                 };
                 markdown.update_links();
                 Ok(WrappedDynComponent {
@@ -489,17 +564,22 @@ pub fn helix_component_module(generate_sources: bool) -> (BuiltInModule, String)
             CTX,
             "update-markdown-popup!",
             |ctx: &mut Context, component: &mut WrappedDynComponent| {
-                let Some(inner) = component.inner.take() else {
+                let Some(mut inner) = component.inner.take() else {
                     return;
                 };
                 ctx.jobs.local_callback(async move {
                     let callback: Box<super::LocalJobCallback> =
                         Box::new(move |_, compositor, _| {
                             // A late network reply must never reopen a dismissed popup.
-                            if compositor
+                            if let Some(previous) = compositor
                                 .find_id::<ui::Popup<LinkedMarkdown>>("steel-markdown-links")
-                                .is_some()
                             {
+                                if let Some(next) = inner
+                                    .as_any_mut()
+                                    .downcast_mut::<ui::Popup<LinkedMarkdown>>()
+                                {
+                                    next.contents_mut().preserve_selection(previous.contents());
+                                }
                                 compositor.remove("steel-markdown-links");
                                 compositor.push(inner);
                             }
