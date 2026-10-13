@@ -2254,7 +2254,7 @@ pub fn is_keymap(keymap: SteelVal) -> bool {
     }
 }
 
-fn preferred_config_path(file_name: &str) -> PathBuf {
+fn user_config_path(file_name: &str) -> PathBuf {
     if let Ok(steel_config_dir) = std::env::var("HELIX_STEEL_CONFIG") {
         PathBuf::from(steel_config_dir).join(file_name)
     } else {
@@ -2301,11 +2301,11 @@ fn run_configuration_directory(
 }
 
 pub fn helix_module_file() -> PathBuf {
-    preferred_config_path("helix.scm")
+    user_config_path("helix.scm")
 }
 
 pub fn steel_init_file() -> PathBuf {
-    preferred_config_path("init.scm")
+    user_config_path("init.scm")
 }
 
 #[derive(Clone)]

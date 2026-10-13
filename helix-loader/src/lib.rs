@@ -163,9 +163,7 @@ pub fn workspace_lang_config_file() -> PathBuf {
 }
 
 pub fn lang_config_file() -> PathBuf {
-    std::env::var_os("HELIX_LANGUAGE_CONFIG")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| config_dir().join("languages.toml"))
+    config_dir().join("languages.toml")
 }
 
 pub fn default_log_file() -> PathBuf {
