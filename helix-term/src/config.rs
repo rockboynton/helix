@@ -123,8 +123,10 @@ impl Config {
     }
 
     pub fn load_default() -> Result<Config, ConfigLoadError> {
-        let global_config =
-            fs::read_to_string(helix_loader::config_file()).map_err(ConfigLoadError::Error)?;
+        // A Steel-only user configuration has no global TOML file. Refreshes
+        // (including :workspace-trust) must start from defaults in that case,
+        // just like initial startup, before reapplying the Steel layers.
+        let global_config = read_optional_global_config(&helix_loader::config_file())?;
         let local_config = fs::read_to_string(helix_loader::workspace_config_file())
             .map_err(ConfigLoadError::Error);
 
@@ -156,9 +158,49 @@ impl Config {
     }
 }
 
+fn read_optional_global_config(path: &std::path::Path) -> Result<String, ConfigLoadError> {
+    match fs::read_to_string(path) {
+        Ok(contents) => Ok(contents),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(error) => Err(ConfigLoadError::Error(error)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_global_toml_uses_defaults_and_allows_project_overrides() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let contents = read_optional_global_config(&path).unwrap();
+        let defaults = Config::load(Ok(&contents), Err(ConfigLoadError::default())).unwrap();
+        assert_eq!(
+            defaults.editor.scrolloff,
+            Config::default().editor.scrolloff
+        );
+        let project = "[editor]\nscrolloff = 12".to_owned();
+        let merged = Config::load(Ok(&contents), Ok(project)).unwrap();
+        assert_eq!(merged.editor.scrolloff, 12);
+        assert!(!path.exists(), "do not create a placeholder TOML file");
+    }
+
+    #[test]
+    fn optional_global_toml_still_reports_invalid_config_and_io_errors() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(&path, "[editor\n").unwrap();
+        let contents = read_optional_global_config(&path).unwrap();
+        assert!(matches!(
+            Config::load(Ok(&contents), Err(ConfigLoadError::default())),
+            Err(ConfigLoadError::BadConfig(_))
+        ));
+        assert!(matches!(
+            read_optional_global_config(directory.path()),
+            Err(ConfigLoadError::Error(_))
+        ));
+    }
 
     impl Config {
         fn load_test(config: &str) -> Config {
