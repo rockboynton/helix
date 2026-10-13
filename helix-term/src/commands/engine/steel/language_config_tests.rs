@@ -37,7 +37,7 @@ fn comparable(mut value: serde_json::Value) -> serde_json::Value {
 }
 
 #[test]
-fn neohelix_languages_match_toml_overrides_and_preserve_defaults() {
+fn steel_language_overrides_match_toml_and_preserve_defaults() {
     let base = helix_loader::config::default_lang_config();
     let loader = helix_core::syntax::Loader::new(base.clone().try_into().unwrap()).unwrap();
     let config = Arc::new(Mutex::new(HelixConfiguration {
@@ -87,12 +87,7 @@ fn neohelix_languages_match_toml_overrides_and_preserve_defaults() {
     "#
         .into(),
     );
-    engine
-        .run(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../neohelix-config/languages.scm"
-        )))
-        .unwrap();
+    engine.run(include_str!("testdata/languages.scm")).unwrap();
     assert_eq!(
         refreshes.load(Ordering::Relaxed),
         0,
@@ -106,7 +101,8 @@ fn neohelix_languages_match_toml_overrides_and_preserve_defaults() {
     engine.run("(configure-languages!)").unwrap();
     assert_eq!(refreshes.load(Ordering::Relaxed), 1);
 
-    let expected: toml::Value = toml::from_str(include_str!("languages-baseline.toml")).unwrap();
+    let expected: toml::Value =
+        toml::from_str(include_str!("testdata/languages-baseline.toml")).unwrap();
     let expected = helix_loader::merge_toml_values(base, expected, 3);
     let expected = helix_core::syntax::Loader::new(expected.try_into().unwrap()).unwrap();
     let config = config.lock().unwrap();

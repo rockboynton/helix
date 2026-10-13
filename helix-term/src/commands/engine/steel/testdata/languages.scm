@@ -1,5 +1,5 @@
-;; Neohelix language overrides. Imports do not apply settings; startup calls the
-;; exported function. Built-in grammars, roots, and unrelated language fields stay intact.
+;; Regression fixture: representative Steel overrides matching languages-baseline.toml.
+;; This is test data, not user configuration. Imports must not apply settings.
 (require "helix/configuration.scm")
 (require-builtin helix/core/configuration as configuration.)
 

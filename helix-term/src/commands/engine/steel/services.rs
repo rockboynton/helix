@@ -262,27 +262,29 @@ mod tests {
         "#
             .into(),
         );
-        engine.register_steel_module(
-            "helix/keymaps.scm".into(),
-            r#"
-            (provide add-global-keybinding)
-            (define (add-global-keybinding x) #f)
-        "#
-            .into(),
-        );
-        engine.register_steel_module(
-            "gitlens-cache.scm".into(),
-            include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../neohelix-config/gitlens-cache.scm"
-            ))
-            .into(),
+        engine.add_search_directory(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../runtime"),
         );
         engine
-            .run(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../neohelix-config/gitlens.scm"
-            )))
+            .run(
+                r#"
+                (require "plugins/gitlens/gitlens.scm")
+                (require "plugins/gitlens/gitlens-cache.scm")
+                "#,
+            )
+            .unwrap();
+        // The runtime import above exercises the public plugin entry point.
+        // Load its source in the test scope as well to test private policies and
+        // popup state without exporting those implementation details to users.
+        engine
+            .compile_and_run_raw_program_with_path(
+                include_str!(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/../runtime/plugins/gitlens/gitlens.scm"
+                )),
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../runtime/plugins/gitlens/gitlens.scm"),
+            )
             .unwrap();
         for (url, expected) in [
             ("git@github.com:owner/repo.git", Some("owner/repo")),

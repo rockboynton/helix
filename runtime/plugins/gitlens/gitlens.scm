@@ -1,11 +1,10 @@
 ;; On-demand commit inspection. Native services do history/process work off-thread;
-;; this module owns GitHub policy, caching, formatting, and the command binding.
+;; this module owns GitHub policy, caching, formatting, and popup behavior.
 (require "helix/misc.scm")
 (require "helix/components.scm")
-(require "helix/keymaps.scm")
 (require "gitlens-cache.scm")
 
-(provide gitlens-blame gitlens-clear-cache configure-gitlens! github-repository format-blame inferred-pulls human-datetime source-reference format-diff)
+(provide gitlens-blame gitlens-clear-cache github-repository format-blame inferred-pulls human-datetime source-reference format-diff)
 
 (define request-id 0)
 (define diff-view-id 0)
@@ -301,7 +300,3 @@
              (let ([repo (repository-for (hash-ref snapshot 'data))])
                (if repo (enrich-blame! id snapshot repo)
                    (show-blame! id snapshot #f '() "No GitHub remote; showing local commit details.")))]))))))
-
-(define (configure-gitlens!)
-  ;; Uppercase B is Shift-B in normal mode. Space B retains native statusline blame.
-  (add-global-keybinding (hash "normal" (hash "B" ":gitlens-blame"))))

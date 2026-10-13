@@ -18,9 +18,9 @@
 
 ## Neohelix
 
-This fork includes Steel configuration and an on-demand GitLens plugin.
-See the [GitLens guide](docs/gitlens.md) and
-[Neohelix configuration](neohelix-config/README.md).
+This fork includes Steel configuration and an on-demand GitLens plugin. See the [Neohelix feature
+inventory](NEOHELIX.md), [GitLens guide](docs/gitlens.md), and [plugin source](runtime/plugins/gitlens/). User configuration
+lives outside this checkout; Steel startup loads user config first, followed by trusted project config.
 
 ![Screenshot](./screenshot.png)
 

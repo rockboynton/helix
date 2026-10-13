@@ -11,7 +11,8 @@
 }: let
   fs = lib.fileset;
 
-  src = fs.difference (fs.gitTracked ./.) (fs.unions [
+  # Plugin sources are runtime assets, but also needed by the plugin tests.
+  src = fs.union ./runtime/plugins (fs.difference (fs.gitTracked ./.) (fs.unions [
     ./.envrc
     ./rustfmt.toml
     ./screenshot.png
@@ -23,7 +24,7 @@
     (fs.fileFilter (file: file.hasExt "svg") ./.)
     (fs.fileFilter (file: file.hasExt "md") ./.)
     (fs.fileFilter (file: file.hasExt "nix") ./.)
-  ]);
+  ]));
 
   # Next we actually need to build the grammars and the runtime directory
   # that they reside in. It is built by calling the derivation in the

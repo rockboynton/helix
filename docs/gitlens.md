@@ -2,8 +2,8 @@
 
 ### Try it
 
-Load the GitLens modules through your Steel configuration; the
-[Neohelix example configuration](../neohelix-config/README.md) includes them.
+Load the [GitLens modules](../runtime/plugins/gitlens/) through your Steel configuration
+as described below. Importing the plugin does not install keybindings.
 
 1. Launch this build with `hx path/to/file`.
 2. Trust the repository with `:workspace-trust`.
@@ -12,8 +12,48 @@ Load the GitLens modules through your Steel configuration; the
 5. Press **d** again to return to blame details, or **Esc** to close the popup.
 
 `B` overrides Helix's default backward-WORD motion. `Space B` still invokes
-native statusline blame. Inline blame is disabled by default in the Neohelix
-configuration; the popup does not require enabling it.
+native statusline blame when retained in your keymap. The popup is independent
+of inline blame; it does not require enabling it.
+
+### Installation and configuration
+
+Neohelix packages GitLens under `runtime/plugins/gitlens/`. Steel searches the
+runtime automatically, so no copy or symlink in your user config is needed.
+It is optional: your configuration must import it and install its shortcut.
+For a separate installation, copy or symlink that directory into
+`~/.config/helix/plugins/gitlens/`, keeping both Scheme files together. These
+modules require Neohelix's native Steel bindings; they are not standalone plugins
+for an unmodified upstream build. Your own configuration stays outside this repo.
+
+In your user `helix.scm`, import and export the commands:
+
+```scheme
+(require "plugins/gitlens/gitlens.scm")
+(provide gitlens-blame gitlens-clear-cache)
+```
+
+In your separate keybindings module, add `"B" ":gitlens-blame"` to the normal-mode
+keymap. A minimal standalone binding installer would be:
+
+```scheme
+(require "helix/keymaps.scm")
+(provide configure-keybindings!)
+
+(define (configure-keybindings!)
+  (add-global-keybinding
+    (hash "normal" (hash "B" ":gitlens-blame"))))
+```
+
+Call that installer from your user startup configuration. Your existing full
+keybindings module can keep the binding alongside all your other shortcuts.
+The plugin retains popup-local controls such as `d` and `y`.
+
+Steel startup runs user configuration first, then a trusted project's
+`.helix/helix.scm` and `.helix/init.scm` when both exist. Each layer resolves its
+own relative imports; a project does not need to import the user's absolute path.
+`HELIX_STEEL_CONFIG`, when set, selects the user layer rather than bypassing
+project trust. Missing TOML files use built-in defaults. `--health` reports the
+built-in/TOML layer before Steel initialization, not runtime Steel overrides.
 
 ### What the popup shows
 
@@ -116,8 +156,11 @@ makes that hash available on GitHub.
 The core Steel bindings provide asynchronous native metadata, generic bounded
 process execution, private JSON cache storage, and a linked Markdown popup.
 GitHub endpoint choice, cache policy,
-formatting, and the binding live in this Scheme module. To disable the plugin,
-remove `(configure-gitlens!)` from `helix.scm` and restore your desired `B` binding.
+formatting, and popup-local controls live in the plugin module. The global `B`
+binding lives in `keybindings.scm`; importing GitLens does not install keybindings.
+To disable the shortcut, remove or remap `"B" ":gitlens-blame"` in that keymap.
+To remove the plugin entirely, also remove its import and command re-exports from
+`helix.scm`.
 
 The PR cache holds 128 repository–commit pairs total, not 128 lines. Lines
 sharing a commit share an entry. Adding a 129th distinct commit evicts the
