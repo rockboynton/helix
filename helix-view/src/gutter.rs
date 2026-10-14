@@ -98,10 +98,32 @@ pub fn diagnostic<'doc>(
 pub fn diff<'doc>(
     editor: &'doc Editor,
     doc: &'doc Document,
-    _view: &View,
+    view: &View,
     theme: &Theme,
     _is_focused: bool,
 ) -> GutterFn<'doc> {
+    if let Some(side) = view.diff_side(doc).cloned() {
+        let left = editor
+            .diff_session
+            .as_ref()
+            .is_some_and(|session| session.views[0] == view.id);
+        let style = theme.get(if left {
+            "diff.minus.gutter"
+        } else {
+            "diff.plus.gutter"
+        });
+        return Box::new(move |line, _, _, out| {
+            if side.is_changed(line) {
+                out.push(if left { '-' } else { '+' });
+                Some(style)
+            } else {
+                None
+            }
+        });
+    }
+    if view.is_diff(doc) {
+        return Box::new(|_, _, _, _| None);
+    }
     if let Some(diff_handle) = doc.diff_handle() {
         let added = theme.get("diff.plus.gutter");
         let deleted = theme.get("diff.minus.gutter");

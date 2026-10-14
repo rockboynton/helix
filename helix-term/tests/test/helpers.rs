@@ -383,6 +383,12 @@ impl AppBuilder {
         self
     }
 
+    pub fn with_diff(mut self) -> Self {
+        self.args.diff = true;
+        self.args.split = Some(helix_view::tree::Layout::Vertical);
+        self
+    }
+
     pub fn with_file<P: Into<PathBuf>>(
         mut self,
         path: P,

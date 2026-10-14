@@ -113,6 +113,10 @@ impl Overlay {
 /// caches is preferable as otherwise a lot of lifetimes become invariant
 /// which complicates APIs a lot.
 pub trait LineAnnotation {
+    /// Empty rows before the first document line (for aligned comparisons).
+    fn leading_rows(&self) -> usize {
+        0
+    }
     /// Resets the internal position to `char_idx`. This function is called
     /// when a new traversal of a document starts.
     ///
@@ -291,6 +295,12 @@ impl Debug for TextAnnotations<'_> {
 }
 
 impl<'a> TextAnnotations<'a> {
+    pub fn leading_rows(&self) -> usize {
+        self.line_annotations
+            .iter()
+            .map(|(_, layer)| unsafe { layer.get().leading_rows() })
+            .sum()
+    }
     /// Prepare the TextAnnotations for iteration starting at char_idx
     pub fn reset_pos(&self, char_idx: usize) {
         reset_pos(&self.inline_annotations, char_idx, |annot| annot.char_idx);

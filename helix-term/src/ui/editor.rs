@@ -101,6 +101,39 @@ impl EditorView {
             let text_annotations = view.text_annotations(doc, Some(theme));
             let mut decorations = DecorationManager::default();
 
+            if let Some(side) = view.diff_side(doc) {
+                let is_left = editor
+                    .diff_session
+                    .as_ref()
+                    .is_some_and(|session| session.views[0] == view_id);
+                let diff_style = theme.get(if is_left { "diff.minus" } else { "diff.plus" });
+                let background = diff_style.bg.or_else(|| {
+                    match (diff_style.fg, theme.get("ui.background").bg) {
+                        (
+                            Some(helix_view::graphics::Color::Rgb(r, g, b)),
+                            Some(helix_view::graphics::Color::Rgb(br, bg, bb)),
+                        ) => {
+                            let blend = |color: u8, base: u8| {
+                                ((u16::from(color) + 4 * u16::from(base)) / 5) as u8
+                            };
+                            Some(helix_view::graphics::Color::Rgb(
+                                blend(r, br),
+                                blend(g, bg),
+                                blend(b, bb),
+                            ))
+                        }
+                        _ => diff_style.fg,
+                    }
+                });
+                decorations.add_decoration(move |renderer: &mut TextRenderer, pos: LinePos| {
+                    let changed = side.is_changed(pos.doc_line);
+                    renderer.set_line_background(
+                        if changed { background } else { None },
+                        pos.visual_line,
+                    );
+                });
+            }
+
             if is_focused && config.cursorline {
                 decorations.add_decoration(Self::cursorline(doc, view, theme));
             }
@@ -192,7 +225,9 @@ impl EditorView {
             }
 
             Self::render_rulers(editor, doc, view, inner, surface, theme);
-            Self::render_inline_blame(&config.inline_blame, doc, view, &mut decorations, theme);
+            if !view.is_diff(doc) {
+                Self::render_inline_blame(&config.inline_blame, doc, view, &mut decorations, theme);
+            }
 
             let primary_cursor = doc
                 .selection(view.id)
@@ -211,13 +246,15 @@ impl EditorView {
                 .show_cursorline_diagnostics(doc, view.id);
             let inline_diagnostic_config =
                 config.inline_diagnostics.prepare(width, enable_cursor_line);
-            decorations.add_decoration(InlineDiagnostics::new(
-                doc,
-                theme,
-                primary_cursor,
-                inline_diagnostic_config,
-                config.end_of_line_diagnostics,
-            ));
+            if !view.is_diff(doc) {
+                decorations.add_decoration(InlineDiagnostics::new(
+                    doc,
+                    theme,
+                    primary_cursor,
+                    inline_diagnostic_config,
+                    config.end_of_line_diagnostics,
+                ));
+            }
             render_document(
                 surface,
                 inner,
@@ -228,6 +265,7 @@ impl EditorView {
                 overlays,
                 theme,
                 decorations,
+                Some(view.text_format(doc, inner.width, Some(theme))),
             );
 
             // if we're not at the edge of the screen, draw a right border
@@ -1006,7 +1044,7 @@ impl EditorView {
         let selection = doc.selection(view.id);
         let view_offset = doc.view_offset(view.id);
         let primary = selection.primary();
-        let text_format = doc.text_format(viewport.width, None);
+        let text_format = view.text_format(doc, viewport.width, None);
         for range in selection.iter() {
             let is_primary = primary == *range;
             let cursor = range.cursor(text);
@@ -1743,6 +1781,7 @@ impl Component for EditorView {
     }
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        cx.editor.refresh_diff();
         // clear with background color
         surface.set_style(area, cx.editor.theme.get("ui.background"));
         let config = cx.editor.config();

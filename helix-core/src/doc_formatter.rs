@@ -219,7 +219,14 @@ impl<'t> DocumentFormatter<'t> {
         DocumentFormatter {
             text_fmt,
             annotations,
-            visual_pos: Position { row: 0, col: 0 },
+            visual_pos: Position {
+                row: if block_char_idx == 0 {
+                    annotations.leading_rows()
+                } else {
+                    0
+                },
+                col: 0,
+            },
             graphemes: text.slice(block_char_idx..).graphemes(),
             char_pos: block_char_idx,
             exhausted: false,

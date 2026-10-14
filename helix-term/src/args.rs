@@ -15,6 +15,7 @@ pub struct Args {
     pub build_grammars: bool,
     pub strict: bool,
     pub pager: bool,
+    pub diff: bool,
     pub stdin: bool,
     pub language: Option<String>,
     pub split: Option<Layout>,
@@ -57,6 +58,7 @@ impl Args {
                 "--help" => args.display_help = true,
                 "--strict" => args.strict = true,
                 "--pager" => args.pager = true,
+                "--diff" => args.diff = true,
                 "-" => args.stdin = true,
                 "--language" => {
                     args.language =
@@ -149,6 +151,10 @@ impl Args {
         if args.stdin && !args.files.is_empty() {
             anyhow::bail!("stdin (-) cannot be combined with file arguments");
         }
+        if args.diff {
+            anyhow::ensure!(args.files.len() == 2 && !args.stdin && !args.load_tutor && !args.pager && args.split.is_none(), "--diff requires exactly two file paths, without pager, stdin, tutor or split flags");
+            args.split = Some(Layout::Vertical);
+        }
         if args.language.is_some() && !args.pager {
             anyhow::bail!("--language is currently supported with --pager only");
         }
@@ -208,6 +214,22 @@ mod pager_tests {
         assert_eq!(args.language.as_deref(), Some("rust"));
         assert!(args.files.is_empty());
         assert!(!parse(&["hx", "file.rs"]).unwrap().pager);
+    }
+
+    #[test]
+    fn diff_requires_two_distinct_paths_and_vertical_layout() {
+        let args = parse(&["hx", "--diff", "left.rs", "right.rs"]).unwrap();
+        assert!(args.diff);
+        assert!(matches!(args.split, Some(super::Layout::Vertical)));
+        for args in [
+            vec!["hx", "--diff"],
+            vec!["hx", "--diff", "same", "same"],
+            vec!["hx", "--diff", "a", "b", "c"],
+            vec!["hx", "--diff", "--pager", "a", "b"],
+            vec!["hx", "--diff", "--hsplit", "a", "b"],
+        ] {
+            assert!(parse(&args).is_err(), "{args:?}");
+        }
     }
 
     #[test]

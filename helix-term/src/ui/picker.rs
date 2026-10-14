@@ -1154,6 +1154,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 overlay_highlights,
                 &cx.editor.theme,
                 decorations,
+                None,
             );
 
             self.preview_scroll_offset = preview_scroll_offset;

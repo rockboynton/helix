@@ -1464,6 +1464,7 @@ use futures_util::stream::{Flatten, Once};
 type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
 pub struct Editor {
+    pub diff_session: Option<crate::diff_session::DiffSession>,
     /// Pager session policy; documents themselves retain independent access flags.
     pub pager: bool,
     /// Current editing mode.
@@ -1620,6 +1621,110 @@ pub enum CloseError {
 }
 
 impl Editor {
+    pub fn stop_diff(&mut self) {
+        self.diff_session = None;
+        for (view, _) in self.tree.views_mut() {
+            if view.diff_document == Some(view.doc) {
+                if let Some(doc) = self.documents.get_mut(&view.doc) {
+                    let mut offset = doc.view_offset(view.id);
+                    offset.vertical_offset = 0;
+                    doc.set_view_offset(view.id, offset);
+                }
+            }
+            view.diff_document = None;
+            view.diff = None;
+        }
+    }
+
+    pub fn start_diff(&mut self, views: [ViewId; 2]) -> anyhow::Result<()> {
+        let documents = views.map(|id| self.tree.get(id).doc);
+        anyhow::ensure!(
+            documents[0] != documents[1],
+            "compare two different buffers"
+        );
+        self.stop_diff();
+        for side in 0..2 {
+            self.tree.get_mut(views[side]).diff_document = Some(documents[side]);
+            let doc = self.documents.get_mut(&documents[side]).unwrap();
+            let mut offset = doc.view_offset(views[side]);
+            offset.anchor = doc.text().line_to_char(
+                doc.text()
+                    .char_to_line(offset.anchor.min(doc.text().len_chars())),
+            );
+            offset.vertical_offset = 0;
+            doc.set_view_offset(views[side], offset);
+        }
+        let texts = documents.map(|id| self.document(id).unwrap().text().clone());
+        let versions = documents.map(|id| self.document(id).unwrap().version());
+        self.diff_session = Some(crate::diff_session::DiffSession::new(
+            documents, views, texts, versions,
+        ));
+        Ok(())
+    }
+
+    /// Only snapshots on the UI thread; diff computation runs in the worker.
+    pub fn refresh_diff(&mut self) {
+        let Some(session) = &self.diff_session else {
+            return;
+        };
+        let valid = (0..2).all(|side| {
+            self.tree
+                .try_get(session.views[side])
+                .is_some_and(|view| view.doc == session.documents[side])
+                && self.documents.contains_key(&session.documents[side])
+        });
+        if !valid {
+            self.stop_diff();
+            return;
+        }
+        let documents = session.documents;
+        let views = session.views;
+        let versions = documents.map(|id| self.document(id).unwrap().version());
+        let texts = documents.map(|id| self.document(id).unwrap().text().clone());
+        let session = self.diff_session.as_mut().unwrap();
+        session.update(texts, versions);
+        let layout = session
+            .result
+            .load_full()
+            .filter(|layout| layout.versions == versions);
+        for side in 0..2 {
+            self.tree.get_mut(views[side]).diff =
+                layout.as_ref().map(|layout| crate::diff_session::DiffView {
+                    document: documents[side],
+                    version: versions[side],
+                    side: layout.sides[side].clone(),
+                });
+        }
+        let Some(layout) = layout else { return };
+        let Some(focused) = views.iter().position(|&id| id == self.tree.focus) else {
+            return;
+        };
+        let other = 1 - focused;
+        let source = self.document(documents[focused]).unwrap();
+        let offset = source.view_offset(views[focused]);
+        let line = source
+            .text()
+            .char_to_line(offset.anchor.min(source.text().len_chars()));
+        let row = layout.sides[focused]
+            .row(line)
+            .saturating_sub(if offset.anchor == 0 {
+                layout.sides[focused].rows[0]
+            } else {
+                0
+            })
+            + offset.vertical_offset;
+        let (line, vertical_offset) = layout.sides[other].position(row);
+        let target = self.documents.get_mut(&documents[other]).unwrap();
+        let mut target_offset = target.view_offset(views[other]);
+        target_offset.anchor = target.text().line_to_char(line);
+        target_offset.vertical_offset = vertical_offset
+            + if line == 0 {
+                layout.sides[other].rows[0].min(row)
+            } else {
+                0
+            };
+        target.set_view_offset(views[other], target_offset);
+    }
     pub fn new(
         mut area: Rect,
         theme_loader: Arc<theme::Loader>,
@@ -1651,6 +1756,7 @@ impl Editor {
         Self {
             mode: Mode::Normal,
             pager: false,
+            diff_session: None,
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
@@ -2561,6 +2667,11 @@ impl Editor {
         self.enter_normal_mode();
         let (view, doc) = current!(self);
         doc.append_changes_to_history(view);
+        // A synchronized pane's old cursor can now be offscreen. Keep a
+        // single cursor at the corresponding source location when focusing
+        // that pane, rather than snapping both panes back to its old cursor.
+        self.refresh_diff();
+        self.focus_diff_cursor(view_id);
         self.ensure_cursor_in_view(view_id);
         // Update jumplist selections with new document changes.
         for (view, _focused) in self.tree.views_mut() {
@@ -2576,6 +2687,49 @@ impl Editor {
             editor: self,
             doc: focus_lost,
         });
+    }
+
+    fn focus_diff_cursor(&mut self, view_id: ViewId) {
+        let Some(session) = &self.diff_session else {
+            return;
+        };
+        let Some(source) = session.views.iter().position(|&id| id == self.tree.focus) else {
+            return;
+        };
+        let target = 1 - source;
+        if session.views[target] != view_id {
+            return;
+        }
+        let Some(layout) = session.result.load_full().filter(|layout| {
+            layout.versions == session.documents.map(|id| self.documents[&id].version())
+        }) else {
+            return;
+        };
+        let source_doc = &self.documents[&session.documents[source]];
+        let cursor = source_doc
+            .selection(session.views[source])
+            .primary()
+            .cursor(source_doc.text().slice(..));
+        let coords = helix_core::coords_at_pos(source_doc.text().slice(..), cursor);
+        let (line, _) = layout.sides[target].position(layout.sides[source].row(coords.row));
+        let target_doc = self.documents.get_mut(&session.documents[target]).unwrap();
+        let selection = target_doc.selection(view_id);
+        let cursor = selection.primary().cursor(target_doc.text().slice(..));
+        if selection.len() != 1
+            || self
+                .tree
+                .get(view_id)
+                .screen_coords_at_pos(target_doc, target_doc.text().slice(..), cursor)
+                .is_some()
+        {
+            return;
+        }
+        let cursor = helix_core::pos_at_coords(
+            target_doc.text().slice(..),
+            helix_core::Position::new(line, coords.col),
+            false,
+        );
+        target_doc.set_selection(view_id, helix_core::Selection::point(cursor));
     }
 
     pub fn focus_next(&mut self) {

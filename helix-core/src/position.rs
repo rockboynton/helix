@@ -220,13 +220,21 @@ pub fn visual_offset_from_anchor(
         if formatter.next_char_pos() > anchor && anchor_line.is_none() {
             if let Some(mut found_pos) = found_pos {
                 return if found_pos.row == last_pos.row {
-                    found_pos.row = 0;
+                    found_pos.row = if anchor == 0 {
+                        annotations.leading_rows()
+                    } else {
+                        0
+                    };
                     Ok((found_pos, block_start))
                 } else {
                     Err(VisualOffsetError::PosBeforeAnchorRow)
                 };
             } else {
-                anchor_line = Some(last_pos.row);
+                anchor_line = Some(last_pos.row.saturating_sub(if anchor == 0 {
+                    annotations.leading_rows()
+                } else {
+                    0
+                }));
             }
         }
 
@@ -237,7 +245,11 @@ pub fn visual_offset_from_anchor(
         }
     }
 
-    let anchor_line = anchor_line.unwrap_or(last_pos.row);
+    let anchor_line = anchor_line.unwrap_or(last_pos.row.saturating_sub(if anchor == 0 {
+        annotations.leading_rows()
+    } else {
+        0
+    }));
     last_pos.row -= anchor_line;
 
     Ok((last_pos, block_start))

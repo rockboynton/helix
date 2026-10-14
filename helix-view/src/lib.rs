@@ -4,6 +4,7 @@ pub mod macros;
 pub mod action;
 pub mod annotations;
 pub mod clipboard;
+pub mod diff_session;
 pub mod document;
 pub mod editor;
 pub mod events;
@@ -72,7 +73,7 @@ pub fn align_view(doc: &mut Document, view: &View, align: Align) {
         Align::Bottom => last_line_height,
     };
 
-    let text_fmt = doc.text_format(viewport.width, None);
+    let text_fmt = view.text_format(doc, viewport.width, None);
     (view_offset.anchor, view_offset.vertical_offset) = char_idx_at_visual_offset(
         doc_text,
         cursor,

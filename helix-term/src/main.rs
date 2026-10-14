@@ -48,6 +48,7 @@ FLAGS:
     -h, --help                     Print help information
     --strict                       Bail on error for commands that can fail.
     --pager                        Browse files or piped stdin read-only; q exits
+    --diff                         Open two files in an editable side-by-side diff
     --language <name>              Set pager syntax language (for example rust)
     -                              Explicitly read stdin (without file arguments)
     --tutor                        Load the tutorial

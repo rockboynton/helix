@@ -144,6 +144,8 @@ pub struct ViewPosition {
 
 #[derive(Clone)]
 pub struct View {
+    pub diff_document: Option<DocumentId>,
+    pub diff: Option<crate::diff_session::DiffView>,
     pub id: ViewId,
     pub area: Rect,
     pub doc: DocumentId,
@@ -185,8 +187,32 @@ impl fmt::Debug for View {
 }
 
 impl View {
+    pub fn is_diff(&self, doc: &Document) -> bool {
+        self.diff_document == Some(doc.id())
+    }
+    pub fn diff_side(
+        &self,
+        doc: &Document,
+    ) -> Option<&std::sync::Arc<crate::diff_session::DiffSide>> {
+        self.diff
+            .as_ref()
+            .filter(|diff| diff.document == doc.id() && diff.version == doc.version())
+            .map(|diff| &diff.side)
+    }
+
+    /// Diff panes use unwrapped logical lines so alignment is independent of
+    /// pane width; ordinary views retain their configured wrapping.
+    pub fn text_format(&self, doc: &Document, width: u16, theme: Option<&Theme>) -> TextFormat {
+        let mut format = doc.text_format(width, theme);
+        if self.is_diff(doc) {
+            format.soft_wrap = false;
+        }
+        format
+    }
     pub fn new(doc: DocumentId, gutters: GutterConfig) -> Self {
         Self {
+            diff_document: None,
+            diff: None,
             id: ViewId::default(),
             doc,
             area: Rect::default(), // will get calculated upon inserting into tree
@@ -267,7 +293,7 @@ impl View {
         let doc_text = doc.text().slice(..);
         let viewport = self.inner_area(doc);
         let vertical_viewport_end = view_offset.vertical_offset + viewport.height as usize;
-        let text_fmt = doc.text_format(viewport.width, None);
+        let text_fmt = self.text_format(doc, viewport.width, None);
         let annotations = self.text_annotations(doc, None);
 
         let (scrolloff_top, scrolloff_bottom) = if CENTERING {
@@ -400,7 +426,7 @@ impl View {
     pub fn last_visual_line(&self, doc: &Document) -> usize {
         let doc_text = doc.text().slice(..);
         let viewport = self.inner_area(doc);
-        let text_fmt = doc.text_format(viewport.width, None);
+        let text_fmt = self.text_format(doc, viewport.width, None);
         let annotations = self.text_annotations(doc, None);
         let view_offset = doc.view_offset(self.id);
 
@@ -441,7 +467,7 @@ impl View {
         let view_offset = doc.view_offset(self.id);
 
         let viewport = self.inner_area(doc);
-        let text_fmt = doc.text_format(viewport.width, None);
+        let text_fmt = self.text_format(doc, viewport.width, None);
         let annotations = self.text_annotations(doc, None);
 
         let mut pos = visual_offset_from_anchor(
@@ -540,6 +566,14 @@ impl View {
             ));
         }
 
+        if self.is_diff(doc) {
+            text_annotations.clear_line_annotations();
+        }
+        if let Some(side) = self.diff_side(doc) {
+            // Extra diagnostic rows would break the shared logical-row layout.
+            text_annotations
+                .add_line_annotation(Box::new(crate::diff_session::Alignment(side.clone())));
+        }
         text_annotations
     }
 
@@ -585,6 +619,15 @@ impl View {
         let view_offset = doc.view_offset(self.id);
 
         let text_row = row as usize + view_offset.vertical_offset;
+        let leading = if view_offset.anchor == 0 {
+            annotations.leading_rows()
+        } else {
+            0
+        };
+        if text_row < leading && ignore_virtual_text {
+            return None;
+        }
+        let text_row = text_row.saturating_sub(leading);
         let text_col = column as usize + view_offset.horizontal_offset;
 
         let (char_idx, virt_lines) = char_idx_at_visual_offset(
@@ -616,7 +659,7 @@ impl View {
             doc,
             row,
             column,
-            doc.text_format(self.inner_width(doc), None),
+            self.text_format(doc, self.inner_width(doc), None),
             &self.text_annotations(doc, None),
             ignore_virtual_text,
         )
@@ -633,7 +676,7 @@ impl View {
             doc,
             row,
             column,
-            doc.text_format(self.inner_width(doc), None),
+            self.text_format(doc, self.inner_width(doc), None),
             &self.text_annotations(doc, None),
             ignore_virtual_text,
         )

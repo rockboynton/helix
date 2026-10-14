@@ -122,6 +122,14 @@ impl ChangeSetBuilder<'_> {
 
 struct RopeLines<'a>(RopeSlice<'a>);
 
+/// Line-level changes, without constructing an editing transaction.
+pub fn line_hunks(before: &Rope, after: &Rope) -> Vec<Hunk> {
+    let input = InternedInput::new(RopeLines(before.slice(..)), RopeLines(after.slice(..)));
+    Diff::compute(Algorithm::Histogram, &input)
+        .hunks()
+        .collect()
+}
+
 impl<'a> imara_diff::TokenSource for RopeLines<'a> {
     type Token = RopeSlice<'a>;
     type Tokenizer = ropey::iter::Lines<'a>;

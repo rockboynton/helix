@@ -40,6 +40,7 @@ pub fn render_document(
     overlay_highlights: Vec<syntax::OverlayHighlights>,
     theme: &Theme,
     decorations: DecorationManager,
+    text_format: Option<TextFormat>,
 ) {
     let mut renderer = TextRenderer::new(
         surface,
@@ -53,7 +54,7 @@ pub fn render_document(
         &mut renderer,
         doc.text().slice(..),
         offset.anchor,
-        &doc.text_format(viewport.width, Some(theme)),
+        &text_format.unwrap_or_else(|| doc.text_format(viewport.width, Some(theme))),
         doc_annotations,
         syntax_highlighter,
         overlay_highlights,
@@ -76,7 +77,12 @@ pub fn render_text(
 ) {
     let row_off = visual_offset_from_block(text, anchor, anchor, text_fmt, text_annotations)
         .0
-        .row;
+        .row
+        .saturating_sub(if anchor == 0 {
+            text_annotations.leading_rows()
+        } else {
+            0
+        });
 
     let mut formatter =
         DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, text_annotations, anchor);
@@ -208,6 +214,7 @@ mod pager_render_tests {
 
 #[derive(Debug)]
 pub struct TextRenderer<'a> {
+    line_background: Option<helix_view::graphics::Color>,
     surface: &'a mut Surface,
     render_controls: bool,
     pub text_style: Style,
@@ -233,6 +240,19 @@ pub struct GraphemeStyle {
 }
 
 impl<'a> TextRenderer<'a> {
+    pub fn set_line_background(
+        &mut self,
+        background: Option<helix_view::graphics::Color>,
+        row: u16,
+    ) {
+        self.line_background = background;
+        if let Some(bg) = background {
+            self.set_style(
+                Rect::new(self.viewport.x, row, self.viewport.width, 1),
+                Style::default().bg(bg),
+            );
+        }
+    }
     pub fn new(
         surface: &'a mut Surface,
         doc: &Document,
@@ -282,6 +302,7 @@ impl<'a> TextRenderer<'a> {
         let indent_width = doc.indent_style.indent_width(tab_width) as u16;
 
         TextRenderer {
+            line_background: None,
             surface,
             indent_guide_char: editor_config.indent_guides.character.into(),
             newline,
@@ -365,6 +386,9 @@ impl<'a> TextRenderer<'a> {
 
         // TODO is it correct to apply the whitespace style to all unicode white spaces?
         let mut style = grapheme_style.syntax_style;
+        if let Some(bg) = self.line_background {
+            style.bg = Some(bg);
+        }
         if is_whitespace {
             style = style.patch(self.whitespace_style);
         }

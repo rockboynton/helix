@@ -61,6 +61,14 @@ language detection. This establishes a per-document editing policy for future
 editable diff sessions. See the [pager guide](docs/pager.md) for examples, safety
 boundaries, and the remaining streaming/ANSI limitations.
 
+### Editable side-by-side diff
+
+`hx --diff before.rs after.rs` compares two editable files using their normal
+Tree-sitter syntax highlighting, diff backgrounds/gutters, virtual alignment
+rows, and synchronized scrolling. `:diff-split` starts a comparison inside the
+editor. Hunk navigation and undoable `:diff-get` / `:diff-put` transfers never
+save automatically. See the [file comparison guide](docs/file-diff.md).
+
 ### On-demand GitLens
 
 [GitLens](docs/gitlens.md) is a Steel plugin built on native asynchronous editor

@@ -2135,6 +2135,155 @@ fn vsplit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyho
     Ok(())
 }
 
+fn diff_split(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let paths = args
+        .iter()
+        .map(|arg| helix_stdx::path::canonicalize(Path::new(arg.as_ref())))
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        paths.iter().all(|path| path.is_file()),
+        "diff inputs must be existing files"
+    );
+    let left_path = if paths.len() == 2 {
+        paths[0].clone()
+    } else {
+        current_ref!(cx.editor)
+            .1
+            .path()
+            .ok_or_else(|| anyhow!("current buffer has no file path"))?
+            .to_path_buf()
+    };
+    let right_path = paths.last().unwrap();
+    anyhow::ensure!(left_path != *right_path, "compare two different files");
+    if paths.len() == 2 {
+        cx.editor.open(&left_path, Action::Replace)?;
+    }
+    let left = cx.editor.tree.focus;
+    cx.editor.open(right_path, Action::VerticalSplit)?;
+    let right = cx.editor.tree.focus;
+    cx.editor.start_diff([left, right])?;
+    cx.editor
+        .set_status("Editable diff: diff-next / diff-prev / diff-get / diff-put / diff-off");
+    Ok(())
+}
+
+fn diff_off(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        cx.editor.stop_diff();
+    }
+    Ok(())
+}
+
+fn diff_action(
+    cx: &mut compositor::Context,
+    action: &str,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    cx.editor.refresh_diff();
+    let session = cx
+        .editor
+        .diff_session
+        .as_ref()
+        .ok_or_else(|| anyhow!("no active file comparison"))?;
+    let side = session
+        .views
+        .iter()
+        .position(|&id| id == cx.editor.tree.focus)
+        .ok_or_else(|| anyhow!("focus a diff pane first"))?;
+    let documents = session.documents;
+    let views = session.views;
+    let versions = documents.map(|id| cx.editor.document(id).unwrap().version());
+    let layout = session
+        .result
+        .load_full()
+        .filter(|layout| layout.versions == versions)
+        .ok_or_else(|| anyhow!("diff is updating; try again"))?;
+    let doc = cx.editor.document(documents[side]).unwrap();
+    let line = doc.cursor_line(views[side]);
+    let range = |hunk: &helix_vcs::Hunk| {
+        if side == 0 {
+            hunk.before.clone()
+        } else {
+            hunk.after.clone()
+        }
+    };
+    if action == "next" || action == "prev" {
+        let hunk = if action == "next" {
+            layout
+                .hunks
+                .iter()
+                .find(|hunk| range(hunk).start as usize > line)
+        } else {
+            layout
+                .hunks
+                .iter()
+                .rev()
+                .find(|hunk| (range(hunk).start as usize) < line)
+        }
+        .ok_or_else(|| anyhow!("no {} change", action))?;
+        let target = (range(hunk).start as usize).min(doc.text().len_lines() - 1);
+        let pos = doc.text().line_to_char(target);
+        let (view, doc) = current!(cx.editor);
+        doc.set_selection(view.id, Selection::point(pos));
+        view.ensure_cursor_in_view(doc, 2);
+        return Ok(());
+    }
+    let hunk = layout
+        .hunks
+        .iter()
+        .find(|hunk| {
+            let range = range(hunk);
+            (range.start as usize <= line && line < range.end as usize)
+                || (range.is_empty()
+                    && line == (range.start as usize).min(doc.text().len_lines() - 1))
+        })
+        .ok_or_else(|| anyhow!("no change at cursor"))?;
+    let target = if action == "get" { side } else { 1 - side };
+    let source = 1 - target;
+    let ranges = [&hunk.before, &hunk.after];
+    let source_doc = cx.editor.document(documents[source]).unwrap();
+    let start = source_doc
+        .text()
+        .line_to_char(ranges[source].start as usize);
+    let end = source_doc.text().line_to_char(ranges[source].end as usize);
+    let text: Tendril = source_doc.text().slice(start..end).chunks().collect();
+    let target_doc = cx.editor.document(documents[target]).unwrap();
+    anyhow::ensure!(!target_doc.is_read_only(), "target document is read-only");
+    let start = target_doc
+        .text()
+        .line_to_char(ranges[target].start as usize);
+    let end = target_doc.text().line_to_char(ranges[target].end as usize);
+    let transaction = Transaction::change(
+        target_doc.text(),
+        [(start, end, (!text.is_empty()).then_some(text))].into_iter(),
+    );
+    let view = cx.editor.tree.get_mut(views[target]);
+    let doc = cx.editor.documents.get_mut(&documents[target]).unwrap();
+    doc.apply(&transaction, view.id);
+    doc.append_changes_to_history(view);
+    cx.editor.refresh_diff();
+    Ok(())
+}
+
+fn diff_next(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    diff_action(cx, "next", event)
+}
+fn diff_prev(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    diff_action(cx, "prev", event)
+}
+fn diff_get(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    diff_action(cx, "get", event)
+}
+fn diff_put(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    diff_action(cx, "put", event)
+}
+
 fn hsplit(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -3908,6 +4057,16 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
             ..Signature::DEFAULT
         },
     },
+    TypableCommand {
+        name: "diff-split", aliases: &["diff"], doc: "Compare current file with another, or compare two files, in editable aligned panes.", fun: diff_split,
+        completer: CommandCompleter::all(completers::filename),
+        signature: Signature { positionals: (1, Some(2)), ..Signature::DEFAULT },
+    },
+    TypableCommand { name: "diff-off", aliases: &[], doc: "Stop comparing; keep both buffers open.", fun: diff_off, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "diff-next", aliases: &[], doc: "Jump to the next change in the paired diff.", fun: diff_next, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "diff-prev", aliases: &[], doc: "Jump to the previous change in the paired diff.", fun: diff_prev, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "diff-get", aliases: &[], doc: "Replace this hunk with the other pane's version, without saving.", fun: diff_get, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "diff-put", aliases: &[], doc: "Copy this hunk to the other pane, without saving.", fun: diff_put, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand {
         name: "vsplit-new",
         aliases: &["vnew"],

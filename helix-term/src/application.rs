@@ -87,6 +87,13 @@ pub struct Application {
 }
 
 #[cfg(feature = "integration")]
+impl Application {
+    pub fn test_surface(&self) -> &tui::buffer::Buffer {
+        self.terminal.backend().buffer()
+    }
+}
+
+#[cfg(feature = "integration")]
 fn setup_integration_logging() {
     let level = std::env::var("HELIX_LOG_LEVEL")
         .map(|lvl| lvl.parse().unwrap())
@@ -107,6 +114,20 @@ impl Application {
 
         use helix_view::editor::Action;
 
+        let diff_paths = args
+            .diff
+            .then(|| args.files.keys().cloned().collect::<Vec<_>>());
+        if let Some(paths) = &diff_paths {
+            anyhow::ensure!(
+                paths.len() == 2 && paths.iter().all(|path| path.is_file()),
+                "--diff requires two existing files"
+            );
+            anyhow::ensure!(
+                helix_stdx::path::canonicalize(&paths[0])
+                    != helix_stdx::path::canonicalize(&paths[1]),
+                "compare two different files"
+            );
+        }
         if args.pager {
             if args.files.is_empty() && stdin().is_terminal() && !cfg!(feature = "integration") {
                 anyhow::bail!("--pager requires a file or piped stdin");
@@ -279,6 +300,25 @@ impl Application {
             }
         }
 
+        if let Some(paths) = diff_paths {
+            let documents = paths
+                .iter()
+                .map(|path| editor.document_id_by_path(path))
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| anyhow::anyhow!("failed to open diff inputs"))?;
+            let views = documents
+                .iter()
+                .map(|id| {
+                    editor
+                        .tree
+                        .views()
+                        .find(|(view, _)| view.doc == *id)
+                        .map(|(view, _)| view.id)
+                })
+                .collect::<Option<Vec<_>>>()
+                .ok_or_else(|| anyhow::anyhow!("failed to create diff panes"))?;
+            editor.start_diff([views[0], views[1]])?;
+        }
         if let Some(language) = &args.language {
             let loader = editor.syn_loader.load();
             for doc in editor.documents_mut() {
