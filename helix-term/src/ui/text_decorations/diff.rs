@@ -38,8 +38,14 @@ mod tests {
     #[test]
     fn bright_foregrounds_never_become_backgrounds_and_overrides_win() {
         let mut theme = Theme::default();
-        theme.set("diff.minus".into(), helix_view::graphics::Style::default().fg(Color::Rgb(255, 0, 0)));
-        theme.set("diff.plus".into(), helix_view::graphics::Style::default().fg(Color::Rgb(255, 255, 0)));
+        theme.set(
+            "diff.minus".into(),
+            helix_view::graphics::Style::default().fg(Color::Rgb(255, 0, 0)),
+        );
+        theme.set(
+            "diff.plus".into(),
+            helix_view::graphics::Style::default().fg(Color::Rgb(255, 255, 0)),
+        );
         assert_eq!(background(&theme, true), Color::Rgb(48, 0, 0));
         assert_eq!(background(&theme, false), Color::Rgb(0, 40, 0));
         theme.set(

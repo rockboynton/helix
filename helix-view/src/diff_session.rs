@@ -18,8 +18,43 @@ pub struct DiffSide {
     /// Aligned row of every real line; gaps are omitted.
     pub rows: Vec<usize>,
     pub changed: Vec<Range<usize>>,
+    pub gutter_hunks: Vec<DiffGutterHunk>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffChange {
+    Added,
+    Removed,
+    Modified,
+}
+
+#[derive(Debug)]
+pub struct DiffGutterHunk {
+    pub lines: Range<usize>,
+    pub change: DiffChange,
+}
+
 impl DiffSide {
+    pub fn gutter_at(&self, line: usize, first_visual_line: bool) -> Option<DiffChange> {
+        // Empty ranges are boundary marks, as in Helix's normal VCS gutter.
+        let index = self.gutter_hunks.partition_point(|hunk| {
+            if hunk.lines.is_empty() {
+                hunk.lines.start.min(self.rows.len() - 1) < line
+            } else {
+                hunk.lines.end <= line
+            }
+        });
+        let hunk = self.gutter_hunks.get(index)?;
+        if hunk.lines.contains(&line)
+            || (hunk.lines.is_empty()
+                && first_visual_line
+                && hunk.lines.start.min(self.rows.len() - 1) == line)
+        {
+            Some(hunk.change)
+        } else {
+            None
+        }
+    }
     pub fn is_changed(&self, line: usize) -> bool {
         let index = self.changed.partition_point(|range| range.end <= line);
         self.changed
@@ -58,6 +93,13 @@ impl DiffLayout {
         let mut lines = [0usize; 2];
         let mut row = 0;
         for hunk in &hunks {
+            let change = if hunk.is_pure_insertion() {
+                DiffChange::Added
+            } else if hunk.is_pure_removal() {
+                DiffChange::Removed
+            } else {
+                DiffChange::Modified
+            };
             let ranges = [hunk.before.clone(), hunk.after.clone()];
             let unchanged = ranges[0].start as usize - lines[0];
             for side in 0..2 {
@@ -70,6 +112,10 @@ impl DiffLayout {
                 let range = ranges[side].start as usize..ranges[side].end as usize;
                 sides[side].rows.extend(row..row + range.len());
                 lines[side] = range.end;
+                sides[side].gutter_hunks.push(DiffGutterHunk {
+                    lines: range.clone(),
+                    change,
+                });
                 if !range.is_empty() {
                     sides[side].changed.push(range);
                 }
@@ -162,6 +208,25 @@ impl Drop for DiffSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn gutter_classifies_hunks_instead_of_signs_for_each_side() {
+        for (before, after, change) in [
+            ("a\nb\n", "a\nextra\nb\n", DiffChange::Added),
+            ("a\nextra\nb\n", "a\nb\n", DiffChange::Removed),
+            ("a\nb\n", "a\nx\n", DiffChange::Modified),
+        ] {
+            let layout =
+                DiffLayout::compute(&[Rope::from_str(before), Rope::from_str(after)], [0, 0]);
+            for side in &layout.sides {
+                assert_eq!(side.gutter_at(0, true), None);
+                assert_eq!(side.gutter_at(1, true), Some(change));
+                assert_eq!(side.gutter_at(100, true), None);
+                if side.gutter_hunks[0].lines.is_empty() {
+                    assert_eq!(side.gutter_at(1, false), None);
+                }
+            }
+        }
+    }
     use helix_core::{
         doc_formatter::{DocumentFormatter, TextFormat},
         text_annotations::TextAnnotations,

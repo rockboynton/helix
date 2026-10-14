@@ -103,22 +103,19 @@ pub fn diff<'doc>(
     _is_focused: bool,
 ) -> GutterFn<'doc> {
     if let Some(side) = view.diff_side(doc).cloned() {
-        let left = editor
-            .diff_session
-            .as_ref()
-            .is_some_and(|session| session.views[0] == view.id);
-        let style = theme.get(if left {
-            "diff.minus.gutter"
-        } else {
-            "diff.plus.gutter"
-        });
-        return Box::new(move |line, _, _, out| {
-            if side.is_changed(line) {
-                out.push(if left { '-' } else { '+' });
-                Some(style)
-            } else {
-                None
-            }
+        let added = theme.get("diff.plus.gutter");
+        let deleted = theme.get("diff.minus.gutter");
+        let modified = theme.get("diff.delta.gutter");
+        let icons = &editor.icons.diff;
+        return Box::new(move |line, _, first_visual_line, out| {
+            use crate::diff_session::DiffChange;
+            let (icon, style) = match side.gutter_at(line, first_visual_line)? {
+                DiffChange::Added => (&icons.added, added),
+                DiffChange::Removed => (&icons.deleted, deleted),
+                DiffChange::Modified => (&icons.modified, modified),
+            };
+            write!(out, "{}", icon.icon_char).unwrap();
+            icon.style.map(|style| style.into()).or(Some(style))
         });
     }
     if view.is_diff(doc) {

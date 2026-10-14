@@ -2,6 +2,57 @@ use super::helpers::*;
 use helix_view::current_ref;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn diff_gutter_uses_configured_helix_icons_for_each_hunk_kind() -> anyhow::Result<()> {
+    for (before, after, expected) in [
+        ("a\nb\n", "a\nextra\nb\n", 'A'),
+        ("a\nextra\nb\n", "a\nb\n", 'D'),
+        ("a\nb\n", "a\nx\n", 'M'),
+    ] {
+        let left = temp_file_with_contents(before)?;
+        let right = temp_file_with_contents(after)?;
+        let mut app = AppBuilder::new()
+            .with_file(left.path(), None)
+            .with_file(right.path(), None)
+            .with_diff()
+            .build()?;
+        app.editor.icons.diff.added.icon_char = 'A';
+        app.editor.icons.diff.deleted.icon_char = 'D';
+        app.editor.icons.diff.modified.icon_char = 'M';
+        test_key_sequences(
+            &mut app,
+            vec![
+                (
+                    None,
+                    Some(&|app| {
+                        let session = app.editor.diff_session.as_ref().unwrap();
+                        for id in session.views {
+                            let view = app.editor.tree.get(id);
+                            let doc = app.editor.document(view.doc).unwrap();
+                            let mut gutter = helix_view::gutter::diff(
+                                &app.editor,
+                                doc,
+                                view,
+                                &app.editor.theme,
+                                true,
+                            );
+                            let mut text = String::new();
+                            assert!(gutter(0, false, true, &mut text).is_none());
+                            assert!(text.is_empty());
+                            assert!(gutter(1, false, true, &mut text).is_some());
+                            assert_eq!(text, expected.to_string());
+                        }
+                    }),
+                ),
+                (Some(":qa!<ret>"), None),
+            ],
+            true,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn diff_scrolls_both_panes_in_aligned_rows() -> anyhow::Result<()> {
     let lines = (0..240)
         .map(|line| format!("line-{line:03}\n"))
