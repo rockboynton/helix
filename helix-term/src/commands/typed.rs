@@ -2139,6 +2139,9 @@ fn diff_split(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     if event != PromptEvent::Validate {
         return Ok(());
     }
+    if args.len() == 3 {
+        return diff_three(cx, args, event);
+    }
     let paths = args
         .iter()
         .map(|arg| helix_stdx::path::canonicalize(Path::new(arg.as_ref())))
@@ -2166,6 +2169,34 @@ fn diff_split(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     cx.editor.start_diff([views[0], views[1]])?;
     cx.editor
         .set_status("Editable diff: diff-next / diff-prev / diff-get / diff-put / diff-off");
+    Ok(())
+}
+
+fn diff_three(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let paths = args
+        .iter()
+        .map(|arg| helix_stdx::path::canonicalize(Path::new(arg.as_ref())))
+        .collect::<Vec<_>>();
+    anyhow::ensure!(
+        paths.len() == 3 && paths.iter().all(|path| path.is_file()),
+        "three-way diff needs existing left, base and right files"
+    );
+    anyhow::ensure!(
+        (0..3).all(|i| (i + 1..3).all(|j| paths[i] != paths[j])),
+        "compare three different files"
+    );
+    let views = cx.editor.comparison_views(3);
+    for side in 0..3 {
+        cx.editor.focus(views[side]);
+        cx.editor.open(&paths[side], Action::Replace)?;
+    }
+    cx.editor.start_three_diff([views[0], views[1], views[2]])?;
+    cx.editor.set_status(
+        "Three-way diff: left | base | right; get/put from outer panes compares with base",
+    );
     Ok(())
 }
 
@@ -2209,24 +2240,76 @@ fn diff_action(
         return Ok(());
     }
     cx.editor.refresh_diff();
-    let session = cx
-        .editor
-        .diff_session
-        .as_ref()
-        .ok_or_else(|| anyhow!("no active file comparison"))?;
-    let side = session
-        .views
-        .iter()
-        .position(|&id| id == cx.editor.tree.focus)
-        .ok_or_else(|| anyhow!("focus a diff pane first"))?;
-    let documents = session.documents;
-    let views = session.views;
-    let versions = documents.map(|id| cx.editor.document(id).unwrap().version());
-    let layout = session
-        .result
-        .load_full()
-        .filter(|layout| layout.versions == versions)
-        .ok_or_else(|| anyhow!("diff is updating; try again"))?;
+    let (documents, views, side, layout) = if let Some(session) = &cx.editor.three_diff_session {
+        let focused = session
+            .views
+            .iter()
+            .position(|&id| id == cx.editor.tree.focus)
+            .ok_or_else(|| anyhow!("focus a diff pane first"))?;
+        let versions = session
+            .documents
+            .map(|id| cx.editor.document(id).unwrap().version());
+        let layout = session
+            .result
+            .load_full()
+            .filter(|layout| layout.versions == versions)
+            .ok_or_else(|| anyhow!("diff is updating; try again"))?;
+        if focused == 1 {
+            anyhow::ensure!(
+                action == "next" || action == "prev",
+                "focus left or right to choose which side to transfer with base"
+            );
+            let doc = doc!(cx.editor);
+            let line = doc.cursor_line(cx.editor.tree.focus);
+            let starts = layout.sides[1]
+                .gutter_hunks
+                .iter()
+                .map(|hunk| hunk.lines.start.min(doc.text().len_lines() - 1));
+            let target = if action == "next" {
+                starts.filter(|&start| start > line).min()
+            } else {
+                starts.filter(|&start| start < line).max()
+            }
+            .ok_or_else(|| anyhow!("no {action} change"))?;
+            let (view, doc) = current!(cx.editor);
+            doc.set_selection(view.id, Selection::point(doc.text().line_to_char(target)));
+            view.ensure_cursor_in_view(doc, 2);
+            return Ok(());
+        }
+        let pair = usize::from(focused == 2);
+        let layout = std::sync::Arc::new(helix_view::diff_session::DiffLayout::<2> {
+            versions: [versions[1], versions[focused]],
+            hunks: layout.pairs[pair].clone(),
+            sides: [layout.sides[1].clone(), layout.sides[focused].clone()],
+            pairs: Vec::new(),
+        });
+        (
+            [session.documents[1], session.documents[focused]],
+            [session.views[1], session.views[focused]],
+            1,
+            layout,
+        )
+    } else {
+        let session = cx
+            .editor
+            .diff_session
+            .as_ref()
+            .ok_or_else(|| anyhow!("no active file comparison"))?;
+        let side = session
+            .views
+            .iter()
+            .position(|&id| id == cx.editor.tree.focus)
+            .ok_or_else(|| anyhow!("focus a diff pane first"))?;
+        let documents = session.documents;
+        let views = session.views;
+        let versions = documents.map(|id| cx.editor.document(id).unwrap().version());
+        let layout = session
+            .result
+            .load_full()
+            .filter(|layout| layout.versions == versions)
+            .ok_or_else(|| anyhow!("diff is updating; try again"))?;
+        (documents, views, side, layout)
+    };
     let doc = cx.editor.document(documents[side]).unwrap();
     let line = doc.cursor_line(views[side]);
     let range = |hunk: &helix_vcs::Hunk| {
@@ -4081,11 +4164,12 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         },
     },
     TypableCommand {
-        name: "diff-split", aliases: &["diff"], doc: "Compare current file with another, or compare two files, in editable aligned panes.", fun: diff_split,
+        name: "diff-split", aliases: &["diff"], doc: "Compare current file with another, two files, or left/base/right files in reusable aligned columns.", fun: diff_split,
         completer: CommandCompleter::all(completers::filename),
-        signature: Signature { positionals: (1, Some(2)), ..Signature::DEFAULT },
+        signature: Signature { positionals: (1, Some(3)), ..Signature::DEFAULT },
     },
-    TypableCommand { name: "diff-off", aliases: &[], doc: "Stop comparing; keep both buffers open.", fun: diff_off, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "diff-three", aliases: &["diff3"], doc: "Compare left, base, right files in three aligned editable columns.", fun: diff_three, completer: CommandCompleter::all(completers::filename), signature: Signature { positionals: (3, Some(3)), ..Signature::DEFAULT } },
+    TypableCommand { name: "diff-off", aliases: &[], doc: "Stop comparing; keep comparison buffers open.", fun: diff_off, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-next", aliases: &[], doc: "Jump to the next change in the paired diff.", fun: diff_next, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-prev", aliases: &[], doc: "Jump to the previous change in the paired diff.", fun: diff_prev, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-get", aliases: &[], doc: "Replace this hunk with the other pane's version, without saving.", fun: diff_get, completer: CommandCompleter::none(), signature: Signature::DEFAULT },

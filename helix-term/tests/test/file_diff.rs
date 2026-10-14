@@ -2,6 +2,209 @@ use super::helpers::*;
 use helix_view::current_ref;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn three_way_scrolls_all_columns_and_preserves_alignment_on_focus() -> anyhow::Result<()> {
+    let lines = (0..260)
+        .map(|i| format!("line-{i:03}\n"))
+        .collect::<Vec<_>>();
+    let left = temp_file_with_contents(&format!(
+        "left\nleft\n{}{}",
+        lines[..30].concat(),
+        lines[40..].concat()
+    ))?;
+    let base = temp_file_with_contents(&lines.concat())?;
+    let right = temp_file_with_contents(&format!(
+        "{}right\nright\nright\n{}",
+        lines[..70].concat(),
+        lines[70..].concat()
+    ))?;
+    let mut app = AppBuilder::new()
+        .with_file(left.path(), None)
+        .with_file(base.path(), None)
+        .with_file(right.path(), None)
+        .with_three_diff()
+        .build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("220j"),
+                Some(&|app| {
+                    let session = app.editor.three_diff_session.as_ref().unwrap();
+                    let surface = app.test_surface();
+                    let labels = session.views.map(|id| {
+                        let view = app.editor.tree.get(id);
+                        let doc = app.editor.document(view.doc).unwrap();
+                        let inner = view.inner_area(doc);
+                        (inner.x..inner.x + 8)
+                            .map(|x| surface[(x, inner.y + 2)].symbol.as_str())
+                            .collect::<String>()
+                    });
+                    assert_eq!(labels[0], labels[1]);
+                    assert_eq!(labels[1], labels[2]);
+                    assert!(labels[0].starts_with("line-"));
+                }),
+            ),
+            (
+                Some("<C-w>h<C-w>h"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert!(doc.cursor_line(view.id) > 150);
+                }),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn three_way_diff_aligns_edits_transfers_undo_and_reuses_columns() -> anyhow::Result<()> {
+    let left = temp_file_with_contents("head\nleft\nend\n")?;
+    let base = temp_file_with_contents("head\nbase\nend\n")?;
+    let right = temp_file_with_contents("head\nright\nend\n")?;
+    let mut app = AppBuilder::new()
+        .with_file(left.path(), None)
+        .with_file(base.path(), None)
+        .with_file(right.path(), None)
+        .with_three_diff()
+        .build()?;
+    let repeat = format!(
+        ":diff3 {} {} {}<ret>",
+        left.path().display(),
+        base.path().display(),
+        right.path().display()
+    );
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                None,
+                Some(&|app| {
+                    let session = app.editor.three_diff_session.as_ref().unwrap();
+                    let layout = session.result.load_full().unwrap();
+                    assert_eq!(app.editor.tree.views().count(), 3);
+                    for side in 0..3 {
+                        let view = app.editor.tree.get(session.views[side]);
+                        assert_eq!(view.area.y, app.editor.tree.get(session.views[1]).area.y);
+                        assert_eq!(layout.sides[side].rows[2], layout.sides[1].rows[2]);
+                        let doc = app.editor.document(session.documents[side]).unwrap();
+                        let inner = view.inner_area(doc);
+                        let expected = if side == 1 {
+                            helix_view::graphics::Color::Rgb(48, 0, 0)
+                        } else {
+                            helix_view::graphics::Color::Rgb(0, 40, 0)
+                        };
+                        assert_eq!(app.test_surface()[(inner.x, inner.y + 1)].bg, expected);
+                    }
+                }),
+            ),
+            (
+                Some("j:diff-get<ret>"),
+                Some(&|app| {
+                    assert_eq!(
+                        current_ref!(app.editor).1.text().to_string(),
+                        "head\nbase\nend\n"
+                    );
+                }),
+            ),
+            (
+                Some("u"),
+                Some(&|app| {
+                    assert_eq!(
+                        current_ref!(app.editor).1.text().to_string(),
+                        "head\nright\nend\n"
+                    );
+                }),
+            ),
+            (
+                Some(":diff-put<ret>"),
+                Some(&|app| {
+                    assert_eq!(
+                        app.editor
+                            .document_by_path(base.path())
+                            .unwrap()
+                            .text()
+                            .to_string(),
+                        "head\nright\nend\n"
+                    );
+                }),
+            ),
+            (
+                Some("<C-w>hu"),
+                Some(&|app| {
+                    assert_eq!(
+                        current_ref!(app.editor).1.text().to_string(),
+                        "head\nbase\nend\n"
+                    );
+                }),
+            ),
+            (
+                Some(&repeat),
+                Some(&|app| {
+                    assert_eq!(app.editor.tree.views().count(), 3);
+                    assert!(app.editor.three_diff_session.is_some());
+                }),
+            ),
+            (
+                Some(":diff-off<ret>"),
+                Some(&|app| {
+                    assert!(app.editor.three_diff_session.is_none());
+                    assert!(app.editor.tree.views().all(|(view, _)| view.diff.is_none()));
+                }),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    assert_eq!(std::fs::read_to_string(base.path())?, "head\nbase\nend\n");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn three_way_diff_can_reuse_two_panes_and_pager_remains_read_only() -> anyhow::Result<()> {
+    let left = temp_file_with_contents("l\n")?;
+    let base = temp_file_with_contents("b\n")?;
+    let right = temp_file_with_contents("r\n")?;
+    let mut app = AppBuilder::new()
+        .with_file(left.path(), None)
+        .with_file(base.path(), None)
+        .with_diff()
+        .with_pager(None)
+        .build()?;
+    let command = format!(
+        ":diff3 {} {} {}<ret>gg:diff-get<ret>",
+        left.path().display(),
+        base.path().display(),
+        right.path().display()
+    );
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(&command),
+                Some(&|app| {
+                    assert_eq!(app.editor.tree.views().count(), 3);
+                    assert_eq!(current_ref!(app.editor).1.text().to_string(), "r\n");
+                    let session = app.editor.three_diff_session.as_ref().unwrap();
+                    assert!(session.documents.iter().all(|&id| app
+                        .editor
+                        .document(id)
+                        .unwrap()
+                        .is_read_only()));
+                }),
+            ),
+            (Some("q"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn repeated_diff_reuses_side_by_side_panes_and_retains_displaced_buffers(
 ) -> anyhow::Result<()> {
     let a = temp_file_with_contents("a\n")?;

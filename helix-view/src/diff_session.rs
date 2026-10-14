@@ -7,13 +7,15 @@ use std::{ops::Range, sync::Arc};
 use tokio::sync::watch;
 
 #[derive(Debug)]
-pub struct DiffLayout {
-    pub versions: [i32; 2],
+pub struct DiffLayout<const N: usize = 2> {
+    pub versions: [i32; N],
     pub hunks: Vec<Hunk>,
-    pub sides: [Arc<DiffSide>; 2],
+    pub sides: [Arc<DiffSide>; N],
+    /// Base-to-left and base-to-right hunks for three-way comparisons.
+    pub pairs: Vec<Vec<Hunk>>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct DiffSide {
     /// Aligned row of every real line; gaps are omitted.
     pub rows: Vec<usize>,
@@ -28,7 +30,7 @@ pub enum DiffChange {
     Modified,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DiffGutterHunk {
     pub lines: Range<usize>,
     pub change: DiffChange,
@@ -86,10 +88,14 @@ impl LineAnnotation for Alignment {
         Position::new(self.0.padding_after(line), 0)
     }
 }
-impl DiffLayout {
-    pub fn compute(texts: &[Rope; 2], versions: [i32; 2]) -> Self {
+impl<const N: usize> DiffLayout<N> {
+    pub fn compute(texts: &[Rope; N], versions: [i32; N]) -> Self {
+        assert!(N == 2 || N == 3);
+        if N == 3 {
+            return Self::three(texts, versions);
+        }
         let hunks = line_hunks(&texts[0], &texts[1]);
-        let mut sides = [DiffSide::default(), DiffSide::default()];
+        let mut sides: [DiffSide; N] = std::array::from_fn(|_| DiffSide::default());
         let mut lines = [0usize; 2];
         let mut row = 0;
         for hunk in &hunks {
@@ -130,6 +136,87 @@ impl DiffLayout {
             versions,
             hunks,
             sides: sides.map(Arc::new),
+            pairs: Vec::new(),
+        }
+    }
+
+    fn three(texts: &[Rope; N], versions: [i32; N]) -> Self {
+        let pairs = [0, 2].map(|side| {
+            DiffLayout::<2>::compute(
+                &[texts[1].clone(), texts[side].clone()],
+                [versions[1], versions[side]],
+            )
+        });
+        let count = texts[1].len_lines();
+        let mut common = Vec::with_capacity(count);
+        let mut row = 0;
+        for line in 0..count {
+            let gaps = pairs.each_ref().map(|pair| {
+                let rows = &pair.sides[0].rows;
+                rows[line] - if line == 0 { 0 } else { rows[line - 1] + 1 }
+            });
+            row += gaps[0].max(gaps[1]);
+            common.push(row);
+            row += 1;
+        }
+        let mut sides: [DiffSide; N] = std::array::from_fn(|_| DiffSide::default());
+        sides[1].rows = common.clone();
+        for (index, side) in [0, 2].into_iter().enumerate() {
+            let pair = &pairs[index];
+            sides[side] = (*pair.sides[1]).clone();
+            let mut next = 0;
+            for position in &mut sides[side].rows {
+                while next < count && pair.sides[0].rows[next] < *position {
+                    next += 1;
+                }
+                *position = if next < count && pair.sides[0].rows[next] == *position {
+                    common[next]
+                } else {
+                    let (old_start, new_start) = if next == 0 {
+                        (0, 0)
+                    } else {
+                        (pair.sides[0].rows[next - 1] + 1, common[next - 1] + 1)
+                    };
+                    new_start + *position - old_start
+                };
+            }
+            sides[1].changed.extend(pair.sides[0].changed.clone());
+            sides[1]
+                .gutter_hunks
+                .extend(pair.sides[0].gutter_hunks.clone());
+        }
+        sides[1].changed.sort_by_key(|range| range.start);
+        let mut changed: Vec<Range<usize>> = Vec::new();
+        for range in std::mem::take(&mut sides[1].changed) {
+            if let Some(last) = changed.last_mut().filter(|last| last.end >= range.start) {
+                last.end = last.end.max(range.end);
+            } else {
+                changed.push(range);
+            }
+        }
+        sides[1].changed = changed;
+        // Union base ranges, including zero-width insertion boundary markers.
+        sides[1]
+            .gutter_hunks
+            .sort_by_key(|hunk| (hunk.lines.start, hunk.lines.end));
+        let mut gutters: Vec<DiffGutterHunk> = Vec::new();
+        for hunk in std::mem::take(&mut sides[1].gutter_hunks) {
+            if let Some(last) = gutters
+                .last_mut()
+                .filter(|last| last.lines.end >= hunk.lines.start)
+            {
+                last.lines.end = last.lines.end.max(hunk.lines.end);
+                last.change = DiffChange::Modified;
+            } else {
+                gutters.push(hunk);
+            }
+        }
+        sides[1].gutter_hunks = gutters;
+        Self {
+            versions,
+            hunks: Vec::new(),
+            sides: sides.map(Arc::new),
+            pairs: pairs.into_iter().map(|pair| pair.hunks).collect(),
         }
     }
 }
@@ -140,24 +227,24 @@ pub struct DiffView {
     pub side: Arc<DiffSide>,
 }
 #[derive(Clone)]
-struct Request {
-    texts: [Rope; 2],
-    versions: [i32; 2],
+struct Request<const N: usize> {
+    texts: [Rope; N],
+    versions: [i32; N],
 }
-pub struct DiffSession {
-    pub documents: [DocumentId; 2],
-    pub views: [ViewId; 2],
-    pub result: Arc<ArcSwapOption<DiffLayout>>,
-    versions: [i32; 2],
-    sender: watch::Sender<Request>,
+pub struct DiffSession<const N: usize = 2> {
+    pub documents: [DocumentId; N],
+    pub views: [ViewId; N],
+    pub result: Arc<ArcSwapOption<DiffLayout<N>>>,
+    versions: [i32; N],
+    sender: watch::Sender<Request<N>>,
     worker: tokio::task::JoinHandle<()>,
 }
-impl DiffSession {
+impl<const N: usize> DiffSession<N> {
     pub fn new(
-        documents: [DocumentId; 2],
-        views: [ViewId; 2],
-        texts: [Rope; 2],
-        versions: [i32; 2],
+        documents: [DocumentId; N],
+        views: [ViewId; N],
+        texts: [Rope; N],
+        versions: [i32; N],
     ) -> Self {
         let (sender, mut receiver) = watch::channel(Request { texts, versions });
         let result = Arc::new(ArcSwapOption::empty());
@@ -193,14 +280,14 @@ impl DiffSession {
             worker,
         }
     }
-    pub fn update(&mut self, texts: [Rope; 2], versions: [i32; 2]) {
+    pub fn update(&mut self, texts: [Rope; N], versions: [i32; N]) {
         if self.versions != versions {
             self.versions = versions;
             self.sender.send_replace(Request { texts, versions });
         }
     }
 }
-impl Drop for DiffSession {
+impl<const N: usize> Drop for DiffSession<N> {
     fn drop(&mut self) {
         self.worker.abort();
     }
@@ -208,6 +295,34 @@ impl Drop for DiffSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn three_way_alignment_combines_both_variants_gaps_and_base_changes() {
+        let texts = [
+            Rope::from_str("left\nleft2\na\nc\n"),
+            Rope::from_str("a\nb\nc\n"),
+            Rope::from_str("a\nright\nb\nc\n"),
+        ];
+        let layout = DiffLayout::<3>::compute(&texts, [1, 2, 3]);
+        assert_eq!(layout.versions, [1, 2, 3]);
+        assert_eq!(layout.sides[0].rows[2], layout.sides[1].rows[0]);
+        assert_eq!(layout.sides[2].rows[0], layout.sides[1].rows[0]);
+        assert_eq!(layout.sides[0].rows[3], layout.sides[1].rows[2]);
+        assert_eq!(layout.sides[2].rows[3], layout.sides[1].rows[2]);
+        assert!(layout.sides[1].is_changed(1));
+        for side in &layout.sides {
+            assert!(side.rows.windows(2).all(|pair| pair[0] < pair[1]));
+        }
+        for input in [
+            ["", "", "extra\n"],
+            ["a", "a\n", ""],
+            ["x\na\n", "a\n", "y\nz\na\n"],
+        ] {
+            let layout = DiffLayout::<3>::compute(&input.map(Rope::from_str), [0; 3]);
+            for side in &layout.sides {
+                assert!(side.rows.windows(2).all(|pair| pair[0] < pair[1]));
+            }
+        }
+    }
     #[test]
     fn gutter_classifies_hunks_instead_of_signs_for_each_side() {
         for (before, after, change) in [

@@ -116,7 +116,11 @@ impl EditorView {
                 let is_left = editor
                     .diff_session
                     .as_ref()
-                    .is_some_and(|session| session.views[0] == view_id);
+                    .is_some_and(|session| session.views[0] == view_id)
+                    || editor
+                        .three_diff_session
+                        .as_ref()
+                        .is_some_and(|session| session.views[1] == view_id);
                 let background = text_decorations::diff::background(theme, is_left);
                 decorations.add_decoration(move |renderer: &mut TextRenderer, pos: LinePos| {
                     let changed = side.is_changed(pos.doc_line);

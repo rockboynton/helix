@@ -389,6 +389,12 @@ impl AppBuilder {
         self
     }
 
+    pub fn with_three_diff(mut self) -> Self {
+        self.args.diff_three = true;
+        self.args.split = Some(helix_view::tree::Layout::Vertical);
+        self
+    }
+
     pub fn with_inline_diff(mut self) -> Self {
         self.args.diff = true;
         self.args.pager = true;

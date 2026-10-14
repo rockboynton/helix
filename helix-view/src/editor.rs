@@ -1465,6 +1465,7 @@ type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
 pub struct Editor {
     pub diff_session: Option<crate::diff_session::DiffSession>,
+    pub three_diff_session: Option<crate::diff_session::DiffSession<3>>,
     /// Pager session policy; documents themselves retain independent access flags.
     pub pager: bool,
     /// Current editing mode.
@@ -1656,6 +1657,7 @@ impl Editor {
 
     pub fn stop_diff(&mut self) {
         self.diff_session = None;
+        self.three_diff_session = None;
         for (view, _) in self.tree.views_mut() {
             if view.diff_document == Some(view.doc) {
                 if let Some(doc) = self.documents.get_mut(&view.doc) {
@@ -1697,30 +1699,73 @@ impl Editor {
 
     /// Only snapshots on the UI thread; diff computation runs in the worker.
     pub fn refresh_diff(&mut self) {
-        let Some(session) = &self.diff_session else {
-            return;
-        };
-        let valid = (0..2).all(|side| {
+        if let Some(mut session) = self.diff_session.take() {
+            if self.refresh_comparison(&mut session) {
+                self.diff_session = Some(session);
+            } else {
+                self.stop_diff();
+            }
+        }
+        if let Some(mut session) = self.three_diff_session.take() {
+            if self.refresh_comparison(&mut session) {
+                self.three_diff_session = Some(session);
+            } else {
+                self.stop_diff();
+            }
+        }
+    }
+
+    pub fn start_three_diff(&mut self, views: [ViewId; 3]) -> anyhow::Result<()> {
+        let documents = views.map(|id| self.tree.get(id).doc);
+        anyhow::ensure!(
+            documents[0] != documents[1]
+                && documents[0] != documents[2]
+                && documents[1] != documents[2],
+            "compare three different buffers"
+        );
+        self.stop_diff();
+        for side in 0..3 {
+            self.tree.get_mut(views[side]).diff_document = Some(documents[side]);
+            let doc = self.documents.get_mut(&documents[side]).unwrap();
+            let mut offset = doc.view_offset(views[side]);
+            offset.anchor = doc.text().line_to_char(
+                doc.text()
+                    .char_to_line(offset.anchor.min(doc.text().len_chars())),
+            );
+            offset.vertical_offset = 0;
+            doc.set_view_offset(views[side], offset);
+        }
+        let texts = documents.map(|id| self.document(id).unwrap().text().clone());
+        let versions = documents.map(|id| self.document(id).unwrap().version());
+        self.three_diff_session = Some(crate::diff_session::DiffSession::new(
+            documents, views, texts, versions,
+        ));
+        Ok(())
+    }
+
+    fn refresh_comparison<const N: usize>(
+        &mut self,
+        session: &mut crate::diff_session::DiffSession<N>,
+    ) -> bool {
+        let valid = (0..N).all(|side| {
             self.tree
                 .try_get(session.views[side])
                 .is_some_and(|view| view.doc == session.documents[side])
                 && self.documents.contains_key(&session.documents[side])
         });
         if !valid {
-            self.stop_diff();
-            return;
+            return false;
         }
         let documents = session.documents;
         let views = session.views;
         let versions = documents.map(|id| self.document(id).unwrap().version());
         let texts = documents.map(|id| self.document(id).unwrap().text().clone());
-        let session = self.diff_session.as_mut().unwrap();
         session.update(texts, versions);
         let layout = session
             .result
             .load_full()
             .filter(|layout| layout.versions == versions);
-        for side in 0..2 {
+        for side in 0..N {
             self.tree.get_mut(views[side]).diff =
                 layout.as_ref().map(|layout| crate::diff_session::DiffView {
                     document: documents[side],
@@ -1728,11 +1773,10 @@ impl Editor {
                     side: layout.sides[side].clone(),
                 });
         }
-        let Some(layout) = layout else { return };
+        let Some(layout) = layout else { return true };
         let Some(focused) = views.iter().position(|&id| id == self.tree.focus) else {
-            return;
+            return true;
         };
-        let other = 1 - focused;
         let source = self.document(documents[focused]).unwrap();
         let offset = source.view_offset(views[focused]);
         let line = source
@@ -1746,17 +1790,20 @@ impl Editor {
                 0
             })
             + offset.vertical_offset;
-        let (line, vertical_offset) = layout.sides[other].position(row);
-        let target = self.documents.get_mut(&documents[other]).unwrap();
-        let mut target_offset = target.view_offset(views[other]);
-        target_offset.anchor = target.text().line_to_char(line);
-        target_offset.vertical_offset = vertical_offset
-            + if line == 0 {
-                layout.sides[other].rows[0].min(row)
-            } else {
-                0
-            };
-        target.set_view_offset(views[other], target_offset);
+        for other in (0..N).filter(|&side| side != focused) {
+            let (line, vertical_offset) = layout.sides[other].position(row);
+            let target = self.documents.get_mut(&documents[other]).unwrap();
+            let mut target_offset = target.view_offset(views[other]);
+            target_offset.anchor = target.text().line_to_char(line);
+            target_offset.vertical_offset = vertical_offset
+                + if line == 0 {
+                    layout.sides[other].rows[0].min(row)
+                } else {
+                    0
+                };
+            target.set_view_offset(views[other], target_offset);
+        }
+        true
     }
     pub fn new(
         mut area: Rect,
@@ -1790,6 +1837,7 @@ impl Editor {
             mode: Mode::Normal,
             pager: false,
             diff_session: None,
+            three_diff_session: None,
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
@@ -2723,29 +2771,45 @@ impl Editor {
     }
 
     fn focus_diff_cursor(&mut self, view_id: ViewId) {
-        let Some(session) = &self.diff_session else {
+        let (views, documents, sides) = if let Some(session) = &self.diff_session {
+            let Some(layout) = session.result.load_full().filter(|layout| {
+                layout.versions == session.documents.map(|id| self.documents[&id].version())
+            }) else {
+                return;
+            };
+            (
+                session.views.to_vec(),
+                session.documents.to_vec(),
+                layout.sides.to_vec(),
+            )
+        } else if let Some(session) = &self.three_diff_session {
+            let Some(layout) = session.result.load_full().filter(|layout| {
+                layout.versions == session.documents.map(|id| self.documents[&id].version())
+            }) else {
+                return;
+            };
+            (
+                session.views.to_vec(),
+                session.documents.to_vec(),
+                layout.sides.to_vec(),
+            )
+        } else {
             return;
         };
-        let Some(source) = session.views.iter().position(|&id| id == self.tree.focus) else {
+        let Some(source) = views.iter().position(|&id| id == self.tree.focus) else {
             return;
         };
-        let target = 1 - source;
-        if session.views[target] != view_id {
-            return;
-        }
-        let Some(layout) = session.result.load_full().filter(|layout| {
-            layout.versions == session.documents.map(|id| self.documents[&id].version())
-        }) else {
+        let Some(target) = views.iter().position(|&id| id == view_id) else {
             return;
         };
-        let source_doc = &self.documents[&session.documents[source]];
+        let source_doc = &self.documents[&documents[source]];
         let cursor = source_doc
-            .selection(session.views[source])
+            .selection(views[source])
             .primary()
             .cursor(source_doc.text().slice(..));
         let coords = helix_core::coords_at_pos(source_doc.text().slice(..), cursor);
-        let (line, _) = layout.sides[target].position(layout.sides[source].row(coords.row));
-        let target_doc = self.documents.get_mut(&session.documents[target]).unwrap();
+        let (line, _) = sides[target].position(sides[source].row(coords.row));
+        let target_doc = self.documents.get_mut(&documents[target]).unwrap();
         let selection = target_doc.selection(view_id);
         let cursor = selection.primary().cursor(target_doc.text().slice(..));
         if selection.len() != 1

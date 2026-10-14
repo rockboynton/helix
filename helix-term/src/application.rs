@@ -114,8 +114,8 @@ impl Application {
 
         use helix_view::editor::Action;
 
-        let diff_paths =
-            (args.diff && !args.patch).then(|| args.files.keys().cloned().collect::<Vec<_>>());
+        let diff_paths = ((args.diff || args.diff_three) && !args.patch)
+            .then(|| args.files.keys().cloned().collect::<Vec<_>>());
         // Read and validate finite patch input before acquiring the terminal.
         let patch = args
             .patch
@@ -123,14 +123,24 @@ impl Application {
             .transpose()?;
         if let Some(paths) = &diff_paths {
             anyhow::ensure!(
-                paths.len() == 2 && paths.iter().all(|path| path.is_file()),
-                "--diff requires two existing files"
+                paths.len() == if args.diff_three { 3 } else { 2 }
+                    && paths.iter().all(|path| path.is_file()),
+                "diff comparison requires existing files"
             );
             anyhow::ensure!(
                 helix_stdx::path::canonicalize(&paths[0])
                     != helix_stdx::path::canonicalize(&paths[1]),
                 "compare two different files"
             );
+            if args.diff_three {
+                anyhow::ensure!(
+                    helix_stdx::path::canonicalize(&paths[0])
+                        != helix_stdx::path::canonicalize(&paths[2])
+                        && helix_stdx::path::canonicalize(&paths[1])
+                            != helix_stdx::path::canonicalize(&paths[2]),
+                    "compare three different files"
+                );
+            }
         }
         if args.pager {
             if args.files.is_empty() && stdin().is_terminal() && !cfg!(feature = "integration") {
@@ -383,7 +393,11 @@ impl Application {
                 })
                 .collect::<Option<Vec<_>>>()
                 .ok_or_else(|| anyhow::anyhow!("failed to create diff panes"))?;
-            editor.start_diff([views[0], views[1]])?;
+            if args.diff_three {
+                editor.start_three_diff([views[0], views[1], views[2]])?;
+            } else {
+                editor.start_diff([views[0], views[1]])?;
+            }
         }
         if let Some(language) = &args.language {
             let loader = editor.syn_loader.load();

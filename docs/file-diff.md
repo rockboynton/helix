@@ -40,11 +40,39 @@ Transfers are ordinary undoable edits, not writes to disk. Save each file with
 side of a hunk is addressed at the following line, or at EOF for trailing changes.
 If the diff is still updating, transfer/navigation commands ask you to retry.
 
-This first version supports one pair per editor. Closing a pane or switching
-its buffer ends the comparison. Comparison panes temporarily disable soft-wrap
+One comparison session (two or three panes) is supported per editor. Closing a
+compared pane or switching its buffer ends the comparison. Comparison panes temporarily disable soft-wrap
 and inline diagnostic rows to preserve logical-line alignment; other views keep
 their settings. Long lines can be scrolled horizontally. Character/word-level
 highlighting, Git/JJ revision inputs, and GitLens integration are not implemented.
+
+## Three-way comparison
+
+```sh
+hx --diff3 left.rs base.rs right.rs
+hx --diff3 --pager left.rs base.rs right.rs
+```
+
+Inside Helix, use `:diff-three left.rs base.rs right.rs` (alias `:diff3`), or
+give `:diff-split` three paths. Existing columns in the focused row are reused;
+only missing columns are created. Files are ordered **left | base | right**.
+All three retain normal editing, syntax highlighting, undo and explicit saves;
+`--pager` makes all three read-only and `q` exits.
+
+Both variants are compared independently against the middle base. Alignment
+combines insertion gaps from both comparisons; scrolling any pane synchronizes
+the other two. Base lines changed by either variant have removal backgrounds;
+changed variant lines have addition backgrounds. Normal Helix gutter icons
+remain in use. `:diff-next` / `:diff-prev` navigate the focused variant's changes,
+or the union of both comparisons when focused on base.
+
+From an outer pane, `:diff-get` copies the base hunk into that variant;
+`:diff-put` copies that variant's hunk into base. These are undoable edits,
+never automatic writes. Transfer commands in the base pane require choosing
+an outer pane first, rather than guessing a variant. Editing base recomputes
+both comparisons. `:diff-off` ends the comparison without closing buffers.
+This is a three-way comparison/editor, not an automatic merge or conflict
+resolver, and requires three complete files (not partial patch input).
 
 ## Interactive inline viewing
 

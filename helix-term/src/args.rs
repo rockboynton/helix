@@ -16,6 +16,7 @@ pub struct Args {
     pub strict: bool,
     pub pager: bool,
     pub diff: bool,
+    pub diff_three: bool,
     pub render_diff: bool,
     pub patch: bool,
     pub diff_layout: Option<crate::diff_render::Layout>,
@@ -66,6 +67,7 @@ impl Args {
                 "--strict" => args.strict = true,
                 "--pager" => args.pager = true,
                 "--diff" => args.diff = true,
+                "--diff3" => args.diff_three = true,
                 "--render-diff" => args.render_diff = true,
                 "--patch" => args.patch = true,
                 "--diff-layout" => {
@@ -196,6 +198,10 @@ impl Args {
 
         if args.stdin && !args.files.is_empty() {
             anyhow::bail!("stdin (-) cannot be combined with file arguments");
+        }
+        if args.diff_three {
+            anyhow::ensure!(args.files.len() == 3 && !args.stdin && !args.patch && !args.diff && !args.render_diff && !args.load_tutor && args.split.is_none() && args.diff_layout.is_none(), "--diff3 requires three distinct files (left base right), without other diff or split modes");
+            args.split = Some(Layout::Vertical);
         }
         if (args.diff || args.render_diff) && args.files.is_empty() {
             args.patch = true;
@@ -345,6 +351,15 @@ mod pager_tests {
 
     #[test]
     fn diff_requires_two_distinct_paths_and_vertical_layout() {
+        let three = parse(&["hx", "--diff3", "left", "base", "right"]).unwrap();
+        assert!(three.diff_three && three.split == Some(super::Layout::Vertical));
+        for flags in [
+            vec!["hx", "--diff3", "a", "b"],
+            vec!["hx", "--diff3", "a", "a", "b"],
+            vec!["hx", "--diff3", "--diff", "a", "b", "c"],
+        ] {
+            assert!(parse(&flags).is_err());
+        }
         let inline = parse(&["hx", "--diff", "--diff-layout", "inline", "a", "b"]).unwrap();
         assert!(inline.pager && inline.split.is_none());
         let args = parse(&["hx", "--diff", "left.rs", "right.rs"]).unwrap();

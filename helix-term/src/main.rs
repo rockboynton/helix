@@ -49,6 +49,7 @@ FLAGS:
     --strict                       Bail on error for commands that can fail.
     --pager                        Browse files or piped stdin read-only; q exits
     --diff                         Open two files in an editable side-by-side diff
+    --diff3                        Compare three files side-by-side: left base right
     --render-diff                  Render two files/directories as read-only flow text
     --patch                        View a Git/jj patch from stdin or one patch file
     --diff-layout <layout>         View/render inline or side-by-side (default)
