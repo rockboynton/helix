@@ -50,6 +50,7 @@ FLAGS:
     --pager                        Browse files or piped stdin read-only; q exits
     --diff                         Open two files in an editable side-by-side diff
     --render-diff                  Render two files/directories as read-only flow text
+    --patch                        View a Git/jj patch from stdin or one patch file
     --diff-layout <layout>         View/render inline or side-by-side (default)
     --width <columns>              Render width (default 100)
     --diff-context <lines>         Context lines per hunk (default 3)
@@ -89,7 +90,7 @@ FLAGS:
         std::process::exit(0);
     }
 
-    if args.render_diff {
+    if args.render_diff || (args.patch && !std::io::IsTerminal::is_terminal(&std::io::stdout())) {
         helix_term::diff_render::run(
             &args,
             &mut std::io::stdout().lock(),
@@ -99,7 +100,7 @@ FLAGS:
     }
     // A pager in a pipeline must never write terminal escape sequences into the
     // downstream command. Preserve the input bytes and avoid initializing the UI.
-    if args.pager && !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+    if args.pager && !args.patch && !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
         let mut output = std::io::stdout().lock();
         if args.files.is_empty() {
             std::io::copy(&mut std::io::stdin().lock(), &mut output)?;

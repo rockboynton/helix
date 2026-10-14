@@ -396,6 +396,13 @@ impl AppBuilder {
         self
     }
 
+    pub fn with_patch(mut self, layout: helix_term::diff_render::Layout) -> Self {
+        self.args.patch = true;
+        self.args.pager = true;
+        self.args.diff_layout = Some(layout);
+        self
+    }
+
     pub fn with_file<P: Into<PathBuf>>(
         mut self,
         path: P,

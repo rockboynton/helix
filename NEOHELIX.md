@@ -1,5 +1,10 @@
 # Neohelix
 
+Inline review: `hx --diff --diff-layout inline before.rs after.rs`.
+Raw Git or native jj patches: `git diff | hx --patch` or
+`jj diff --color-words --color never | hx --patch`. Both patch layouts are
+strictly read-only; see [file diff guide](docs/file-diff.md).
+
 ## Why this fork exists
 
 I want Helix with the features I use, without waiting for upstream to merge

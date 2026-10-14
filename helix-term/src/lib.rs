@@ -6,6 +6,7 @@ pub mod args;
 pub mod commands;
 pub mod compositor;
 pub mod config;
+pub mod diff_patch;
 pub mod diff_render;
 pub mod events;
 pub mod health;

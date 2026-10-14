@@ -82,6 +82,42 @@ The formatter loads built-in/TOML languages and an explicit/default theme; it
 does **not** execute Steel startup scripts or start LSP/VCS/watcher services.
 Use `--diff-theme modified_gruvbox` to match that theme without starting an editor.
 
+## Raw patch input
+
+```sh
+git diff --no-ext-diff --color=never | hx --patch
+jj diff --git --color never | hx --patch --diff-layout side-by-side
+jj diff --color-words --color never | hx --patch
+jj diff --color-words --color always | hx --patch
+hx --patch changes.patch
+git diff --color=never | hx --render-diff --patch --diff-layout inline
+```
+
+`hx --diff` with no paths also reads a patch from stdin. `--patch` defaults to
+interactive inline viewing; select `--diff-layout side-by-side` for paired
+read-only panes. With redirected stdout it emits formatted flow text instead
+of acquiring a terminal. `--render-diff --patch` explicitly selects the flow
+renderer (both layouts supported) for hosts such as jjui.
+
+Git unified hunks and native jj color-words line-number markers are recognized.
+Default ANSI red/green jj word tokens can be separated back into before/after
+lines; custom jj token colors may be ambiguous, so use `--color never` or
+`--git` with custom palettes. A configured external formatter such as Delta
+is not native jj input: explicitly select `--color-words` or `--git`.
+Only SGR styling is consumed; other terminal controls remain inert input.
+
+Multiple files/hunks, quoted Git paths, additions/deletions, rename/mode and
+binary metadata, and missing-final-newline notices are retained. Omitted
+context stays visibly omitted, rather than allocating padding for large
+coordinates. Syntax uses path-selected Tree-sitter on each supplied fragment;
+missing context can affect grammar accuracy. No referenced paths are opened,
+and synthetic buffers cannot be edited or written, even with `:write!`.
+Malformed/truncated unified hunks are rejected before terminal setup. Combined
+merge patches are rejected explicitly; use separate Git merge diffs or jj Git
+output instead. Input is finite UTF-8 and read through EOF, not a live tail.
+
+## jj/jjui external formatter
+
 For jj/jjui, configure a named external formatter in **jj's** configuration:
 
 ```toml
@@ -142,5 +178,6 @@ read-only styled output can use the formatter route; embedding Helix editing
 requires an interactive host integration, not only a `ui.pager` setting.
 The formatter contract is implemented by `--render-diff`; the interactive host
 contract is future work. Current non-terminal `--pager` output is still
-byte-preserving passthrough, and `--diff` still takes two file paths. Raw unified
-patch ingestion is not implemented yet; interactive inline viewing is read-only.
+byte-preserving passthrough (except explicit patch formatting). Interactive
+inline and raw-patch views are read-only; paired full-file comparison remains
+editable unless `--pager` is specified.

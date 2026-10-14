@@ -17,6 +17,7 @@ pub struct Args {
     pub pager: bool,
     pub diff: bool,
     pub render_diff: bool,
+    pub patch: bool,
     pub diff_layout: Option<crate::diff_render::Layout>,
     pub diff_width: Option<u16>,
     pub diff_context: Option<usize>,
@@ -66,6 +67,7 @@ impl Args {
                 "--pager" => args.pager = true,
                 "--diff" => args.diff = true,
                 "--render-diff" => args.render_diff = true,
+                "--patch" => args.patch = true,
                 "--diff-layout" => {
                     args.diff_layout = Some(match argv.next().as_deref() {
                         Some("inline") => crate::diff_render::Layout::Inline,
@@ -195,7 +197,22 @@ impl Args {
         if args.stdin && !args.files.is_empty() {
             anyhow::bail!("stdin (-) cannot be combined with file arguments");
         }
-        if args.diff {
+        if (args.diff || args.render_diff) && args.files.is_empty() {
+            args.patch = true;
+        }
+        if args.patch {
+            anyhow::ensure!(
+                args.files.len() <= 1 && !args.load_tutor && args.split.is_none(),
+                "--patch takes stdin or one patch file, without tutor or split flags"
+            );
+            if !args.render_diff {
+                args.pager = true;
+            }
+            if args.diff_layout.is_none() && !args.render_diff {
+                args.diff_layout = Some(crate::diff_render::Layout::Inline);
+            }
+        }
+        if args.diff && !args.patch {
             anyhow::ensure!(
                 args.files.len() == 2 && !args.stdin && !args.load_tutor && args.split.is_none(),
                 "--diff requires exactly two file paths, without stdin, tutor or split flags"
@@ -208,23 +225,23 @@ impl Args {
         }
         if args.render_diff {
             anyhow::ensure!(
-                args.files.len() == 2
-                    && !args.diff
+                (args.files.len() == 2 || args.patch)
+                    && (!args.diff || args.patch)
                     && !args.pager
-                    && !args.stdin
+                    && (!args.stdin || args.patch)
                     && !args.load_tutor
                     && args.split.is_none()
                     && args.working_directory.is_none(),
-                "--render-diff requires two file/directory paths without editor or pager flags"
+                "--render-diff requires two file/directory paths or patch input, without editor or pager flags"
             );
         } else {
             anyhow::ensure!(
-                (args.diff_layout.is_none() || args.diff)
+                (args.diff_layout.is_none() || args.diff || args.patch)
                     && args.diff_width.is_none()
                     && args.diff_context.is_none()
                     && args.diff_theme.is_none()
                     && args.diff_color.is_none(),
-                "diff layout/width/context/theme/color options require --render-diff"
+                "diff layout requires --diff/--patch/--render-diff; width/context/theme/color require --render-diff"
             );
         }
         if args.language.is_some() && !args.pager {
@@ -281,6 +298,13 @@ mod pager_tests {
 
     #[test]
     fn read_only_diff_render_options_are_validated_separately_from_editor_modes() {
+        for flags in [
+            vec!["hx", "--patch"],
+            vec!["hx", "--diff", "-"],
+            vec!["hx", "--render-diff", "--patch"],
+        ] {
+            assert!(parse(&flags).unwrap().patch);
+        }
         let args = parse(&[
             "hx",
             "--render-diff",
@@ -328,7 +352,6 @@ mod pager_tests {
         assert!(matches!(args.split, Some(super::Layout::Vertical)));
         assert!(parse(&["hx", "--diff", "--pager", "a", "b"]).unwrap().pager);
         for args in [
-            vec!["hx", "--diff"],
             vec!["hx", "--diff", "same", "same"],
             vec!["hx", "--diff", "a", "b", "c"],
             vec!["hx", "--diff", "--hsplit", "a", "b"],

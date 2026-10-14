@@ -2,6 +2,63 @@ use super::helpers::*;
 use helix_view::current_ref;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn raw_patch_both_layouts_are_read_only_fragments_with_original_coordinates(
+) -> anyhow::Result<()> {
+    for layout in [
+        helix_term::diff_render::Layout::Inline,
+        helix_term::diff_render::Layout::SideBySide,
+    ] {
+        let input = "diff --git a/nonexistent.rs b/nonexistent.rs\n--- a/nonexistent.rs\n+++ b/nonexistent.rs\n@@ -100,2 +200,2 @@\n fn context() {}\n-fn old() {}\n+fn new() {}\n";
+        let file = temp_file_with_contents(input)?;
+        let mut app = AppBuilder::new()
+            .with_file(file.path(), None)
+            .with_patch(layout)
+            .build()?;
+        test_key_sequences(
+            &mut app,
+            vec![
+                (
+                    None,
+                    Some(&|app| {
+                        assert!(app.editor.pager);
+                        for (view, _) in app.editor.tree.views() {
+                            let doc = app.editor.document(view.doc).unwrap();
+                            assert!(doc.is_read_only());
+                            assert!(doc.path().is_none());
+                            let model = doc.inline_diff.as_ref().unwrap();
+                            assert!(model
+                                .lines
+                                .iter()
+                                .any(|line| line.numbers.contains(&Some(100))
+                                    || line.numbers.contains(&Some(200))));
+                            assert!(model
+                                .sources
+                                .iter()
+                                .any(|source| source.language_name() == Some("rust")));
+                            assert!(model.sources.iter().all(|source| source.is_read_only()));
+                            assert!(doc.language_servers().next().is_none());
+                        }
+                    }),
+                ),
+                (
+                    Some("/new<ret>i<esc>:diff-put<ret>:w!<ret>"),
+                    Some(&|app| {
+                        let (_, doc) = current_ref!(app.editor);
+                        assert!(!doc.is_modified());
+                        assert!(doc.text().to_string().contains("fn new()"));
+                    }),
+                ),
+                (Some("q"), None),
+            ],
+            true,
+        )
+        .await?;
+        assert_eq!(std::fs::read_to_string(file.path())?, input);
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn inline_diff_renders_source_syntax_backgrounds_and_gutter() -> anyhow::Result<()> {
     use std::io::Write;
     let mut left = tempfile::Builder::new().suffix(".rs").tempfile()?;

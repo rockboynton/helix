@@ -101,6 +101,9 @@ pub fn run(args: &Args, output: &mut impl Write, stdout_is_terminal: bool) -> Re
             ColorMode::Auto => stdout_is_terminal,
         },
     };
+    if args.patch {
+        return renderer.patch(&crate::diff_patch::read(args)?, output);
+    }
     let paths = args.files.keys().collect::<Vec<_>>();
     let [left, right] = paths.as_slice() else {
         anyhow::bail!("--render-diff requires two file or directory paths")
@@ -182,6 +185,78 @@ fn read_input(path: &Path) -> Result<Input> {
 }
 
 impl Renderer {
+    fn patch(&self, patch: &crate::diff_patch::Patch, output: &mut impl Write) -> Result<()> {
+        let doc =
+            crate::diff_patch::document(patch, None, self.config.clone(), self.loader.clone());
+        let model = doc.inline_diff.as_ref().unwrap();
+        let mut index = 0;
+        while index < model.lines.len() {
+            let line = model.lines[index];
+            if line.numbers == [None; 2] {
+                writeln!(
+                    output,
+                    "{}",
+                    visible(doc.text().line(index).to_string().trim_end_matches('\n'))
+                )?;
+                index += 1;
+                continue;
+            }
+            let mut groups = [Vec::new(), Vec::new()];
+            if self.layout == Layout::Inline {
+                groups[0].push(line);
+                index += 1;
+            } else if line.removed.is_none() {
+                groups[0].push(line);
+                groups[1].push(line);
+                index += 1;
+            } else {
+                while index < model.lines.len() && model.lines[index].removed.is_some() {
+                    let line = model.lines[index];
+                    groups[usize::from(line.removed != Some(true))].push(line);
+                    index += 1;
+                }
+            }
+            let widths = if self.layout == Layout::Inline {
+                [self.width, 0]
+            } else {
+                [(self.width - 3) / 2, self.width - 3 - (self.width - 3) / 2]
+            };
+            for row in 0..groups[0].len().max(groups[1].len()) {
+                let mut buffer = Buffer::empty(Rect::new(0, 0, self.width, 1));
+                for side in 0..2 {
+                    if let Some(line) = groups[side].get(row) {
+                        let x = if side == 0 { 0 } else { widths[0] + 3 };
+                        self.line(
+                            &mut buffer,
+                            Rect::new(x, 0, widths[side], 1),
+                            SourceLine {
+                                doc: &model.sources[line.source],
+                                index: line.line,
+                                numbers: if self.layout == Layout::Inline {
+                                    line.numbers
+                                } else {
+                                    [line.numbers[side], None]
+                                },
+                                removed: line.removed,
+                                change: line.removed.map(|removed| {
+                                    if removed {
+                                        DiffChange::Removed
+                                    } else {
+                                        DiffChange::Added
+                                    }
+                                }),
+                            },
+                        );
+                    }
+                }
+                if self.layout == Layout::SideBySide {
+                    buffer.set_string(widths[0] + 1, 0, "│", self.theme.get("ui.window"));
+                }
+                emit(&buffer, self.color, output)?;
+            }
+        }
+        Ok(())
+    }
     fn document(&self, bytes: &[u8], path: &Path) -> Result<Document> {
         let (text, encoding, bom) = from_reader(&mut &*bytes, None)?;
         let mut doc = Document::from(
@@ -653,6 +728,31 @@ mod tests {
         assert_eq!(std::fs::read_to_string(left).unwrap(), before);
         assert_eq!(std::fs::read_to_string(right).unwrap(), after);
         String::from_utf8(output).unwrap()
+    }
+
+    #[test]
+    fn patch_layouts_use_source_coordinates_syntax_and_safe_output() {
+        for layout in [Layout::Inline, Layout::SideBySide] {
+            let patch = crate::diff_patch::parse(
+                "--- a/x.rs\n+++ b/x.rs\n@@ -50 +60 @@\n-fn old() {}\n+fn new() {}\n",
+            )
+            .unwrap();
+            let mut output = Vec::new();
+            renderer(layout, false).patch(&patch, &mut output).unwrap();
+            let output = String::from_utf8(output).unwrap();
+            for part in ["old()", "new()", "50", "60"] {
+                assert!(output.contains(part), "{output}");
+            }
+            assert!(!output.contains('\x1b'));
+            let patch = crate::diff_patch::parse(
+                "--- a/a\n+++ b/a\n@@ -1 +1 @@\n-old\n+\x1b]52;c;evil\x07\n",
+            )
+            .unwrap();
+            let mut output = Vec::new();
+            renderer(layout, false).patch(&patch, &mut output).unwrap();
+            assert!(!output.contains(&0x1b));
+            assert!(!output.contains(&7));
+        }
     }
 
     #[test]

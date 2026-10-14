@@ -114,9 +114,13 @@ impl Application {
 
         use helix_view::editor::Action;
 
-        let diff_paths = args
-            .diff
-            .then(|| args.files.keys().cloned().collect::<Vec<_>>());
+        let diff_paths =
+            (args.diff && !args.patch).then(|| args.files.keys().cloned().collect::<Vec<_>>());
+        // Read and validate finite patch input before acquiring the terminal.
+        let patch = args
+            .patch
+            .then(|| crate::diff_patch::read(&args))
+            .transpose()?;
         if let Some(paths) = &diff_paths {
             anyhow::ensure!(
                 paths.len() == 2 && paths.iter().all(|path| path.is_file()),
@@ -205,7 +209,34 @@ impl Application {
             );
         }
 
-        if args.diff && args.diff_layout == Some(crate::diff_render::Layout::Inline) {
+        if let Some(patch) = patch {
+            if args.diff_layout == Some(crate::diff_render::Layout::SideBySide) {
+                let left = crate::diff_patch::document(
+                    &patch,
+                    Some(0),
+                    editor.config.clone(),
+                    editor.syn_loader.clone(),
+                );
+                let right = crate::diff_patch::document(
+                    &patch,
+                    Some(1),
+                    editor.config.clone(),
+                    editor.syn_loader.clone(),
+                );
+                editor.new_file_from_document(Action::VerticalSplit, left);
+                let left_view = editor.tree.focus;
+                editor.new_file_from_document(Action::VerticalSplit, right);
+                editor.start_diff([left_view, editor.tree.focus])?;
+            } else {
+                let doc = crate::diff_patch::document(
+                    &patch,
+                    None,
+                    editor.config.clone(),
+                    editor.syn_loader.clone(),
+                );
+                editor.new_file_from_document(Action::VerticalSplit, doc);
+            }
+        } else if args.diff && args.diff_layout == Some(crate::diff_render::Layout::Inline) {
             let paths = diff_paths.as_ref().unwrap();
             let mut sources = Vec::new();
             for path in paths {
