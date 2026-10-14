@@ -20,6 +20,7 @@ mod test {
     mod commands;
     mod file_watching;
     mod movement;
+    mod pager;
     mod picker_runtime;
     mod splits;
 }

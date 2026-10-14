@@ -1464,6 +1464,8 @@ use futures_util::stream::{Flatten, Once};
 type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
 pub struct Editor {
+    /// Pager session policy; documents themselves retain independent access flags.
+    pub pager: bool,
     /// Current editing mode.
     pub mode: Mode,
     pub tree: Tree,
@@ -1648,6 +1650,7 @@ impl Editor {
 
         Self {
             mode: Mode::Normal,
+            pager: false,
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),
             documents: BTreeMap::new(),
@@ -2051,7 +2054,7 @@ impl Editor {
 
     /// Launch a language server for a given document
     pub fn launch_language_servers(&mut self, doc_id: DocumentId) {
-        if !self.config().lsp.enable {
+        if self.pager || !self.config().lsp.enable {
             return;
         }
         // if doc doesn't have a URL it's a scratch buffer, ignore it
@@ -2284,6 +2287,9 @@ impl Editor {
 
     /// Generate an id for a new document and register it.
     fn new_document(&mut self, mut doc: Document) -> DocumentId {
+        if self.pager {
+            doc.access = crate::document::DocumentAccess::ReadOnly;
+        }
         let id = self.next_document_id;
         // Safety: adding 1 from 1 is fine, practically impossible to reach usize max
         self.next_document_id =
@@ -2315,6 +2321,16 @@ impl Editor {
 
     pub fn new_file_from_stdin(&mut self, action: Action) -> Result<DocumentId, Error> {
         let (stdin, encoding, has_bom) = crate::document::read_to_string(&mut stdin(), None)?;
+        if self.pager {
+            let mut doc = Document::from(
+                helix_core::Rope::from(stdin),
+                Some((encoding, has_bom)),
+                self.config.clone(),
+                self.syn_loader.clone(),
+            );
+            doc.detect_language(&self.syn_loader.load());
+            return Ok(self.new_file_from_document(action, doc));
+        }
         let doc = Document::from(
             helix_core::Rope::default(),
             Some((encoding, has_bom)),
@@ -2362,20 +2378,24 @@ impl Editor {
                 .query(doc.workspace_root(), TrustQuery::Git)
                 .is_trusted();
             // When opening a *new* file, ensure its diff provider is loaded.
-            self.diff_providers.add(&path, trust_full);
-            if let Some(diff_base) = self.diff_providers.get_diff_base(&path) {
-                doc.set_diff_base(diff_base);
+            if !self.pager {
+                self.diff_providers.add(&path, trust_full);
+                if let Some(diff_base) = self.diff_providers.get_diff_base(&path) {
+                    doc.set_diff_base(diff_base);
+                }
+                doc.set_version_control_head(self.diff_providers.get_current_head_name(&path));
             }
-            doc.set_version_control_head(self.diff_providers.get_current_head_name(&path));
 
             let id = self.new_document(doc);
             self.launch_language_servers(id);
 
-            helix_event::dispatch(DocumentDidOpen {
-                editor: self,
-                doc: id,
-                path: &path,
-            });
+            if !self.pager {
+                helix_event::dispatch(DocumentDidOpen {
+                    editor: self,
+                    doc: id,
+                    path: &path,
+                });
+            }
 
             id
         };

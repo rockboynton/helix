@@ -377,6 +377,12 @@ impl AppBuilder {
         AppBuilder::default()
     }
 
+    pub fn with_pager(mut self, language: Option<&str>) -> Self {
+        self.args.pager = true;
+        self.args.language = language.map(str::to_owned);
+        self
+    }
+
     pub fn with_file<P: Into<PathBuf>>(
         mut self,
         path: P,

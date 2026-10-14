@@ -601,7 +601,7 @@ fn render_read_only_indicator<'a, F>(context: &mut RenderContext<'a>, write: F)
 where
     F: Fn(&mut RenderContext<'a>, Span<'a>) + Copy,
 {
-    let title = if get_doc(context).readonly {
+    let title = if get_doc(context).readonly || get_doc(context).is_read_only() {
         " [readonly] "
     } else {
         ""

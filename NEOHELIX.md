@@ -52,6 +52,15 @@ parity with their source branches.
 
 ## What goes beyond simply importing the PRs
 
+### Pager mode
+
+`hx --pager` views files or finite piped input read-only, with normal Helix
+navigation, search, selection/yank, and Tree-sitter syntax highlighting. `q`
+exits cleanly. Use `--language rust` for piped Rust code; file inputs use normal
+language detection. This establishes a per-document editing policy for future
+editable diff sessions. See the [pager guide](docs/pager.md) for examples, safety
+boundaries, and the remaining streaming/ANSI limitations.
+
 ### On-demand GitLens
 
 [GitLens](docs/gitlens.md) is a Steel plugin built on native asynchronous editor

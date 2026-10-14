@@ -61,6 +61,15 @@ pub const DEFAULT_LANGUAGE_NAME: &str = "text";
 
 pub const SCRATCH_BUFFER_NAME: &str = "[scratch]";
 
+/// Editing policy, independent of filesystem permissions. Reusable for pager
+/// buffers and immutable sides of future diff sessions.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum DocumentAccess {
+    #[default]
+    Editable,
+    ReadOnly,
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Mode {
     Normal = 0,
@@ -258,6 +267,7 @@ pub struct Document {
     // A name separate from the file name
     pub name: Option<String>,
     pub readonly: bool,
+    pub access: DocumentAccess,
 
     pub previous_diagnostic_ids: HashMap<LanguageServerId, String>,
 
@@ -830,6 +840,7 @@ impl Document {
             focused_at: std::time::Instant::now(),
             name: None,
             readonly: false,
+            access: DocumentAccess::Editable,
             jump_labels: HashMap::new(),
             document_highlights: HashMap::new(),
             code_action_hints: HashSet::new(),
@@ -1080,6 +1091,9 @@ impl Document {
         impl Future<Output = Result<DocumentSavedEvent, anyhow::Error>> + 'static + Send,
         anyhow::Error,
     > {
+        if self.is_read_only() {
+            bail!("Buffer is read-only");
+        }
         log::debug!(
             "submitting save of doc '{:?}'",
             self.path().map(|path| path.to_string_lossy())
@@ -1363,6 +1377,10 @@ impl Document {
         };
     }
 
+    pub fn is_read_only(&self) -> bool {
+        self.access == DocumentAccess::ReadOnly
+    }
+
     pub fn last_saved_file_size(&self) -> Option<u64> {
         self.last_saved_file_size
     }
@@ -1567,6 +1585,9 @@ impl Document {
 
         let old_doc = self.text().clone();
         let changes = transaction.changes();
+        if self.is_read_only() && !changes.is_empty() {
+            return false;
+        }
         if !changes.apply(&mut self.text) {
             return false;
         }
@@ -1756,6 +1777,9 @@ impl Document {
         view_id: ViewId,
         emit_lsp_notification: bool,
     ) -> bool {
+        if self.is_read_only() && !transaction.changes().is_empty() {
+            return false;
+        }
         // store the state just before any changes are made. This allows us to undo to the
         // state just before a transaction was applied.
         if self.changes.is_empty() && !transaction.changes().is_empty() {
@@ -1841,6 +1865,9 @@ impl Document {
     }
 
     fn undo_redo_impl(&mut self, view: &mut View, undo: bool) -> bool {
+        if self.is_read_only() {
+            return false;
+        }
         if undo {
             self.append_changes_to_history(view);
         } else if !self.changes.is_empty() {
@@ -1926,6 +1953,9 @@ impl Document {
     }
 
     fn earlier_later_impl(&mut self, view: &mut View, uk: UndoKind, earlier: bool) -> bool {
+        if self.is_read_only() {
+            return false;
+        }
         if earlier {
             self.append_changes_to_history(view);
         } else if !self.changes.is_empty() {
@@ -2718,6 +2748,42 @@ mod test {
     use arc_swap::ArcSwap;
 
     use super::*;
+
+    #[test]
+    fn read_only_policy_blocks_edits_and_force_save_but_allows_selection() {
+        let mut doc = Document::from(
+            Rope::from("hello\n"),
+            None,
+            Arc::new(ArcSwap::from_pointee(Config::default())),
+            Arc::new(ArcSwap::from_pointee(syntax::Loader::default())),
+        );
+        let view = ViewId::default();
+        doc.ensure_view_init(view);
+        doc.access = DocumentAccess::ReadOnly;
+        let edit = Transaction::insert(doc.text(), doc.selection(view), "bad".into());
+        assert!(!doc.apply(&edit, view));
+        assert!(!doc.apply_temporary(&edit, view));
+        assert_eq!(doc.text().to_string(), "hello\n");
+        assert!(!doc.is_modified());
+        let selection = Transaction::new(doc.text()).with_selection(Selection::point(2));
+        assert!(doc.apply(&selection, view));
+        assert_eq!(
+            doc.selection(view).primary().cursor(doc.text().slice(..)),
+            2
+        );
+        let directory = tempfile::tempdir().unwrap();
+        let destination = directory.path().join("must-not-be-written.txt");
+        assert!(doc.save(Some(destination.clone()), true).is_err());
+        assert!(!destination.exists());
+        doc.detect_readonly();
+        assert!(
+            doc.is_read_only(),
+            "filesystem checks must not reset the editing policy"
+        );
+        doc.access = DocumentAccess::Editable;
+        assert!(doc.apply(&edit, view));
+        assert!(doc.is_modified());
+    }
 
     #[test]
     fn changeset_to_changes_ignore_line_endings() {

@@ -1574,6 +1574,10 @@ impl Component for EditorView {
 
         match event {
             Event::Paste(contents) => {
+                if doc!(cx.editor).is_read_only() {
+                    cx.editor.set_error("Buffer is read-only");
+                    return EventResult::Consumed(None);
+                }
                 self.handle_non_key_input(&mut cx);
                 cx.count = cx.editor.count;
                 commands::paste_bracketed_value(&mut cx, contents.clone());
@@ -1605,6 +1609,15 @@ impl Component for EditorView {
                 cx.editor.status_msg = None;
 
                 let mode = cx.editor.mode();
+
+                if cx.editor.pager && mode != Mode::Insert && key == key!('q') {
+                    // Pager quit is not a macro prefix and never writes buffers.
+                    let views: Vec<_> = cx.editor.tree.views().map(|(view, _)| view.id).collect();
+                    for view in views {
+                        cx.editor.close(view);
+                    }
+                    return EventResult::Consumed(None);
+                }
 
                 if !self.on_next_key(OnKeyCallbackKind::PseudoPending, &mut cx, key) {
                     match mode {

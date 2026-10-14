@@ -14,6 +14,9 @@ pub struct Args {
     pub fetch_grammars: bool,
     pub build_grammars: bool,
     pub strict: bool,
+    pub pager: bool,
+    pub stdin: bool,
+    pub language: Option<String>,
     pub split: Option<Layout>,
     pub verbosity: u64,
     pub log_file: Option<PathBuf>,
@@ -23,10 +26,14 @@ pub struct Args {
 }
 
 impl Args {
-    #[allow(clippy::too_many_lines)]
     pub fn parse_args() -> Result<Args> {
+        Self::parse_from(std::env::args())
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn parse_from(argv: impl IntoIterator<Item = String>) -> Result<Args> {
         let mut args = Args::default();
-        let mut argv = std::env::args().peekable();
+        let mut argv = argv.into_iter().peekable();
         let mut line_number = 0;
 
         let mut insert_file_with_position = |file_with_position: &str| {
@@ -49,6 +56,14 @@ impl Args {
                 "--version" => args.display_version = true,
                 "--help" => args.display_help = true,
                 "--strict" => args.strict = true,
+                "--pager" => args.pager = true,
+                "-" => args.stdin = true,
+                "--language" => {
+                    args.language =
+                        Some(argv.next().filter(|s| !s.starts_with('-')).ok_or_else(|| {
+                            anyhow::anyhow!("--language requires a language name")
+                        })?);
+                }
                 "--tutor" => args.load_tutor = true,
                 "--vsplit" => match args.split {
                     Some(_) => anyhow::bail!("can only set a split once of a specific type"),
@@ -131,6 +146,15 @@ impl Args {
             }
         }
 
+        if args.stdin && !args.files.is_empty() {
+            anyhow::bail!("stdin (-) cannot be combined with file arguments");
+        }
+        if args.language.is_some() && !args.pager {
+            anyhow::bail!("--language is currently supported with --pager only");
+        }
+        if args.pager && args.load_tutor {
+            anyhow::bail!("--pager cannot be combined with --tutor");
+        }
         Ok(args)
     }
 }
@@ -167,4 +191,34 @@ fn split_path_row(s: &str) -> Option<(PathBuf, Position)> {
     let path = path.into();
     let pos = Position::new(row.saturating_sub(1), 0);
     Some((path, pos))
+}
+
+#[cfg(test)]
+mod pager_tests {
+    use super::Args;
+
+    fn parse(args: &[&str]) -> anyhow::Result<Args> {
+        Args::parse_from(args.iter().map(|arg| (*arg).to_owned()))
+    }
+
+    #[test]
+    fn pager_flags_and_explicit_stdin() {
+        let args = parse(&["hx", "--pager", "--language", "rust", "-"]).unwrap();
+        assert!(args.pager && args.stdin);
+        assert_eq!(args.language.as_deref(), Some("rust"));
+        assert!(args.files.is_empty());
+        assert!(!parse(&["hx", "file.rs"]).unwrap().pager);
+    }
+
+    #[test]
+    fn rejects_ambiguous_and_incomplete_pager_arguments() {
+        for args in [
+            vec!["hx", "--pager", "--language"],
+            vec!["hx", "--language", "rust"],
+            vec!["hx", "--pager", "-", "file.rs"],
+            vec!["hx", "--pager", "--tutor"],
+        ] {
+            assert!(parse(&args).is_err(), "{args:?}");
+        }
+    }
 }

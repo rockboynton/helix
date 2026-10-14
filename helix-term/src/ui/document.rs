@@ -181,9 +181,35 @@ pub fn render_text(
     decorations.render_virtual_lines(renderer, last_line_pos, last_line_end)
 }
 
+// Keep terminal controls in pager input as data, without changing the document
+// text or Tree-sitter offsets. ANSI interpretation is a separate future feature.
+fn visible_control(character: char) -> char {
+    match character {
+        '\u{0000}'..='\u{001f}' => char::from_u32(0x2400 + character as u32).unwrap(),
+        '\u{007f}' => '\u{2421}',
+        _ => '\u{fffd}',
+    }
+}
+
+#[cfg(test)]
+mod pager_render_tests {
+    use super::visible_control;
+
+    #[test]
+    fn control_codes_are_printable_cells_not_terminal_commands() {
+        assert_eq!(visible_control('\u{1b}'), '␛');
+        assert_eq!(visible_control('\u{07}'), '␇');
+        assert_eq!(visible_control('\u{7f}'), '␡');
+        for control in ['\0', '\u{1b}', '\u{07}', '\u{7f}', '\u{9b}'] {
+            assert!(!visible_control(control).is_control());
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct TextRenderer<'a> {
     surface: &'a mut Surface,
+    render_controls: bool,
     pub text_style: Style,
     pub whitespace_style: Style,
     pub indent_guide_char: String,
@@ -276,6 +302,7 @@ impl<'a> TextRenderer<'a> {
             ),
             text_style,
             draw_indent_guides: editor_config.indent_guides.render,
+            render_controls: doc.is_read_only(),
             viewport,
             offset,
         }
@@ -353,6 +380,7 @@ impl<'a> TextRenderer<'a> {
         } else {
             &self.tab
         };
+        let mut control_bytes = [0; 4];
         let grapheme = match grapheme.raw {
             Grapheme::Tab { width } => {
                 is_tab = true;
@@ -363,6 +391,11 @@ impl<'a> TextRenderer<'a> {
             Grapheme::Other { ref g } if g == " " && !grapheme.source.is_eof() => space,
             Grapheme::Other { ref g } if g == "\u{00A0}" => nbsp,
             Grapheme::Other { ref g } if g == "\u{202F}" => nnbsp,
+            Grapheme::Other { ref g }
+                if self.render_controls && g.chars().next().is_some_and(char::is_control) =>
+            {
+                visible_control(g.chars().next().unwrap()).encode_utf8(&mut control_bytes)
+            }
             Grapheme::Other { ref g } => g,
             Grapheme::Newline => &self.newline,
         };

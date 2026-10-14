@@ -47,6 +47,9 @@ ARGS:
 FLAGS:
     -h, --help                     Print help information
     --strict                       Bail on error for commands that can fail.
+    --pager                        Browse files or piped stdin read-only; q exits
+    --language <name>              Set pager syntax language (for example rust)
+    -                              Explicitly read stdin (without file arguments)
     --tutor                        Load the tutorial
     --health [CATEGORY]            Check for potential errors in editor setup
                                    CATEGORY can be a language or one of 'clipboard', 'languages',
@@ -77,6 +80,20 @@ FLAGS:
     if args.display_version {
         println!("helix {}", VERSION_AND_GIT_HASH);
         std::process::exit(0);
+    }
+
+    // A pager in a pipeline must never write terminal escape sequences into the
+    // downstream command. Preserve the input bytes and avoid initializing the UI.
+    if args.pager && !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        let mut output = std::io::stdout().lock();
+        if args.files.is_empty() {
+            std::io::copy(&mut std::io::stdin().lock(), &mut output)?;
+        } else {
+            for path in args.files.keys() {
+                std::io::copy(&mut std::fs::File::open(path)?, &mut output)?;
+            }
+        }
+        return Ok(0);
     }
 
     if args.health {

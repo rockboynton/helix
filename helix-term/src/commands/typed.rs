@@ -386,6 +386,7 @@ fn write_impl(
 ) -> anyhow::Result<()> {
     let config = cx.editor.config();
     let (view, doc) = current!(cx.editor);
+    anyhow::ensure!(!doc.is_read_only(), "Buffer is read-only");
     let doc_id = doc.id();
     let view_id = view.id;
 
@@ -2890,6 +2891,7 @@ fn move_buffer_impl(
     options: MoveBufferOptions,
 ) -> anyhow::Result<()> {
     let doc = doc!(cx.editor);
+    anyhow::ensure!(!doc.is_read_only(), "Buffer is read-only");
     let old_path = doc
         .path()
         .map(ToOwned::to_owned)

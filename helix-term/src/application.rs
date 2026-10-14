@@ -98,7 +98,7 @@ fn setup_integration_logging() {
 impl Application {
     pub fn new(
         args: Args,
-        config: Config,
+        mut config: Config,
         lang_loader: syntax::Loader,
         workspace_trust: helix_loader::workspace_trust::WorkspaceTrust,
     ) -> Result<Self, Error> {
@@ -106,6 +106,23 @@ impl Application {
         setup_integration_logging();
 
         use helix_view::editor::Action;
+
+        if args.pager {
+            if args.files.is_empty() && stdin().is_terminal() && !cfg!(feature = "integration") {
+                anyhow::bail!("--pager requires a file or piped stdin");
+            }
+            for path in args.files.keys() {
+                if !path.is_file() {
+                    anyhow::bail!("pager input is not an existing file: {}", path.display());
+                }
+            }
+        }
+        if args.pager {
+            // Viewing input needs syntax/theme support, not background servers
+            // or a workspace filesystem subscription.
+            config.editor.file_watcher.enable = false;
+            config.editor.lsp.enable = false;
+        }
 
         let mut theme_parent_dirs = vec![helix_loader::config_dir()];
         theme_parent_dirs.extend(helix_loader::runtime_dirs().iter().cloned());
@@ -136,6 +153,7 @@ impl Application {
             handlers,
             workspace_trust,
         );
+        editor.pager = args.pager;
         Self::load_configured_theme(&mut editor, &config.load(), &mut terminal, theme_mode);
 
         let keys = Box::new(Map::new(Arc::clone(&config), |config: &Config| {
@@ -249,12 +267,27 @@ impl Application {
             } else {
                 editor.new_file(Action::VerticalSplit);
             }
-        } else if stdin().is_terminal() || cfg!(feature = "integration") {
+        } else if !args.stdin && (stdin().is_terminal() || cfg!(feature = "integration")) {
             editor.new_file(Action::VerticalSplit);
         } else {
-            editor
-                .new_file_from_stdin(Action::VerticalSplit)
-                .unwrap_or_else(|_| editor.new_file(Action::VerticalSplit));
+            if args.pager || args.stdin {
+                editor.new_file_from_stdin(Action::VerticalSplit)?;
+            } else {
+                editor
+                    .new_file_from_stdin(Action::VerticalSplit)
+                    .unwrap_or_else(|_| editor.new_file(Action::VerticalSplit));
+            }
+        }
+
+        if let Some(language) = &args.language {
+            let loader = editor.syn_loader.load();
+            for doc in editor.documents_mut() {
+                if language == helix_view::document::DEFAULT_LANGUAGE_NAME {
+                    doc.set_language(None, &loader);
+                } else {
+                    doc.set_language_by_language_id(language, &loader)?;
+                }
+            }
         }
 
         #[cfg(windows)]
