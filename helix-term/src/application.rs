@@ -205,7 +205,40 @@ impl Application {
             );
         }
 
-        if args.load_tutor {
+        if args.diff && args.diff_layout == Some(crate::diff_render::Layout::Inline) {
+            let paths = diff_paths.as_ref().unwrap();
+            let mut sources = Vec::new();
+            for path in paths {
+                let (text, encoding, bom) =
+                    helix_view::document::from_reader(&mut std::fs::File::open(path)?, None)?;
+                let mut doc = helix_view::Document::from(
+                    text,
+                    Some((encoding, bom)),
+                    editor.config.clone(),
+                    editor.syn_loader.clone(),
+                );
+                doc.access = helix_view::document::DocumentAccess::ReadOnly;
+                doc.set_path(Some(path));
+                doc.detect_language(&editor.syn_loader.load());
+                sources.push(doc);
+            }
+            let (text, model) =
+                helix_view::inline_diff::InlineDiff::pair(sources.try_into().ok().unwrap());
+            let mut doc = helix_view::Document::from(
+                text,
+                None,
+                editor.config.clone(),
+                editor.syn_loader.clone(),
+            );
+            doc.access = helix_view::document::DocumentAccess::ReadOnly;
+            doc.name = Some(format!(
+                "Inline diff: {} → {}",
+                paths[0].display(),
+                paths[1].display()
+            ));
+            doc.inline_diff = Some(Box::new(model));
+            editor.new_file_from_document(Action::VerticalSplit, doc);
+        } else if args.load_tutor {
             let path = helix_loader::runtime_file(Path::new("tutor"));
             editor.open(&path, Action::VerticalSplit)?;
             // Unset path to prevent accidentally saving to the original tutor file.
@@ -300,7 +333,9 @@ impl Application {
             }
         }
 
-        if let Some(paths) = diff_paths {
+        if let Some(paths) =
+            diff_paths.filter(|_| args.diff_layout != Some(crate::diff_render::Layout::Inline))
+        {
             let documents = paths
                 .iter()
                 .map(|path| editor.document_id_by_path(path))

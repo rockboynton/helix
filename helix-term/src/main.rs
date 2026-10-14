@@ -50,7 +50,7 @@ FLAGS:
     --pager                        Browse files or piped stdin read-only; q exits
     --diff                         Open two files in an editable side-by-side diff
     --render-diff                  Render two files/directories as read-only flow text
-    --diff-layout <layout>         Render inline or side-by-side (default)
+    --diff-layout <layout>         View/render inline or side-by-side (default)
     --width <columns>              Render width (default 100)
     --diff-context <lines>         Context lines per hunk (default 3)
     --diff-theme <name>            Theme for read-only rendering

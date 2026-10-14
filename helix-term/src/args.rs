@@ -200,7 +200,11 @@ impl Args {
                 args.files.len() == 2 && !args.stdin && !args.load_tutor && args.split.is_none(),
                 "--diff requires exactly two file paths, without stdin, tutor or split flags"
             );
-            args.split = Some(Layout::Vertical);
+            if args.diff_layout == Some(crate::diff_render::Layout::Inline) {
+                args.pager = true;
+            } else {
+                args.split = Some(Layout::Vertical);
+            }
         }
         if args.render_diff {
             anyhow::ensure!(
@@ -215,7 +219,7 @@ impl Args {
             );
         } else {
             anyhow::ensure!(
-                args.diff_layout.is_none()
+                (args.diff_layout.is_none() || args.diff)
                     && args.diff_width.is_none()
                     && args.diff_context.is_none()
                     && args.diff_theme.is_none()
@@ -317,6 +321,8 @@ mod pager_tests {
 
     #[test]
     fn diff_requires_two_distinct_paths_and_vertical_layout() {
+        let inline = parse(&["hx", "--diff", "--diff-layout", "inline", "a", "b"]).unwrap();
+        assert!(inline.pager && inline.split.is_none());
         let args = parse(&["hx", "--diff", "left.rs", "right.rs"]).unwrap();
         assert!(args.diff);
         assert!(matches!(args.split, Some(super::Layout::Vertical)));

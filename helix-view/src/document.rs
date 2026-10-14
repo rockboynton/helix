@@ -177,6 +177,7 @@ pub struct RefactorFile {
 }
 
 pub struct Document {
+    pub inline_diff: Option<Box<crate::inline_diff::InlineDiff>>,
     pub refactor: Option<RefactorState>,
     pub(crate) id: DocumentId,
     text: Rope,
@@ -841,6 +842,7 @@ impl Document {
             name: None,
             readonly: false,
             access: DocumentAccess::Editable,
+            inline_diff: None,
             jump_labels: HashMap::new(),
             document_highlights: HashMap::new(),
             code_action_hints: HashSet::new(),

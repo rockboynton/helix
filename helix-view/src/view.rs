@@ -188,7 +188,7 @@ impl fmt::Debug for View {
 
 impl View {
     pub fn is_diff(&self, doc: &Document) -> bool {
-        self.diff_document == Some(doc.id())
+        self.diff_document == Some(doc.id()) || doc.inline_diff.is_some()
     }
     pub fn diff_side(
         &self,

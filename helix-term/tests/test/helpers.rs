@@ -389,6 +389,13 @@ impl AppBuilder {
         self
     }
 
+    pub fn with_inline_diff(mut self) -> Self {
+        self.args.diff = true;
+        self.args.pager = true;
+        self.args.diff_layout = Some(helix_term::diff_render::Layout::Inline);
+        self
+    }
+
     pub fn with_file<P: Into<PathBuf>>(
         mut self,
         path: P,

@@ -102,6 +102,27 @@ pub fn diff<'doc>(
     theme: &Theme,
     _is_focused: bool,
 ) -> GutterFn<'doc> {
+    if let Some(model) = &doc.inline_diff {
+        let added = theme.get("diff.plus.gutter");
+        let deleted = theme.get("diff.minus.gutter");
+        return Box::new(move |line, _, first, out| {
+            if !first {
+                return None;
+            }
+            let removed = model.lines.get(line)?.removed?;
+            let icon = if removed {
+                &editor.icons.diff.deleted
+            } else {
+                &editor.icons.diff.added
+            };
+            write!(out, "{}", icon.icon_char).unwrap();
+            Some(
+                icon.style
+                    .map(Into::into)
+                    .unwrap_or(if removed { deleted } else { added }),
+            )
+        });
+    }
     if let Some(side) = view.diff_side(doc).cloned() {
         let added = theme.get("diff.plus.gutter");
         let deleted = theme.get("diff.minus.gutter");
@@ -177,6 +198,29 @@ pub fn line_numbers<'doc>(
     let text = doc.text().slice(..);
     let width = line_numbers_width(view, doc);
 
+    if let Some(model) = &doc.inline_diff {
+        let column = (width - 1) / 2;
+        let normal = theme.get("ui.linenr");
+        let selected_style = theme.get("ui.linenr.selected");
+        return Box::new(move |line, selected, first, out| {
+            if !first {
+                return None;
+            }
+            let numbers = model
+                .lines
+                .get(line)
+                .map(|line| line.numbers)
+                .unwrap_or([None; 2]);
+            let numbers = numbers.map(|n| n.map(|n| n.to_string()).unwrap_or_default());
+            write!(out, "{:>column$} {:>column$}", numbers[0], numbers[1]).unwrap();
+            Some(if selected && is_focused {
+                selected_style
+            } else {
+                normal
+            })
+        });
+    }
+
     let last_line_in_view = view.estimate_last_doc_line(doc);
 
     // Whether to draw the line number for the last line of the
@@ -236,6 +280,9 @@ pub fn line_numbers<'doc>(
 /// whether there is content on the last line (the `~` line), and the
 /// `editor.gutters.line-numbers.min-width` settings.
 fn line_numbers_width(view: &View, doc: &Document) -> usize {
+    if let Some(model) = &doc.inline_diff {
+        return 2 * count_digits(model.max_number).max(view.gutters.line_numbers.min_width) + 1;
+    }
     let text = doc.text();
     let last_line = text.len_lines().saturating_sub(1);
     let draw_last = text.line_to_byte(last_line) < text.len_bytes();

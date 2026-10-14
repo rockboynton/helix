@@ -2185,6 +2185,30 @@ fn diff_action(
     if event != PromptEvent::Validate {
         return Ok(());
     }
+    if let Some(model) = &doc!(cx.editor).inline_diff {
+        anyhow::ensure!(
+            action == "next" || action == "prev",
+            "inline diffs are read-only"
+        );
+        let view = view!(cx.editor);
+        let doc = doc!(cx.editor);
+        let line = doc.cursor_line(view.id);
+        let target = if action == "next" {
+            model.hunks.iter().copied().find(|&target| target > line)
+        } else {
+            model
+                .hunks
+                .iter()
+                .copied()
+                .rev()
+                .find(|&target| target < line)
+        }
+        .ok_or_else(|| anyhow!("no {action} change"))?;
+        let (view, doc) = current!(cx.editor);
+        doc.set_selection(view.id, Selection::point(doc.text().line_to_char(target)));
+        view.ensure_cursor_in_view(doc, 2);
+        return Ok(());
+    }
     cx.editor.refresh_diff();
     let session = cx
         .editor

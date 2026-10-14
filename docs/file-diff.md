@@ -44,6 +44,17 @@ and inline diagnostic rows to preserve logical-line alignment; other views keep
 their settings. Long lines can be scrolled horizontally. Character/word-level
 highlighting, Git/JJ revision inputs, and GitLens integration are not implemented.
 
+## Interactive inline viewing
+
+`hx --diff --diff-layout inline before.rs after.rs` opens a single read-only
+Helix buffer. Use normal movement, search, selection, yank and horizontal
+scrolling; `q` exits. `:diff-next` and `:diff-prev` jump between hunks. The
+gutter shows old/new source line numbers and normal Helix change icons.
+Removed lines precede added lines; unchanged lines appear once. Syntax is
+queried from each original complete source tree, not a synthetic patch tree.
+Presentation newlines separate unterminated source lines without modifying
+either file. Writes and hunk transfers are rejected, including forced writes.
+
 ## Read-only rendering: standalone and jjui
 
 ```sh
@@ -132,4 +143,4 @@ requires an interactive host integration, not only a `ui.pager` setting.
 The formatter contract is implemented by `--render-diff`; the interactive host
 contract is future work. Current non-terminal `--pager` output is still
 byte-preserving passthrough, and `--diff` still takes two file paths. Raw unified
-patch ingestion and an interactive inline editor view are not implemented yet.
+patch ingestion is not implemented yet; interactive inline viewing is read-only.

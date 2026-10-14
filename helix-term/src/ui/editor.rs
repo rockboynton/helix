@@ -101,6 +101,17 @@ impl EditorView {
             let text_annotations = view.text_annotations(doc, Some(theme));
             let mut decorations = DecorationManager::default();
 
+            if let Some(model) = &doc.inline_diff {
+                decorations.add_decoration(move |renderer: &mut TextRenderer, pos: LinePos| {
+                    let bg = model
+                        .lines
+                        .get(pos.doc_line)
+                        .and_then(|line| line.removed)
+                        .map(|removed| text_decorations::diff::background(theme, removed));
+                    renderer.set_line_background(bg, pos.visual_line);
+                });
+            }
+
             if let Some(side) = view.diff_side(doc) {
                 let is_left = editor
                     .diff_session
@@ -141,6 +152,15 @@ impl EditorView {
             let syntax_highlighter =
                 Self::doc_syntax_highlighter(doc, view_offset.anchor, inner.height, &loader);
             let mut overlays = Vec::new();
+
+            if doc.inline_diff.is_some() {
+                overlays.push(Self::inline_syntax_highlights(
+                    doc,
+                    view_offset.anchor,
+                    inner.height,
+                    &loader,
+                ));
+            }
 
             overlays.push(Self::overlay_syntax_highlights(
                 doc,
@@ -403,6 +423,53 @@ impl EditorView {
 
         let highlighter = syntax.highlighter(text, loader, range);
         Some(highlighter)
+    }
+
+    /// Query each visible line against its original full source tree. The
+    /// presentation buffer deliberately has no synthetic code syntax tree.
+    fn inline_syntax_highlights(
+        doc: &Document,
+        anchor: usize,
+        height: u16,
+        loader: &syntax::Loader,
+    ) -> OverlayHighlights {
+        let model = doc.inline_diff.as_ref().unwrap();
+        let start = doc.text().char_to_line(anchor.min(doc.text().len_chars()));
+        let mut highlights = Vec::new();
+        for index in start..(start + usize::from(height) + 1).min(model.lines.len()) {
+            let line = model.lines[index];
+            let source = &model.sources[line.source];
+            let Some(syntax) = source.syntax() else {
+                continue;
+            };
+            let text = source.text();
+            let begin = text.line_to_byte(line.line);
+            let end = if line.line + 1 < text.len_lines() {
+                text.line_to_byte(line.line + 1)
+            } else {
+                text.len_bytes()
+            };
+            let mut highlighter =
+                syntax.highlighter(text.slice(..), loader, begin as u32..end as u32);
+            let mut offset = begin;
+            while offset < end {
+                while highlighter.next_event_offset() as usize <= offset {
+                    highlighter.advance();
+                }
+                let next = (highlighter.next_event_offset() as usize).min(end);
+                if let Some(highlight) = highlighter.active_highlights().next_back() {
+                    let base = doc.text().line_to_char(index);
+                    let source_base = text.line_to_char(line.line);
+                    highlights.push((
+                        highlight,
+                        base + text.byte_to_char(offset) - source_base
+                            ..base + text.byte_to_char(next) - source_base,
+                    ));
+                }
+                offset = next;
+            }
+        }
+        OverlayHighlights::Heterogenous { highlights }
     }
 
     pub fn overlay_syntax_highlights(

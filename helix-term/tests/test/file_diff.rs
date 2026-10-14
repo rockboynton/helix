@@ -2,6 +2,122 @@ use super::helpers::*;
 use helix_view::current_ref;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn inline_diff_renders_source_syntax_backgrounds_and_gutter() -> anyhow::Result<()> {
+    use std::io::Write;
+    let mut left = tempfile::Builder::new().suffix(".rs").tempfile()?;
+    let mut right = tempfile::Builder::new().suffix(".rs").tempfile()?;
+    left.write_all(b"/*\nfn old() {}\n*/\n")?;
+    right.write_all(b"fn new() {}\n")?;
+    let mut app = AppBuilder::new()
+        .with_file(left.path(), None)
+        .with_file(right.path(), None)
+        .with_inline_diff()
+        .build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                None,
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    let model = doc.inline_diff.as_ref().unwrap();
+                    assert!(doc.syntax().is_none());
+                    assert!(model.sources.iter().all(|source| source.syntax().is_some()));
+                    let surface = app.test_surface();
+                    let area = view.inner_area(doc);
+                    let old = &surface[(area.x, area.y + 1)];
+                    let new = &surface[(area.x, area.y + 3)];
+                    assert_eq!(old.symbol.as_str(), "f");
+                    assert_eq!(new.symbol.as_str(), "f");
+                    assert_eq!(old.bg, helix_view::graphics::Color::Rgb(48, 0, 0));
+                    assert_eq!(new.bg, helix_view::graphics::Color::Rgb(0, 40, 0));
+                    assert_ne!(
+                        old.fg, new.fg,
+                        "original comment and keyword scopes must remain distinct"
+                    );
+                    let mut gutter =
+                        helix_view::gutter::diff(&app.editor, doc, view, &app.editor.theme, true);
+                    let mut text = String::new();
+                    assert!(gutter(1, false, true, &mut text).is_some());
+                    assert_eq!(text, app.editor.icons.diff.deleted.icon_char.to_string());
+                }),
+            ),
+            (Some("q"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn inline_diff_is_searchable_read_only_and_navigates_hunks() -> anyhow::Result<()> {
+    let left = temp_file_with_contents("same\nold\nstable\nend\n")?;
+    let right = temp_file_with_contents("same\nnew\nstable\nextra\nend\n")?;
+    let mut app = AppBuilder::new()
+        .with_file(left.path(), None)
+        .with_file(right.path(), None)
+        .with_inline_diff()
+        .build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                None,
+                Some(&|app| {
+                    let (_, doc) = current_ref!(app.editor);
+                    assert_eq!(
+                        doc.text().to_string(),
+                        "same\nold\nnew\nstable\nextra\nend\n"
+                    );
+                    assert!(doc.is_read_only());
+                    assert!(doc.path().is_none());
+                    assert_eq!(doc.inline_diff.as_ref().unwrap().hunks, [1, 4]);
+                    assert!(doc.language_servers().next().is_none());
+                }),
+            ),
+            (
+                Some(":diff-next<ret>"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert_eq!(doc.cursor_line(view.id), 1);
+                }),
+            ),
+            (
+                Some(":diff-next<ret>:diff-prev<ret>/extra<ret>"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert_eq!(doc.cursor_line(view.id), 4);
+                }),
+            ),
+            (
+                Some("i<esc>:diff-get<ret>:w!<ret>"),
+                Some(&|app| {
+                    let (_, doc) = current_ref!(app.editor);
+                    assert_eq!(
+                        doc.text().to_string(),
+                        "same\nold\nnew\nstable\nextra\nend\n"
+                    );
+                    assert!(!doc.is_modified());
+                }),
+            ),
+            (Some("q"), None),
+        ],
+        true,
+    )
+    .await?;
+    assert_eq!(
+        std::fs::read_to_string(left.path())?,
+        "same\nold\nstable\nend\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(right.path())?,
+        "same\nnew\nstable\nextra\nend\n"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn standalone_read_only_diff_blocks_transfers_and_q_exits() -> anyhow::Result<()> {
     let left = temp_file_with_contents("old\n")?;
     let right = temp_file_with_contents("new\n")?;
