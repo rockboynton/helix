@@ -43,6 +43,7 @@ pub struct Review {
     pub layout: Layout,
     pub views: Vec<ViewId>,
     pub origin: Origin,
+    watch_roots: Vec<PathBuf>,
     positions: HashMap<DocumentId, (i32, helix_core::Selection, helix_view::view::ViewPosition)>,
 }
 
@@ -53,7 +54,68 @@ pub enum Origin {
     Patch(PathBuf),
 }
 
+#[derive(Default)]
+pub struct RefreshState {
+    running: bool,
+    pending: bool,
+}
+
+impl Origin {
+    fn affected(&self, path: &Path) -> bool {
+        match self {
+            Self::Repository(root) => path.starts_with(root),
+            Self::Directories(left, right) => path.starts_with(left) || path.starts_with(right),
+            Self::Patch(file) => !file.as_os_str().is_empty() && path == file,
+        }
+    }
+}
+
+pub(crate) fn refresh_changed(
+    editor: &mut Editor,
+    compositor: &mut crate::compositor::Compositor,
+    jobs: &mut crate::job::Jobs,
+    paths: &BTreeSet<PathBuf>,
+) {
+    let Some(view) = compositor.find::<crate::ui::EditorView>() else {
+        return;
+    };
+    let Some(review) = view
+        .file_tree
+        .as_ref()
+        .and_then(|tree| tree.review.as_ref())
+    else {
+        return;
+    };
+    if !paths.iter().any(|path| {
+        review.origin.affected(path)
+            || matches!(review.origin, Origin::Repository(_))
+                && review.watch_roots.iter().any(|root| path.starts_with(root))
+    }) {
+        return;
+    }
+    let origin = review.origin.clone();
+    let state = view.review_refresh.clone();
+    {
+        let mut state = state.lock();
+        if state.running {
+            state.pending = true;
+            return;
+        }
+        state.running = true;
+    }
+    load_impl(editor, jobs, origin, Some(state));
+}
+
 pub fn load(editor: &mut Editor, jobs: &mut crate::job::Jobs, origin: Origin) {
+    load_impl(editor, jobs, origin, None);
+}
+
+fn load_impl(
+    editor: &mut Editor,
+    jobs: &mut crate::job::Jobs,
+    origin: Origin,
+    automatic: Option<Arc<parking_lot::Mutex<RefreshState>>>,
+) {
     if matches!(&origin, Origin::Patch(path) if path.as_os_str().is_empty()) {
         editor
             .set_error("A piped patch is an immutable snapshot; reopen with new input to refresh");
@@ -77,9 +139,12 @@ pub fn load(editor: &mut Editor, jobs: &mut crate::job::Jobs, origin: Origin) {
             helix_loader::workspace_trust::TrustQuery::Git,
         )
         .is_trusted();
-    editor.set_status("Loading review…");
+    if automatic.is_none() {
+        editor.set_status("Loading review…");
+    }
     jobs.callback(async move {
-        let (root, review) = tokio::task::spawn_blocking(move || match origin {
+        let requested_origin = origin.clone();
+        let result = tokio::task::spawn_blocking(move || match origin {
             Origin::Repository(root) => Review::repository_with_edits(root, trust, &extra),
             Origin::Directories(left, right) => Review::directories_with_edits(left, right, &extra),
             Origin::Patch(path) => {
@@ -87,13 +152,40 @@ pub fn load(editor: &mut Editor, jobs: &mut crate::job::Jobs, origin: Origin) {
                 Ok((PathBuf::new(), Review::patch(&patch, Origin::Patch(path))))
             }
         })
-        .await??;
-        Ok(crate::job::Callback::EditorCompositor(Box::new(
-            move |editor, compositor| {
+        .await
+        .map_err(anyhow::Error::from)
+        .and_then(|result| result);
+        Ok(crate::job::Callback::EditorCompositorJobs(Box::new(
+            move |editor, compositor, jobs| {
+                let pending = automatic.as_ref().is_some_and(|state| {
+                    let mut state = state.lock();
+                    state.running = false;
+                    std::mem::take(&mut state.pending)
+                });
+                // Even stale and failed workers release the gate; a later event can retry.
                 if generation != editor.navigation_generation {
                     return;
                 }
+                let (root, review) = match result {
+                    Ok(value) => value,
+                    Err(error) => {
+                        if automatic.is_none() {
+                            editor.set_error(format!("{error:#}"));
+                        } else {
+                            log::debug!("review refresh failed: {error:#}");
+                        }
+                        return;
+                    }
+                };
+                editor
+                    .file_watcher
+                    .set_review_roots(review.watch_roots.clone());
+                let focus = editor.tree.focus;
+                let status = automatic.is_some().then(|| editor.status_msg.clone());
                 let mut tree = Review::panel(root, review);
+                let mut tree_selection = None;
+                let mut tree_focused = false;
+                let mut expansion = None;
                 if let Some(view) = compositor.find::<crate::ui::EditorView>() {
                     if let Some(layout) = view.review_layout.take() {
                         tree.review.as_mut().unwrap().layout = layout;
@@ -101,7 +193,13 @@ pub fn load(editor: &mut Editor, jobs: &mut crate::job::Jobs, origin: Origin) {
                     if let Some(old_tree) = &view.file_tree {
                         if old_tree.root == tree.root {
                             tree.expanded = old_tree.expanded.clone();
+                            expansion = Some(old_tree.expanded.clone());
                             tree.scroll = old_tree.scroll;
+                            tree_selection = old_tree
+                                .nodes
+                                .get(old_tree.selected)
+                                .map(|node| node.path.clone());
+                            tree_focused = old_tree.focused;
                         }
                     }
                     if let Some(old) = view
@@ -164,8 +262,32 @@ pub fn load(editor: &mut Editor, jobs: &mut crate::job::Jobs, origin: Origin) {
                     editor.stop_diff();
                     editor.set_status("No changes to review");
                 }
+                if automatic.is_some() {
+                    if let Some(expanded) = expansion {
+                        tree.expanded = expanded;
+                    }
+                    if let Some(path) = tree_selection {
+                        tree.reveal(&path);
+                    }
+                    tree.focused = tree_focused;
+                    if editor.tree.contains(focus) {
+                        editor.focus(focus);
+                    }
+                    // Background refresh must not replace a command's status message.
+                    if let Some(status) = status {
+                        editor.status_msg = status;
+                    }
+                }
                 if let Some(view) = compositor.find::<crate::ui::EditorView>() {
                     view.file_tree = Some(tree);
+                }
+                if pending {
+                    let paths = match requested_origin {
+                        Origin::Repository(root) => BTreeSet::from([root]),
+                        Origin::Directories(left, right) => BTreeSet::from([left, right]),
+                        Origin::Patch(path) => BTreeSet::from([path]),
+                    };
+                    refresh_changed(editor, compositor, jobs, &paths);
                 }
             },
         )))
@@ -173,6 +295,7 @@ pub fn load(editor: &mut Editor, jobs: &mut crate::job::Jobs, origin: Origin) {
 }
 
 pub fn load_tree(editor: &mut Editor, jobs: &mut crate::job::Jobs, root: PathBuf) {
+    editor.file_watcher.set_review_roots(Vec::new());
     editor.navigation_generation += 1;
     let generation = editor.navigation_generation;
     let config = editor.config().file_picker.clone();
@@ -266,6 +389,20 @@ impl Review {
                 patch: None,
             });
         }
+        let mut watch_roots = vec![root.clone()];
+        watch_roots.extend(
+            registry
+                .get_watched_paths(&root)
+                .into_iter()
+                .filter_map(|path| path.parent().map(Path::to_path_buf)),
+        );
+        for path in watch_roots.clone() {
+            if let Ok(common) = std::fs::read_to_string(path.join("commondir")) {
+                if let Ok(common) = path.join(common.trim()).canonicalize() {
+                    watch_roots.push(common);
+                }
+            }
+        }
         Ok((
             root.clone(),
             Self {
@@ -274,6 +411,7 @@ impl Review {
                 layout: Layout::SideBySide,
                 views: Vec::new(),
                 origin: Origin::Repository(root),
+                watch_roots,
                 positions: HashMap::new(),
             },
         ))
@@ -355,7 +493,8 @@ impl Review {
                 active: None,
                 layout: Layout::SideBySide,
                 views: Vec::new(),
-                origin: Origin::Directories(left, right),
+                origin: Origin::Directories(left.clone(), right.clone()),
+                watch_roots: vec![left, right],
                 positions: HashMap::new(),
             },
         ))
@@ -415,12 +554,24 @@ impl Review {
             active: None,
             layout: Layout::SideBySide,
             views: Vec::new(),
+            watch_roots: match &origin {
+                Origin::Patch(path) => path
+                    .parent()
+                    .filter(|path| !path.as_os_str().is_empty())
+                    .map(Path::to_path_buf)
+                    .into_iter()
+                    .collect(),
+                _ => Vec::new(),
+            },
             origin,
             positions: HashMap::new(),
         }
     }
 
     pub fn open(&mut self, index: usize, editor: &mut Editor) -> Result<()> {
+        editor
+            .file_watcher
+            .set_review_roots(self.watch_roots.clone());
         anyhow::ensure!(index < self.entries.len(), "no review file selected");
         for &id in &self.views {
             if let Some(view) = editor.tree.try_get(id) {

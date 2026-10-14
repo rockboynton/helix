@@ -2211,7 +2211,8 @@ fn file_tree_close(
     cx.editor.navigation_generation += 1;
     cx.jobs.callback(async {
         Ok(job::Callback::EditorCompositor(Box::new(
-            |_, compositor| {
+            |editor, compositor| {
+                editor.file_watcher.set_review_roots(Vec::new());
                 if let Some(view) = compositor.find::<ui::EditorView>() {
                     view.file_tree = None;
                 }

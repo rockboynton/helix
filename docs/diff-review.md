@@ -60,8 +60,15 @@ JJ repositories require explicit workspace trust: run `:workspace-trust`, then
 Directory review treats the left side as baseline and the right as working files.
 Missing files, symlinks, binary and special files get read-only snapshots/summaries;
 symlinks and special files are never read as ordinary source files. Added text
-files are editable. There is no automatic file-list watching yet: refresh explicitly.
-Refresh preserves dirty buffers even if disk contents changed. A piped patch is
+files are editable. With file watching enabled, review catalogs and inline
+snapshots refresh automatically after a 250 ms debounce. Additions/deletions,
+saved patch changes, Git refs/index and JJ operation heads are included;
+object stores are excluded. Explicit directory comparisons watch both selected
+roots even outside a workspace, without watching the caller's whole directory.
+Refresh is bounded to one automatic catalog worker with a pending follow-up;
+it preserves dirty buffers, active file, focus and sidebar selection/expansion.
+`:diff-review-refresh` remains a fallback when watching is disabled or unavailable.
+A piped patch is
 immutable; reopen with new input instead of refreshing it.
 
 This is the first multi-file review layer, not yet a complete Hunk/Diffview-style

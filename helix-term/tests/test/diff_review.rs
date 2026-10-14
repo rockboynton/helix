@@ -218,3 +218,59 @@ async fn multi_file_patch_review_is_read_only_and_switches_layouts() -> anyhow::
     assert_eq!(std::fs::read_to_string(file.path())?, input);
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn watcher_refreshes_catalog_and_inline_snapshot_without_a_command() -> anyhow::Result<()> {
+    let left = tempfile::tempdir()?;
+    let right = tempfile::tempdir()?;
+    std::fs::write(left.path().join("a.txt"), "old\n")?;
+    std::fs::write(right.path().join("a.txt"), "new\n")?;
+    let mut config = helix_term::config::Config::default();
+    config.editor = test_editor_config();
+    // Inject real FileSystemDidChange events deterministically; the native
+    // backend is verified separately in a PTY rather than racing initial crawl.
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(left.path(), None)
+        .with_file(right.path(), None)
+        .with_review(Layout::Inline)
+        .build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                None,
+                Some(&|app| {
+                    assert!(current_ref!(app.editor)
+                        .1
+                        .text()
+                        .to_string()
+                        .contains("new"));
+                    std::fs::write(right.path().join("a.txt"), "externally updated\n").unwrap();
+                    std::fs::write(right.path().join("b.txt"), "added\n").unwrap();
+                    helix_event::dispatch(helix_core::file_watcher::FileSystemDidChange {
+                        fs_events: helix_core::file_watcher::events_from_paths([
+                            right.path().join("a.txt"),
+                            right.path().join("b.txt"),
+                        ]),
+                    });
+                }),
+            ),
+            (
+                Some("<esc>"),
+                Some(&|app| {
+                    assert_eq!(tree(app).review.as_ref().unwrap().entries.len(), 2);
+                    assert!(current_ref!(app.editor)
+                        .1
+                        .text()
+                        .to_string()
+                        .contains("externally updated"));
+                }),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}

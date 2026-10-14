@@ -40,6 +40,7 @@ use super::text_decorations::blame::InlineBlame;
 pub struct EditorView {
     pub file_tree: Option<super::file_tree::FileTree>,
     pub review_layout: Option<crate::diff_render::Layout>,
+    pub review_refresh: std::sync::Arc<parking_lot::Mutex<crate::diff_review::RefreshState>>,
     pub keymaps: Keymaps,
     on_next_key: Option<(OnKeyCallback, OnKeyCallbackKind)>,
     pseudo_pending: Vec<KeyEvent>,
@@ -66,6 +67,7 @@ impl EditorView {
         Self {
             file_tree: None,
             review_layout: None,
+            review_refresh: Default::default(),
             keymaps,
             on_next_key: None,
             pseudo_pending: Vec::new(),

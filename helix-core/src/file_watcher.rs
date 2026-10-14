@@ -88,6 +88,7 @@ pub struct Watcher {
     watcher: Option<(filesentry::Watcher, ShutdownOnDrop)>,
     filter: Arc<WatchFilter>,
     roots: Vec<(PathBuf, usize)>,
+    review_roots: Vec<PathBuf>,
     active_roots: Arc<Mutex<Vec<PathBuf>>>,
     config: Config,
     /// Extra paths that need polling (e.g., VCS HEAD files outside workspace)
@@ -108,6 +109,7 @@ impl Watcher {
                 max_depth: config.max_depth,
             }),
             roots: Vec::new(),
+            review_roots: Vec::new(),
             active_roots: Arc::default(),
             config: config.clone(),
             extra_watched_paths: Vec::new(),
@@ -120,7 +122,9 @@ impl Watcher {
         let old_config = replace(&mut self.config, config.clone());
         let (workspace, no_workspace) = helix_loader::find_workspace();
 
-        if !config.enable || config.require_workspace && no_workspace {
+        if !config.enable
+            || config.require_workspace && no_workspace && self.review_roots.is_empty()
+        {
             self.watcher = None;
             self.active_roots = Arc::default();
             return;
@@ -128,7 +132,10 @@ impl Watcher {
         self.filter = Arc::new(WatchFilter::new(
             config,
             &workspace,
-            self.roots.iter().map(|(it, _)| &**it),
+            self.roots
+                .iter()
+                .map(|(it, _)| &**it)
+                .chain(self.review_roots.iter().map(|path| &**path)),
         ));
         let watcher = match &mut self.watcher {
             Some((watcher, _)) => {
@@ -161,17 +168,24 @@ impl Watcher {
         let root = workspace
             .canonicalize()
             .unwrap_or_else(|_| workspace.clone());
-        if let Err(err) = watcher.add_root(&workspace, true, move |success| {
-            if success {
-                let mut active = active.lock().unwrap();
-                if !active.contains(&root) {
-                    active.push(root);
+        if !no_workspace || !config.require_workspace {
+            if let Err(err) = watcher.add_root(&workspace, true, move |success| {
+                if success {
+                    let mut active = active.lock().unwrap();
+                    if !active.contains(&root) {
+                        active.push(root);
+                    }
                 }
+            }) {
+                log::error!("failed to start file-watcher: {err}");
             }
-        }) {
-            log::error!("failed to start file-watcher: {err}");
         }
-        for (root, _) in &self.roots {
+        for root in self
+            .roots
+            .iter()
+            .map(|(root, _)| root)
+            .chain(&self.review_roots)
+        {
             let active = self.active_roots.clone();
             let path = root.clone();
             if let Err(err) = watcher.add_root(root, true, move |success| {
@@ -186,6 +200,23 @@ impl Watcher {
             }
         }
         watcher.start();
+    }
+
+    /// Explicit comparisons can watch their selected directories even outside a
+    /// workspace. Never broaden coverage to the caller's home/current directory.
+    pub fn set_review_roots(&mut self, roots: Vec<PathBuf>) {
+        let mut roots = roots
+            .into_iter()
+            .filter_map(|path| path.canonicalize().ok())
+            .collect::<Vec<_>>();
+        roots.sort();
+        roots.dedup();
+        if roots == self.review_roots {
+            return;
+        }
+        self.review_roots = roots;
+        self.watcher = None;
+        self.reload(&self.config.clone());
     }
 
     pub fn remove_root(&mut self, root: PathBuf) {
@@ -300,7 +331,10 @@ impl Watcher {
         self.filter = Arc::new(WatchFilter::new(
             &self.config,
             &workspace,
-            self.roots.iter().map(|(it, _)| &**it),
+            self.roots
+                .iter()
+                .map(|(it, _)| &**it)
+                .chain(self.review_roots.iter().map(|path| &**path)),
         ));
         if let Some((watcher, _)) = &self.watcher {
             watcher.set_filter(self.filter.clone(), false);
@@ -595,7 +629,7 @@ fn is_hidden(path: &Path) -> bool {
     path.file_name().is_some_and(|it| {
         it.as_encoded_bytes().first() == Some(&b'.')
         // handled by vcs ignore rules
-        && it != ".git"
+        && it != ".git" && it != ".jj"
     })
 }
 
@@ -623,14 +657,38 @@ fn is_vcs_ignore(path: &Path, watch_vcs: bool) -> bool {
     // Note: only checks immediate parent; recursive checking is done by ignore_path_rec
     if watch_vcs
         && path.parent().is_some_and(|it| it.ends_with(".git"))
-        && !path.ends_with(".git/HEAD")
+        && !["HEAD", "index", "refs", "packed-refs", "commondir"]
+            .iter()
+            .any(|name| path.ends_with(Path::new(".git").join(name)))
     {
         return true;
     }
     match file_name(path) {
-        Some(".jj" | ".svn" | ".hg") => true,
+        Some(".svn" | ".hg") => true,
+        Some(".jj") => !watch_vcs,
         Some(".git") => !watch_vcs,
-        _ => false,
+        _ => {
+            // Follow only JJ's operation heads and checkout state, never objects.
+            if let Some(root) = path
+                .ancestors()
+                .find(|path| path.file_name() == Some(std::ffi::OsStr::new(".jj")))
+            {
+                let relative = path.strip_prefix(root).unwrap();
+                return !watch_vcs
+                    || ![
+                        "repo",
+                        "repo/op_heads",
+                        "repo/op_heads/heads",
+                        "working_copy",
+                        "working_copy/checkout",
+                        "working_copy/tree_state",
+                    ]
+                    .iter()
+                    .any(|allowed| relative == Path::new(allowed))
+                        && relative.parent() != Some(Path::new("repo/op_heads/heads"));
+            }
+            false
+        }
     }
 }
 
@@ -677,7 +735,18 @@ mod tests {
         // but it IS caught by ignore_path_rec which checks ancestors recursively
         assert!(!is_vcs_ignore(Path::new(".git/foo/bar"), true));
         assert!(!is_vcs_ignore(Path::new(".foo"), true));
-        assert!(is_vcs_ignore(Path::new(".jj"), true));
+        assert!(!is_vcs_ignore(Path::new(".jj"), true));
+        assert!(!is_vcs_ignore(Path::new(".git/index"), true));
+        assert!(!is_vcs_ignore(Path::new(".git/refs"), true));
+        assert!(!is_vcs_ignore(
+            Path::new(".jj/repo/op_heads/heads/123"),
+            true
+        ));
+        assert!(is_vcs_ignore(Path::new(".jj/repo/store"), true));
+        assert!(is_vcs_ignore(
+            Path::new(".jj/repo/op_heads/heads/123"),
+            false
+        ));
         assert!(is_vcs_ignore(Path::new(".svn"), true));
         assert!(is_vcs_ignore(Path::new(".hg"), true));
     }

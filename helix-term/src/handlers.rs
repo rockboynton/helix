@@ -23,6 +23,7 @@ pub mod blame;
 mod code_action_hint;
 pub mod completion;
 pub mod diagnostics;
+mod diff_review;
 mod document_colors;
 mod document_highlight;
 mod document_links;
@@ -74,5 +75,6 @@ pub fn setup(config: Arc<ArcSwap<Config>>) -> Handlers {
     prompt::register_hooks(&handlers);
     workspace_trust::register_hooks(&handlers);
     auto_reload::register_hooks(&handlers, &config.load().editor);
+    diff_review::register_hooks();
     handlers
 }
