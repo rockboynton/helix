@@ -106,29 +106,11 @@ impl EditorView {
                     .diff_session
                     .as_ref()
                     .is_some_and(|session| session.views[0] == view_id);
-                let diff_style = theme.get(if is_left { "diff.minus" } else { "diff.plus" });
-                let background = diff_style.bg.or_else(|| {
-                    match (diff_style.fg, theme.get("ui.background").bg) {
-                        (
-                            Some(helix_view::graphics::Color::Rgb(r, g, b)),
-                            Some(helix_view::graphics::Color::Rgb(br, bg, bb)),
-                        ) => {
-                            let blend = |color: u8, base: u8| {
-                                ((u16::from(color) + 4 * u16::from(base)) / 5) as u8
-                            };
-                            Some(helix_view::graphics::Color::Rgb(
-                                blend(r, br),
-                                blend(g, bg),
-                                blend(b, bb),
-                            ))
-                        }
-                        _ => diff_style.fg,
-                    }
-                });
+                let background = text_decorations::diff::background(theme, is_left);
                 decorations.add_decoration(move |renderer: &mut TextRenderer, pos: LinePos| {
                     let changed = side.is_changed(pos.doc_line);
                     renderer.set_line_background(
-                        if changed { background } else { None },
+                        if changed { Some(background) } else { None },
                         pos.visual_line,
                     );
                 });

@@ -10,8 +10,12 @@ documents, with path-based language detection and Tree-sitter syntax colors.
 Use the normal `Ctrl-w h` / `Ctrl-w l` window commands to switch panes.
 
 Deleted/left lines have a removal background; added/right lines have an addition
-background. Themes can supply backgrounds in `diff.minus` and `diff.plus`;
-otherwise their foreground colors are tinted against the editor background.
+background. Defaults are Delta-like dark red/green fills (pale red/green on
+light themes), including when the editor background is transparent. Themes can
+override them with `"ui.diff.minus" = { bg = "#300000" }` and
+`"ui.diff.plus" = { bg = "#002800" }`. Explicit backgrounds in `diff.minus` and
+`diff.plus` are also honored; bright foreground/gutter colors are never used as
+background fills. Syntax foregrounds remain unchanged.
 Blank alignment rows are virtual: they never become file contents. Scrolling
 either focused pane synchronizes the other's aligned position. Diff computation
 runs in the background and stale results are hidden while edits are recomputed.

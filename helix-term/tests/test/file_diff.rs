@@ -84,6 +84,16 @@ async fn diff_renders_aligned_syntax_and_background_and_skips_gap_clicks() -> an
         .with_file(right.path(), None)
         .with_diff()
         .build()?;
+    // Match the user's transparent-theme regression: vivid gutter colors must
+    // not become the text's background when ui.background has no RGB value.
+    app.editor.theme.set(
+        "ui.background".into(),
+        helix_view::graphics::Style::default(),
+    );
+    app.editor.theme.set(
+        "diff.minus".into(),
+        helix_view::graphics::Style::default().fg(helix_view::graphics::Color::Rgb(255, 0, 0)),
+    );
     test_key_sequences(
         &mut app,
         vec![
@@ -128,6 +138,10 @@ async fn diff_renders_aligned_syntax_and_background_and_skips_gap_clicks() -> an
                                 Some(0)
                             );
                         } else {
+                            assert_eq!(
+                                surface[(inner.x + 5, inner.y)].bg,
+                                helix_view::graphics::Color::Rgb(48, 0, 0)
+                            );
                             assert_ne!(
                                 surface[(inner.x + 5, inner.y)].bg,
                                 surface[(inner.x + 5, y)].bg

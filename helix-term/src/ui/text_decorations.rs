@@ -10,6 +10,7 @@ pub use diagnostics::InlineDiagnostics;
 
 pub mod blame;
 mod diagnostics;
+pub mod diff;
 
 /// Decorations are the primary mechanism for extending the text rendering.
 ///
