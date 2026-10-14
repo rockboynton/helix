@@ -235,6 +235,8 @@ pub fn default() -> HashMap<Mode, KeyTrie> {
             "f" => file_picker,
             "F" => file_picker_in_current_directory,
             "e" => file_explorer,
+            "E" => file_tree,
+            "v" => diff_review,
             "." => file_explorer_in_current_buffer_directory,
             "b" => buffer_picker,
             "j" => jumplist_picker,

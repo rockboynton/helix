@@ -17,6 +17,7 @@ pub struct Args {
     pub pager: bool,
     pub diff: bool,
     pub diff_three: bool,
+    pub review: bool,
     pub render_diff: bool,
     pub patch: bool,
     pub diff_layout: Option<crate::diff_render::Layout>,
@@ -68,6 +69,7 @@ impl Args {
                 "--pager" => args.pager = true,
                 "--diff" => args.diff = true,
                 "--diff3" => args.diff_three = true,
+                "--review" => args.review = true,
                 "--render-diff" => args.render_diff = true,
                 "--patch" => args.patch = true,
                 "--diff-layout" => {
@@ -203,6 +205,9 @@ impl Args {
             anyhow::ensure!(args.files.len() == 3 && !args.stdin && !args.patch && !args.diff && !args.render_diff && !args.load_tutor && args.split.is_none() && args.diff_layout.is_none(), "--diff3 requires three distinct files (left base right), without other diff or split modes");
             args.split = Some(Layout::Vertical);
         }
+        if args.review {
+            anyhow::ensure!(args.files.len() <= 2 && !args.stdin && !args.patch && !args.diff && !args.diff_three && !args.render_diff && !args.load_tutor && args.split.is_none(), "--review takes a repository directory or two directories, without other editor/diff input modes");
+        }
         if (args.diff || args.render_diff) && args.files.is_empty() {
             args.patch = true;
         }
@@ -242,7 +247,7 @@ impl Args {
             );
         } else {
             anyhow::ensure!(
-                (args.diff_layout.is_none() || args.diff || args.patch)
+                (args.diff_layout.is_none() || args.diff || args.patch || args.review)
                     && args.diff_width.is_none()
                     && args.diff_context.is_none()
                     && args.diff_theme.is_none()
@@ -351,6 +356,13 @@ mod pager_tests {
 
     #[test]
     fn diff_requires_two_distinct_paths_and_vertical_layout() {
+        assert!(parse(&["hx", "--review"]).unwrap().review);
+        assert!(
+            parse(&["hx", "--review", "--diff-layout", "inline", "left", "right"])
+                .unwrap()
+                .review
+        );
+        assert!(parse(&["hx", "--review", "--diff3", "a", "b", "c"]).is_err());
         let three = parse(&["hx", "--diff3", "left", "base", "right"]).unwrap();
         assert!(three.diff_three && three.split == Some(super::Layout::Vertical));
         for flags in [

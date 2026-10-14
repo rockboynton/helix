@@ -91,6 +91,11 @@ impl Application {
     pub fn test_surface(&self) -> &tui::buffer::Buffer {
         self.terminal.backend().buffer()
     }
+
+    #[cfg(feature = "integration")]
+    pub fn test_component<T: 'static>(&self) -> Option<&T> {
+        self.compositor.find_ref()
+    }
 }
 
 #[cfg(feature = "integration")]
@@ -142,7 +147,7 @@ impl Application {
                 );
             }
         }
-        if args.pager {
+        if args.pager && !args.review {
             if args.files.is_empty() && stdin().is_terminal() && !cfg!(feature = "integration") {
                 anyhow::bail!("--pager requires a file or piped stdin");
             }
@@ -219,7 +224,39 @@ impl Application {
             );
         }
 
-        if let Some(patch) = patch {
+        let review_origin = if args.review {
+            let paths = args.files.keys().cloned().collect::<Vec<_>>();
+            Some(match paths.as_slice() {
+                [] => {
+                    crate::diff_review::Origin::Repository(helix_stdx::env::current_working_dir())
+                }
+                [root] => crate::diff_review::Origin::Repository(root.clone()),
+                [left, right] => {
+                    crate::diff_review::Origin::Directories(left.clone(), right.clone())
+                }
+                _ => unreachable!(),
+            })
+        } else {
+            None
+        };
+        let patch_review = patch
+            .as_ref()
+            .filter(|patch| patch.files().len() > 1)
+            .map(|patch| {
+                let mut review = crate::diff_review::Review::patch(
+                    patch,
+                    crate::diff_review::Origin::Patch(
+                        args.files.keys().next().cloned().unwrap_or_default(),
+                    ),
+                );
+                review.layout = args
+                    .diff_layout
+                    .unwrap_or(crate::diff_render::Layout::Inline);
+                crate::diff_review::Review::panel(std::path::PathBuf::new(), review)
+            });
+        if args.review || patch_review.is_some() {
+            editor.new_file(Action::VerticalSplit);
+        } else if let Some(patch) = patch {
             if args.diff_layout == Some(crate::diff_render::Layout::SideBySide) {
                 let left = crate::diff_patch::document(
                     &patch,
@@ -407,6 +444,26 @@ impl Application {
                 } else {
                     doc.set_language_by_language_id(language, &loader)?;
                 }
+            }
+        }
+
+        if let Some(origin) = review_origin {
+            crate::diff_review::load(&mut editor, &mut jobs, origin);
+            if let Some(layout) = args.diff_layout {
+                if let Some(view) = compositor.find::<ui::EditorView>() {
+                    view.review_layout = Some(layout);
+                }
+            }
+        }
+        if let Some(mut tree) = patch_review {
+            if let Some(review) = &mut tree.review {
+                if !review.entries.is_empty() {
+                    review.open(0, &mut editor)?;
+                    tree.focused = false;
+                }
+            }
+            if let Some(view) = compositor.find::<ui::EditorView>() {
+                view.file_tree = Some(tree);
             }
         }
 

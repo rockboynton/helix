@@ -38,6 +38,8 @@ use tui::{buffer::Buffer as Surface, text::Span};
 use super::text_decorations::blame::InlineBlame;
 
 pub struct EditorView {
+    pub file_tree: Option<super::file_tree::FileTree>,
+    pub review_layout: Option<crate::diff_render::Layout>,
     pub keymaps: Keymaps,
     on_next_key: Option<(OnKeyCallback, OnKeyCallbackKind)>,
     pseudo_pending: Vec<KeyEvent>,
@@ -62,6 +64,8 @@ pub enum InsertEvent {
 impl EditorView {
     pub fn new(keymaps: Keymaps) -> Self {
         Self {
+            file_tree: None,
+            review_layout: None,
             keymaps,
             on_next_key: None,
             pseudo_pending: Vec::new(),
@@ -1654,6 +1658,24 @@ impl Component for EditorView {
         event: &Event,
         context: &mut crate::compositor::Context,
     ) -> EventResult {
+        if let Some(tree) = &mut self.file_tree {
+            if tree.focused && matches!(event, Event::Key(key) if key.code == KeyCode::Char('r')) {
+                if let Some(review) = &tree.review {
+                    crate::diff_review::load(context.editor, context.jobs, review.origin.clone());
+                } else {
+                    crate::diff_review::load_tree(context.editor, context.jobs, tree.root.clone());
+                }
+                return EventResult::Consumed(None);
+            }
+            match tree.handle(event, context.editor) {
+                Ok(result @ EventResult::Consumed(_)) => return result,
+                Err(error) => {
+                    context.editor.set_error(format!("{error:#}"));
+                    return EventResult::Consumed(None);
+                }
+                _ => {}
+            }
+        }
         let mut cx = commands::Context {
             editor: context.editor,
             count: None,
@@ -1870,6 +1892,16 @@ impl Component for EditorView {
         }
 
         // if the terminal size suddenly changed, we need to trigger a resize
+        if let Some(tree) = &mut self.file_tree {
+            if editor_area.width >= 50 && editor_area.height >= 3 {
+                let width = 32.min(editor_area.width / 3);
+                tree.render(editor_area.with_width(width), surface, cx.editor);
+                editor_area = editor_area.clip_left(width);
+            } else {
+                tree.area = Rect::default();
+                tree.focused = false;
+            }
+        }
         cx.editor.resize(editor_area);
 
         if use_bufferline {
@@ -1889,7 +1921,7 @@ impl Component for EditorView {
                 view_id,
                 area,
                 surface,
-                is_focused,
+                is_focused && !self.file_tree.as_ref().is_some_and(|tree| tree.focused),
                 cx,
             );
         }
@@ -1985,6 +2017,9 @@ impl Component for EditorView {
     }
 
     fn cursor(&self, _area: Rect, editor: &Editor) -> (Option<Position>, CursorKind) {
+        if self.file_tree.as_ref().is_some_and(|tree| tree.focused) {
+            return (None, CursorKind::Hidden);
+        }
         match editor.cursor() {
             // all block cursors are drawn manually
             (pos, CursorKind::Block) => {

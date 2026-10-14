@@ -1465,6 +1465,7 @@ type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
 pub struct Editor {
     pub diff_session: Option<crate::diff_session::DiffSession>,
+    pub navigation_generation: u64,
     pub three_diff_session: Option<crate::diff_session::DiffSession<3>>,
     /// Pager session policy; documents themselves retain independent access flags.
     pub pager: bool,
@@ -1837,6 +1838,7 @@ impl Editor {
             mode: Mode::Normal,
             pager: false,
             diff_session: None,
+            navigation_generation: 0,
             three_diff_session: None,
             tree: Tree::new(area),
             next_document_id: DocumentId::default(),

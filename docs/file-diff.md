@@ -1,5 +1,8 @@
 # Editable side-by-side file comparison
 
+For full changesets and the reusable expandable sidebar, see
+[changeset review and file tree](diff-review.md).
+
 ```sh
 hx --diff before.rs after.rs
 ```

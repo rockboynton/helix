@@ -50,6 +50,7 @@ FLAGS:
     --pager                        Browse files or piped stdin read-only; q exits
     --diff                         Open two files in an editable side-by-side diff
     --diff3                        Compare three files side-by-side: left base right
+    --review                       Review Git/JJ working changes or two directories
     --render-diff                  Render two files/directories as read-only flow text
     --patch                        View a Git/jj patch from stdin or one patch file
     --diff-layout <layout>         View/render inline or side-by-side (default)
@@ -101,7 +102,14 @@ FLAGS:
     }
     // A pager in a pipeline must never write terminal escape sequences into the
     // downstream command. Preserve the input bytes and avoid initializing the UI.
-    if args.pager && !args.patch && !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+    if args.review && !std::io::IsTerminal::is_terminal(&std::io::stdout()) {
+        anyhow::bail!("--review is interactive; use --render-diff for flow output");
+    }
+    if args.pager
+        && !args.patch
+        && !args.review
+        && !std::io::IsTerminal::is_terminal(&std::io::stdout())
+    {
         let mut output = std::io::stdout().lock();
         if args.files.is_empty() {
             std::io::copy(&mut std::io::stdin().lock(), &mut output)?;

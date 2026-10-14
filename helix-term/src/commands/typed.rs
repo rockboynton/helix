@@ -2172,6 +2172,177 @@ fn diff_split(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     Ok(())
 }
 
+fn file_tree(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let root = args
+        .first()
+        .map(|path| helix_stdx::path::canonicalize(Path::new(path)))
+        .unwrap_or_else(helix_stdx::env::current_working_dir);
+    let focus_existing = args.is_empty();
+    cx.jobs.callback(async move {
+        Ok(job::Callback::EditorCompositorJobs(Box::new(
+            move |editor, compositor, jobs| {
+                if focus_existing {
+                    if let Some(tree) = compositor
+                        .find::<ui::EditorView>()
+                        .and_then(|view| view.file_tree.as_mut())
+                    {
+                        tree.focused = true;
+                        return;
+                    }
+                }
+                crate::diff_review::load_tree(editor, jobs, root);
+            },
+        )))
+    });
+    Ok(())
+}
+
+fn file_tree_close(
+    cx: &mut compositor::Context,
+    _: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    cx.editor.navigation_generation += 1;
+    cx.jobs.callback(async {
+        Ok(job::Callback::EditorCompositor(Box::new(
+            |_, compositor| {
+                if let Some(view) = compositor.find::<ui::EditorView>() {
+                    view.file_tree = None;
+                }
+            },
+        )))
+    });
+    Ok(())
+}
+
+fn diff_review(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let paths = args
+        .iter()
+        .map(|path| helix_stdx::path::canonicalize(Path::new(path.as_ref())))
+        .collect::<Vec<_>>();
+    let origin = match paths.as_slice() {
+        [] => crate::diff_review::Origin::Repository(helix_stdx::env::current_working_dir()),
+        [root] => crate::diff_review::Origin::Repository(root.clone()),
+        [left, right] => crate::diff_review::Origin::Directories(left.clone(), right.clone()),
+        _ => anyhow::bail!("review takes a repository directory or two directories"),
+    };
+    crate::diff_review::load(cx.editor, cx.jobs, origin);
+    Ok(())
+}
+
+fn diff_review_patch(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        crate::diff_review::load(
+            cx.editor,
+            cx.jobs,
+            crate::diff_review::Origin::Patch(helix_stdx::path::canonicalize(Path::new(
+                args.first().unwrap(),
+            ))),
+        );
+    }
+    Ok(())
+}
+
+fn review_action(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+    action: &'static str,
+) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    let layout = match args.first() {
+        None => None,
+        Some("inline") => Some(crate::diff_render::Layout::Inline),
+        Some("side-by-side") => Some(crate::diff_render::Layout::SideBySide),
+        _ => anyhow::bail!("layout must be inline or side-by-side"),
+    };
+    cx.jobs.callback(async move {
+        Ok(job::Callback::EditorCompositorJobs(Box::new(
+            move |editor, compositor, jobs| {
+                let Some(tree) = compositor
+                    .find::<ui::EditorView>()
+                    .and_then(|view| view.file_tree.as_mut())
+                else {
+                    editor.set_error("No review is open");
+                    return;
+                };
+                let Some(review) = tree.review.as_mut() else {
+                    editor.set_error("No review is open");
+                    return;
+                };
+                if action == "refresh" {
+                    crate::diff_review::load(editor, jobs, review.origin.clone());
+                    return;
+                }
+                if action == "layout" {
+                    review.layout =
+                        layout.unwrap_or(if review.layout == crate::diff_render::Layout::Inline {
+                            crate::diff_render::Layout::SideBySide
+                        } else {
+                            crate::diff_render::Layout::Inline
+                        });
+                }
+                let index = review.active.unwrap_or(0);
+                let index = if action == "next" {
+                    (index + 1).min(review.entries.len().saturating_sub(1))
+                } else if action == "prev" {
+                    index.saturating_sub(1)
+                } else {
+                    index
+                };
+                if let Err(error) = review.open(index, editor) {
+                    editor.set_error(format!("{error:#}"));
+                    return;
+                }
+                let name = review.entries[index].name.clone();
+                tree.reveal(&name);
+                tree.focused = false;
+            },
+        )))
+    });
+    Ok(())
+}
+
+fn diff_file_next(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    review_action(cx, args, event, "next")
+}
+fn diff_file_prev(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    review_action(cx, args, event, "prev")
+}
+fn diff_layout(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    review_action(cx, args, event, "layout")
+}
+fn diff_review_refresh(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    review_action(cx, args, event, "refresh")
+}
+
 fn diff_three(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -2377,10 +2548,18 @@ fn diff_action(
     Ok(())
 }
 
-fn diff_next(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+pub(super) fn diff_next(
+    cx: &mut compositor::Context,
+    _: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
     diff_action(cx, "next", event)
 }
-fn diff_prev(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+pub(super) fn diff_prev(
+    cx: &mut compositor::Context,
+    _: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
     diff_action(cx, "prev", event)
 }
 fn diff_get(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
@@ -4168,6 +4347,14 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         completer: CommandCompleter::all(completers::filename),
         signature: Signature { positionals: (1, Some(3)), ..Signature::DEFAULT },
     },
+    TypableCommand { name: "file-tree", aliases: &[], doc: "Open or focus an expandable filesystem/review sidebar.", fun: file_tree, completer: CommandCompleter::all(completers::directory), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
+    TypableCommand { name: "file-tree-close", aliases: &[], doc: "Close the sidebar without closing buffers.", fun: file_tree_close, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "diff-review", aliases: &[], doc: "Review all Git/JJ working changes, or two directories.", fun: diff_review, completer: CommandCompleter::all(completers::directory), signature: Signature { positionals: (0, Some(2)), ..Signature::DEFAULT } },
+    TypableCommand { name: "diff-review-patch", aliases: &[], doc: "Review a multi-file Git/native-JJ patch without opening referenced paths.", fun: diff_review_patch, completer: CommandCompleter::all(completers::filename), signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT } },
+    TypableCommand { name: "diff-file-next", aliases: &[], doc: "Review the next changed file.", fun: diff_file_next, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "diff-file-prev", aliases: &[], doc: "Review the previous changed file.", fun: diff_file_prev, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "diff-layout", aliases: &[], doc: "Switch/toggle review layout: inline or side-by-side.", fun: diff_layout, completer: CommandCompleter::none(), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
+    TypableCommand { name: "diff-review-refresh", aliases: &[], doc: "Refresh the changeset while preserving open edits.", fun: diff_review_refresh, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-three", aliases: &["diff3"], doc: "Compare left, base, right files in three aligned editable columns.", fun: diff_three, completer: CommandCompleter::all(completers::filename), signature: Signature { positionals: (3, Some(3)), ..Signature::DEFAULT } },
     TypableCommand { name: "diff-off", aliases: &[], doc: "Stop comparing; keep comparison buffers open.", fun: diff_off, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-next", aliases: &[], doc: "Jump to the next change in the paired diff.", fun: diff_next, completer: CommandCompleter::none(), signature: Signature::DEFAULT },

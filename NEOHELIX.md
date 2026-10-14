@@ -69,6 +69,12 @@ boundaries, and the remaining streaming/ANSI limitations.
 
 ### Editable side-by-side diff
 
+`hx --review` opens a full Git/JJ working-copy changeset with an expandable file
+sidebar and directly editable working files. Two-directory and multi-file patch
+reviews support split and read-only inline layouts. `Space E` opens the same
+reusable tree for ordinary filesystem browsing. See the
+[changeset review guide](docs/diff-review.md) for commands and boundaries.
+
 `hx --diff before.rs after.rs` compares two editable files using their normal
 Tree-sitter syntax highlighting, diff backgrounds/gutters, virtual alignment
 rows, and synchronized scrolling. `:diff-split` starts a comparison inside the

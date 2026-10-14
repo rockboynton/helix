@@ -62,6 +62,73 @@ pub(super) fn get_diff_base(repo: &ThreadSafeRepository, file: &Path) -> Result<
     }
 }
 
+pub(super) fn review_base(repo: &ThreadSafeRepository, path: &Path) -> Result<Vec<u8>> {
+    let local = repo.to_thread_local();
+    if local.head()?.is_unborn() {
+        return Ok(Vec::new());
+    }
+    let tree = local.head_commit()?.tree()?;
+    let relative = path.strip_prefix(local.workdir().context("no working tree")?)?;
+    let Some(entry) = tree.lookup_entry_by_path(relative)? else {
+        return Ok(Vec::new());
+    };
+    if matches!(entry.mode().kind(), EntryKind::Commit | EntryKind::Tree) {
+        return Ok(b"Non-text VCS entry\n".to_vec());
+    }
+    let data = local.find_object(entry.object_id())?.data.clone();
+    if entry.mode().kind() == EntryKind::Link {
+        return Ok(data);
+    }
+    let (mut pipeline, _) = local.filter_pipeline(None)?;
+    let relative = gix::path::try_into_bstr(relative)?;
+    let mut outcome = pipeline.convert_to_worktree(&data, relative.as_ref(), Delay::Forbid)?;
+    let mut bytes = Vec::new();
+    outcome.read_to_end(&mut bytes)?;
+    Ok(bytes)
+}
+
+pub(super) fn review_files(repo: &ThreadSafeRepository) -> Result<Vec<crate::ReviewFile>> {
+    let repo = repo.to_thread_local();
+    let root = repo.workdir().context("no working tree")?;
+    let platform = repo
+        .status(gix::progress::Discard)?
+        .untracked_files(UntrackedFiles::Files)
+        .index_worktree_rewrites(None)
+        .tree_index_track_renames(gix::status::tree_index::TrackRenames::Disabled);
+    let mut paths = std::collections::BTreeSet::new();
+    for item in platform.into_iter(Vec::new())? {
+        paths.insert(root.join(item?.location().to_path()?));
+    }
+    let head = if repo.head()?.is_unborn() {
+        None
+    } else {
+        Some(repo.head_commit()?.tree()?)
+    };
+    paths
+        .into_iter()
+        .map(|path| {
+            let exists = std::fs::symlink_metadata(&path).is_ok();
+            let tracked = match &head {
+                Some(tree) => tree
+                    .lookup_entry_by_path(path.strip_prefix(root)?)?
+                    .is_some(),
+                None => false,
+            };
+            Ok(crate::ReviewFile {
+                before_path: path.clone(),
+                status: if !exists {
+                    "D"
+                } else if !tracked {
+                    "A"
+                } else {
+                    "M"
+                },
+                path,
+            })
+        })
+        .collect()
+}
+
 pub(super) fn get_current_head_name(repo: &ThreadSafeRepository) -> Result<Arc<ArcSwap<Box<str>>>> {
     let repo = repo.to_thread_local();
     let head_ref = repo.head_ref()?;

@@ -4,6 +4,52 @@ use tempfile::TempDir;
 
 use crate::git;
 
+#[test]
+fn full_review_includes_staged_unstaged_deleted_and_new_without_writes() {
+    let fixture = empty_git_repo();
+    let root = fixture.path();
+    for name in ["staged.rs", "unstaged.rs", "deleted.rs"] {
+        std::fs::write(root.join(name), "old\n").unwrap();
+    }
+    create_commit(root, true);
+    std::fs::write(root.join("staged.rs"), "staged\n").unwrap();
+    std::fs::write(root.join("added.rs"), "new\n").unwrap();
+    exec_git_cmd(&["add", "staged.rs", "added.rs"], root);
+    std::fs::write(root.join("unstaged.rs"), "unstaged\n").unwrap();
+    std::fs::write(root.join("untracked.rs"), "new\n").unwrap();
+    exec_git_cmd(&["rm", "deleted.rs"], root);
+    let index = std::fs::read(root.join(".git/index")).unwrap();
+    let head = std::fs::read(root.join(".git/HEAD")).unwrap();
+    let repo = git::open_repo(root, false).unwrap();
+    let files = git::review_files(&repo).unwrap();
+    assert_eq!(files.len(), 5, "{files:?}");
+    for name in [
+        "staged.rs",
+        "unstaged.rs",
+        "deleted.rs",
+        "added.rs",
+        "untracked.rs",
+    ] {
+        assert!(
+            files.iter().any(|file| file.path.ends_with(name)),
+            "{files:?}"
+        );
+    }
+    assert_eq!(
+        git::review_base(&repo, &root.join("staged.rs")).unwrap(),
+        b"old\n"
+    );
+    assert_eq!(
+        git::review_base(&repo, &root.join("deleted.rs")).unwrap(),
+        b"old\n"
+    );
+    assert!(git::review_base(&repo, &root.join("added.rs"))
+        .unwrap()
+        .is_empty());
+    assert_eq!(index, std::fs::read(root.join(".git/index")).unwrap());
+    assert_eq!(head, std::fs::read(root.join(".git/HEAD")).unwrap());
+}
+
 pub fn exec_git_cmd(args: &[&str], git_dir: &Path) {
     let res = Command::new("git")
         .arg("-C")

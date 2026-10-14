@@ -68,6 +68,13 @@ mod status;
 
 pub use status::FileChange;
 
+#[derive(Clone, Debug)]
+pub struct ReviewFile {
+    pub path: PathBuf,
+    pub before_path: PathBuf,
+    pub status: &'static str,
+}
+
 /// Contains all active diff providers. Diff providers are compiled in via features. Currently
 /// Git and Jujutsu are supported.
 #[derive(Default, Clone)]
@@ -88,6 +95,69 @@ pub struct DiffProviderRegistry {
 
 /// Diff-related methods
 impl DiffProviderRegistry {
+    /// Full working-copy review, including staged Git changes. Read-only:
+    /// neither the Git index nor the JJ operation log is updated.
+    pub fn review_files(&self, root: &Path) -> Result<Vec<ReviewFile>> {
+        let provider = self
+            .provider_for(root)
+            .ok_or_else(|| anyhow::anyhow!("no Git/JJ repository found"))?;
+        match provider {
+            #[cfg(feature = "git")]
+            DiffProvider::Git { repo, .. } => git::review_files(repo),
+            #[cfg(feature = "jj")]
+            DiffProvider::JJ(repo) => {
+                let files = std::cell::RefCell::new(Vec::new());
+                provider.for_each_changed_file(|change| {
+                    files.borrow_mut().push(change.map(|change| {
+                        let path = repo.join(change.path());
+                        let (before_path, status) = match change {
+                            FileChange::Renamed { from_path, .. } => (repo.join(from_path), "R"),
+                            FileChange::Untracked { .. } => (path.clone(), "A"),
+                            FileChange::Deleted { .. } => (path.clone(), "D"),
+                            FileChange::Conflict { .. } => (path.clone(), "!"),
+                            FileChange::Modified { .. } => (path.clone(), "M"),
+                        };
+                        ReviewFile {
+                            path,
+                            before_path,
+                            status,
+                        }
+                    }));
+                    true
+                })?;
+                files.into_inner().into_iter().collect()
+            }
+            #[cfg(not(any(feature = "git", feature = "jj")))]
+            _ => anyhow::bail!("VCS support is not compiled in"),
+        }
+    }
+
+    pub fn review_root(&self, path: &Path) -> Option<PathBuf> {
+        match self.provider_for(path)? {
+            #[cfg(feature = "git")]
+            DiffProvider::Git { repo, .. } => {
+                repo.to_thread_local().workdir().map(Path::to_path_buf)
+            }
+            #[cfg(feature = "jj")]
+            DiffProvider::JJ(root) => Some(root.to_path_buf()),
+            #[cfg(not(any(feature = "git", feature = "jj")))]
+            _ => None,
+        }
+    }
+
+    pub fn review_base(&self, path: &Path) -> Result<Vec<u8>> {
+        let provider = self
+            .provider_for(path)
+            .ok_or_else(|| anyhow::anyhow!("no diff provider"))?;
+        match provider {
+            #[cfg(feature = "git")]
+            DiffProvider::Git { repo, .. } => git::review_base(repo, path),
+            #[cfg(feature = "jj")]
+            DiffProvider::JJ(_) => provider.get_diff_base(path),
+            #[cfg(not(any(feature = "git", feature = "jj")))]
+            _ => anyhow::bail!("VCS support is not compiled in"),
+        }
+    }
     /// Get the given file from the VCS. This provides the unedited document as a "base"
     /// for a diff to be created.
     pub fn get_diff_base(&self, file: &Path) -> Option<Vec<u8>> {

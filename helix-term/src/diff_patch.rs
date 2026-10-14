@@ -107,19 +107,19 @@ pub fn read(args: &crate::args::Args) -> Result<Patch> {
     parse(std::str::from_utf8(&bytes).context("patch input must be UTF-8")?)
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Patch {
     pub sections: Vec<Section>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Section {
     pub path: Option<PathBuf>,
     pub rows: Vec<Row>,
     native_last: [Option<(usize, usize)>; 2],
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Row {
     pub text: String,
     pub numbers: [Option<usize>; 2],
@@ -127,6 +127,50 @@ pub struct Row {
 }
 
 impl Patch {
+    /// Preserve file headers and notices with their file, without consulting
+    /// any of the paths named by untrusted patch input.
+    pub fn files(&self) -> Vec<(PathBuf, Patch)> {
+        let mut files: Vec<(PathBuf, Patch)> = Vec::new();
+        for section in &self.sections {
+            if let Some(path) = &section.path {
+                if files.is_empty() {
+                    files.push((path.clone(), Patch::default()));
+                }
+                let file = files.last_mut().unwrap();
+                file.0 = path.clone();
+                file.1.sections.push(section.clone());
+                continue;
+            }
+            for row in &section.rows {
+                let header = row.text.starts_with("diff --git ");
+                let native = native_header(&row.text);
+                let next_unified_file = row.text.starts_with("--- ")
+                    && files.last().is_some_and(|(_, patch)| {
+                        patch.sections.iter().any(|section| section.path.is_some())
+                    });
+                if header || native.is_some() || files.is_empty() || next_unified_file {
+                    let name = native
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| PathBuf::from(format!("change-{}", files.len() + 1)));
+                    files.push((name, Patch::default()));
+                }
+                let file = files.last_mut().unwrap();
+                if let Some(path) = row
+                    .text
+                    .strip_prefix("+++ ")
+                    .or_else(|| row.text.strip_prefix("--- "))
+                {
+                    if let Ok(Some(path)) = git_path(path) {
+                        file.0 = path;
+                    }
+                }
+                let mut metadata = section.clone();
+                metadata.rows = vec![row.clone()];
+                file.1.sections.push(metadata);
+            }
+        }
+        files
+    }
     fn metadata(&mut self, text: String) {
         if self
             .sections
@@ -534,6 +578,29 @@ mod tests {
             git_path("\"b/\\303\\251.rs\"").unwrap(),
             Some(PathBuf::from("é.rs"))
         );
+    }
+
+    #[test]
+    fn files_keep_notices_with_their_file_and_do_not_read_paths() {
+        let patch = parse("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n\\ No newline at end of file\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old_b\n+new_b\n").unwrap();
+        let files = patch.files();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].0, PathBuf::from("a.rs"));
+        assert_eq!(files[1].0, PathBuf::from("b.rs"));
+        assert!(files[0]
+            .1
+            .sections
+            .iter()
+            .flat_map(|section| &section.rows)
+            .any(|row| row.text.starts_with("\\ No newline")));
+        assert!(!files[1]
+            .1
+            .sections
+            .iter()
+            .flat_map(|section| &section.rows)
+            .any(|row| row.text.starts_with("\\ No newline")));
+        let unified = parse("--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old_b\n+new_b\n").unwrap();
+        assert_eq!(unified.files().len(), 2);
     }
     #[test]
     fn native_jj_numbers_gaps_and_color_words() {

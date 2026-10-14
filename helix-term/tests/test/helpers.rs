@@ -395,6 +395,12 @@ impl AppBuilder {
         self
     }
 
+    pub fn with_review(mut self, layout: helix_term::diff_render::Layout) -> Self {
+        self.args.review = true;
+        self.args.diff_layout = Some(layout);
+        self
+    }
+
     pub fn with_inline_diff(mut self) -> Self {
         self.args.diff = true;
         self.args.pager = true;
@@ -445,7 +451,12 @@ impl AppBuilder {
             bail!("Changing the working directory to {path:?} is not yet supported for integration tests");
         }
 
-        if let Some((path, _)) = self.args.files.first().filter(|p| p.0.is_dir()) {
+        if let Some((path, _)) = self
+            .args
+            .files
+            .first()
+            .filter(|p| p.0.is_dir() && !self.args.review)
+        {
             bail!("Having the directory {path:?} in args.files[0] is not yet supported for integration tests");
         }
 

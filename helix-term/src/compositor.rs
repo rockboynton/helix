@@ -230,6 +230,12 @@ impl Compositor {
             .and_then(|component| component.as_any_mut().downcast_mut())
     }
 
+    pub fn find_ref<T: 'static>(&self) -> Option<&T> {
+        self.layers
+            .iter()
+            .find_map(|layer| layer.as_any().downcast_ref())
+    }
+
     pub fn find_id<T: 'static>(&mut self, id: &'static str) -> Option<&mut T> {
         self.layers
             .iter_mut()
