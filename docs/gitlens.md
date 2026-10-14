@@ -111,7 +111,7 @@ first parent; binary changes use Git's summary.
 ### Performance and caching
 
 Local metadata is native and loaded in a background worker. GitHub enrichment uses
-`gh api` with your existing GitHub authentication, a five-second timeout, no shell
+native Octocrab HTTP with your existing GitHub authentication, a five-second timeout, no shell
 interpolation, bounded output, and a five-minute/128-entry persistent cache. Only
 Shift-B initiates a plugin lookup; no plugin network work runs on startup or render.
 Saved metadata survives editor restarts; stale details remain visible while
@@ -143,20 +143,30 @@ makes that hash available on GitHub.
 ### Requirements and limitations
 
 - The repository must be trusted. Uncommitted lines have no historical blame.
-- GitHub enrichment requires `gh` and its existing authentication. Missing `gh`,
-  offline/authentication failures, and non-GitHub repositories still show local
-  commit metadata.
+- GitHub enrichment uses a pooled native Octocrab client—no `gh` subprocess is
+  needed for requests or credential lookup. Offline/authentication failures and
+  non-GitHub repositories still show local commit metadata.
 - GitHub.com and GitHub Enterprise hosts are derived from repository remotes;
   no hostname configuration is needed. HTTPS, `git@host:owner/repo.git`, and
   `ssh://git@host/owner/repo.git` forms are supported. Lookups use
-  `gh api --hostname <remote-host>` and that host's existing authentication
-  (see [GitHub CLI authentication](https://cli.github.com/manual/gh_auth_login)).
+  the host's native HTTPS API and that host's existing authentication.
   Public and Enterprise PR caches are isolated by hostname. Canonical PR URLs
   may point to another repository on the same host, but never another host.
   A Git remote alone cannot identify its forge; non-GitHub hosts fall back to
   local details when the GitHub API lookup fails. SSH aliases must resolve to
   the actual web/API hostname in the remote; ports and credential-bearing URLs
   are not currently supported.
+- Authentication follows the GitHub CLI's token precedence: `GH_TOKEN` then
+  `GITHUB_TOKEN` for GitHub.com/Enterprise Cloud; `GH_ENTERPRISE_TOKEN` then
+  `GITHUB_ENTERPRISE_TOKEN` for Enterprise Server. Otherwise the client reads
+  the selected host/account from `hosts.yml` and its native credential store
+  (Linux Secret Service, macOS Keychain, Windows Credential Manager). No tokens
+  enter Steel, popups, logs, or the PR cache. `GH_CONFIG_DIR`/`XDG_CONFIG_HOME`
+  are respected. You can still use `gh auth login` to set up a saved login.
+- HTTP clients are reused for up to eight hosts. After changing credentials,
+  run `gitlens-clear-cache` or restart Helix to rebuild clients. Requests have a
+  five-second total deadline and a 1 MiB response limit; redirects and retries
+  are disabled. System TLS roots are used; certificate verification stays on.
 - The full commit patch requires the `git` executable and local commit history.
 - This is line/commit inspection, not the entire VS Code GitLens feature set:
   there is no file-history browser or general issue-reference resolver.
@@ -164,8 +174,8 @@ makes that hash available on GitHub.
 ### Implementation and disabling
 
 The core Steel bindings provide asynchronous native metadata, generic bounded
-process execution, private JSON cache storage, and a linked Markdown popup.
-GitHub endpoint choice, cache policy,
+process execution, native Octocrab HTTP/authentication, private JSON cache
+storage, and a linked Markdown popup. Remote selection, cache policy,
 formatting, and popup-local controls live in the plugin module. The global `B`
 binding lives in `keybindings.scm`; importing GitLens does not install keybindings.
 To disable the shortcut, remove or remap `"B" ":gitlens-blame"` in that keymap.

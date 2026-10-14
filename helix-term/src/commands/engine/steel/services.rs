@@ -1,4 +1,4 @@
-//! Small asynchronous services for plugins. Hosting-specific logic stays in Scheme.
+//! Small asynchronous services for plugins. UI policy stays in Scheme.
 use std::{future::Future, process::Stdio, time::Duration};
 
 use serde_json::{json, Value};
@@ -11,6 +11,25 @@ fn future_json(future: impl Future<Output = Value> + Send + 'static) -> SteelVal
     SteelVal::FutureV(Gc::new(FutureResult::new(Box::pin(async move {
         SteelVal::try_from(future.await)
     }))))
+}
+
+pub(super) fn github_pulls(
+    cx: &mut Context,
+    repo: String,
+    commit: String,
+) -> anyhow::Result<SteelVal> {
+    let (_, doc) = current_ref!(cx.editor);
+    anyhow::ensure!(
+        cx.editor
+            .workspace_trust
+            .query(
+                doc.workspace_root(),
+                helix_loader::workspace_trust::TrustQuery::Git
+            )
+            .is_trusted(),
+        "Trust this workspace before requesting GitHub details (:workspace-trust)"
+    );
+    Ok(future_json(super::github::lookup(repo, commit)))
 }
 
 /// Snapshot cursor identity before scheduling any expensive history work.
@@ -228,12 +247,14 @@ mod tests {
         use steel::{rvals::FromSteelVal, steel_vm::engine::Engine};
         let mut engine = Engine::new();
         engine.register_steel_module("helix/misc.scm".into(), r#"
-            (provide line-blame-at-cursor line-blame-current? run-command-async
+            (provide line-blame-at-cursor line-blame-current? run-command-async github-commit-pulls github-clear-clients!
                      set-status! set-error! await-callback pop-last-component-by-name! push-component!
                      load-plugin-cache store-plugin-cache!)
             (define (line-blame-at-cursor) #f)
             (define (line-blame-current? x) #t)
             (define (run-command-async . args) #f)
+            (define (github-commit-pulls . args) args)
+            (define (github-clear-clients!) #f)
             (define (set-status! x) #f)
             (define (set-error! x) #f)
             (define (await-callback . args) #f)
@@ -389,8 +410,8 @@ mod tests {
                                                        "git@github.com:rockboynton/helix.git")))
                   (local-hints (hash 'body "Source: helix-editor/helix#8675, abc.") "rockboynton/helix")
                   (format-diff "diff --git a/test b/test\n+```\n")
-                  (unpublished-commit? (hash 'stdout "{\"message\":\"No commit found for SHA: abc\"}"))
-                  (unpublished-commit? (hash 'stdout "")))
+                  (unpublished-commit? (hash 'unpublished #t))
+                  (unpublished-commit? (hash 'ok #f)))
         "#).unwrap();
         let formatting = Value::try_from(formatting.last().unwrap().clone()).unwrap();
         assert_eq!(formatting[0], "Unknown");
@@ -440,7 +461,7 @@ mod tests {
             (remember-prs! "github.com/owner/repo" "abc" (list (hash 'number "123" 'title "Public")))
             (list (repository-for enterprise-data)
                   (popup-links enterprise-data enterprise-repo (local-hints enterprise-data enterprise-repo))
-                  (pull-request-command enterprise-repo "abc")
+                  (github-commit-pulls enterprise-repo "abc")
                   (safe-pulls enterprise-repo
                     (list (hash 'number "123" 'title "Upstream" 'html_url "https://the.company.dev/upstream/repo/pull/123")
                           (hash 'number "123" 'title "Other host" 'html_url "https://github.com/owner/repo/pull/123")
@@ -459,11 +480,7 @@ mod tests {
             enterprise[1][1][1],
             "https://the.company.dev/upstream/repo/pull/123"
         );
-        assert_eq!(enterprise[2][2], "the.company.dev");
-        assert_eq!(
-            enterprise[2][7],
-            "repos/owner/repo/commits/abc/pulls?per_page=20"
-        );
+        assert_eq!(enterprise[2], json!(["the.company.dev/owner/repo", "abc"]));
         assert_eq!(enterprise[3].as_array().unwrap().len(), 1);
         assert_eq!(enterprise[4][0][0]["title"], "Enterprise");
         assert_eq!(enterprise[5][0][0]["title"], "Public");

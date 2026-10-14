@@ -112,8 +112,9 @@ With the documented normal-mode `B` binding installed:
 
 The popup fits its content and prefers the roomier side of the cursor, including
 upward expansion near the bottom of the screen. Diff round-trips preserve selection
-and scrolling. GitHub enrichment uses bounded asynchronous `gh api` requests and
-a private persistent cache: 128 repository–commit pairs total, five-minute freshness,
+and scrolling. GitHub enrichment uses pooled asynchronous Octocrab requests,
+with native authentication and host detection for GitHub Enterprise, and
+a private persistent cache: 128 host–repository–commit pairs total, five-minute freshness,
 and stale fallback for seven days. `:gitlens-clear-cache` clears saved PR details.
 
 The reusable plugin source is in [runtime/plugins/gitlens/](runtime/plugins/gitlens/); global
@@ -211,8 +212,8 @@ your normal user configuration. It does not install or redirect your config.
 A Nix-packaged build already has its packaged runtime and can run as plain `hx`.
 
 Trust the workspace with `:workspace-trust` before using gated local scripts
-or VCS features. The GitLens plugin additionally uses `gh` for GitHub enrichment
-and `git` for commit patches; see its guide for installation.
+or VCS features. GitLens uses native HTTP for GitHub enrichment and `git` for
+commit patches; see its guide for authentication and installation.
 
 ## Useful configuration and commands
 

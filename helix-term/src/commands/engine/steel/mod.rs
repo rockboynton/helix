@@ -1,4 +1,5 @@
 pub mod components;
+mod github;
 #[cfg(test)]
 mod language_config_tests;
 mod services;
@@ -4075,6 +4076,8 @@ fn load_misc_api(engine: &mut Engine, generate_sources: bool) {
         .register_fn_with_ctx(CTX, "line-blame-at-cursor", services::line_blame)
         .register_fn_with_ctx(CTX, "line-blame-current?", services::blame_current)
         .register_fn("run-command-async", services::run_command)
+        .register_fn_with_ctx(CTX, "github-commit-pulls", services::github_pulls)
+        .register_fn("github-clear-clients!", github::clear_clients)
         .register_fn("load-plugin-cache", services::load_cache)
         .register_fn("store-plugin-cache!", services::store_cache)
         .register_fn_with_ctx(CTX, "hx.cx->pos", cx_pos_within_text)

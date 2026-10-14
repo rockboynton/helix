@@ -37,7 +37,7 @@ integration = ["helix-event/integration_test"]
 # VCS features
 git = ["helix-vcs/git"]
 jj = ["helix-vcs/jj"]
-steel = ["dep:steel-core", "dep:steel-doc", "helix-core/steel", "helix-view/steel", "tui/steel", "helix-lsp/steel"]
+steel = ["dep:steel-core", "dep:steel-doc", "dep:octocrab", "dep:serde_yaml", "dep:keyring", "dep:http-body-util", "helix-core/steel", "helix-view/steel", "tui/steel", "helix-lsp/steel"]
 
 [[bin]]
 name = "hx"
@@ -90,14 +90,25 @@ serde = { version = "1.0", features = ["derive"] }
 # plugin support
 steel-core = { workspace = true, optional = true }
 steel-doc = { git = "https://github.com/mattwparas/steel.git", rev = "24cd21598c091fb88bc10a6375a1ded25e677c37", optional = true }
+octocrab = { version = "0.54.2", default-features = false, features = ["default-client", "rustls", "rustls-ring", "timeout"], optional = true }
+serde_yaml = { package = "serde_yaml_ng", version = "0.10", optional = true }
+keyring = { version = "3.6.3", default-features = false, optional = true }
+http-body-util = { version = "0.1", optional = true }
 
 globset = "0.4.16"
 dashmap = "6.2"
 
 parking_lot.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["async-secret-service", "tokio", "crypto-rust"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", default-features = false, features = ["apple-native"], optional = true }
+
 [target.'cfg(windows)'.dependencies]
 crossterm = { version = "0.28", features = ["event-stream"] }
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native"], optional = true }
 
 [target.'cfg(not(windows))'.dependencies]  # https://github.com/vorner/signal-hook/issues/100
 signal-hook-tokio = { version = "0.4", features = ["futures-v0_3"] }

@@ -8,6 +8,13 @@
 ;; (run-command-async program argument-list timeout-ms) -> future of result hash.
 (define run-command-async helix.run-command-async)
 
+(provide github-commit-pulls github-clear-clients!)
+;; Host-qualified repository (host/owner/repo), full commit hash -> future hash:
+;; {ok, pulls} or {ok: #f, error, unpublished}. Native Octocrab HTTP/authentication;
+;; no credentials or raw error bodies are exposed to plugins.
+(define github-commit-pulls helix.github-commit-pulls)
+(define github-clear-clients! helix.github-clear-clients!)
+
 (provide load-plugin-cache store-plugin-cache!)
 ;; Bounded asynchronous JSON cache, under Helix's cache directory. Missing/corrupt
 ;; caches return #f. Names cannot contain paths; writes use private atomic files.

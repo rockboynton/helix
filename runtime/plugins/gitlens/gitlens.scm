@@ -250,30 +250,18 @@
                 data))))))))
 
 (define (unpublished-commit? result)
-  (with-handler (lambda (_) #f)
-    (let ([error (string->jsexpr (hash-ref result 'stdout))])
-      (and (hash? error) (string? (hash-try-get error 'message))
-           (starts-with? (hash-ref error 'message) "No commit found for SHA:")))))
-
-(define (pull-request-command repo commit)
-  (list "api" "--hostname" (repository-host repo) "-H"
-        "Accept: application/vnd.github+json"
-        "-H" "X-GitHub-Api-Version: 2022-11-28"
-        (string-append "repos/" (repository-path repo) "/commits/" commit "/pulls?per_page=20")
-        "--jq" "[.[] | {number:(.number|tostring), title, html_url, state, merged_at}]"))
+  (equal? (hash-try-get result 'unpublished) #t))
 
 (define (refresh-pulls! id snapshot repo fallback)
   (let ([commit (hash-ref (hash-ref snapshot 'data) 'commit)]
         [cache-generation (pr-cache-generation)])
     (await-callback
-      (run-command-async
-        "gh" (pull-request-command repo commit)
-        5000)
+      (github-commit-pulls repo commit)
       (lambda (result)
         (if (hash-ref result 'ok)
             (with-handler
               (lambda (_) (show-blame! id snapshot repo fallback "PR: response unavailable; showing local hints/cached details."))
-              (let* ([raw (string->jsexpr (hash-ref result 'stdout))]
+              (let* ([raw (hash-ref result 'pulls)]
                      [pulls (if (list? raw) (safe-pulls repo raw) (error "Expected PR array"))])
                 (when (= cache-generation (pr-cache-generation))
                   (remember-prs! repo commit pulls))
@@ -283,7 +271,7 @@
                 (show-blame! id snapshot #f fallback
                   "PR: commit not published in this GitHub repository; source/message hints remain available.")
                 (show-blame! id snapshot repo fallback
-                  "PR: lookup unavailable (network, authentication, or GitHub error); local details remain available.")))))))
+                  (string-append "PR: " (text-field result 'error "lookup unavailable") "; local details remain available."))))))))
 
 (define (enrich-blame! id snapshot repo)
   (let* ([data (hash-ref snapshot 'data)]
@@ -308,6 +296,7 @@
 (define (gitlens-clear-cache)
   (set! request-id (+ request-id 1))
   (clear-pr-cache!)
+  (github-clear-clients!)
   (set-status! "GitLens saved PR cache cleared"))
 
 (define (gitlens-blame)
