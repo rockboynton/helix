@@ -16,6 +16,12 @@ pub struct Args {
     pub strict: bool,
     pub pager: bool,
     pub diff: bool,
+    pub render_diff: bool,
+    pub diff_layout: Option<crate::diff_render::Layout>,
+    pub diff_width: Option<u16>,
+    pub diff_context: Option<usize>,
+    pub diff_theme: Option<String>,
+    pub diff_color: Option<crate::diff_render::ColorMode>,
     pub stdin: bool,
     pub language: Option<String>,
     pub split: Option<Layout>,
@@ -59,6 +65,44 @@ impl Args {
                 "--strict" => args.strict = true,
                 "--pager" => args.pager = true,
                 "--diff" => args.diff = true,
+                "--render-diff" => args.render_diff = true,
+                "--diff-layout" => {
+                    args.diff_layout = Some(match argv.next().as_deref() {
+                        Some("inline") => crate::diff_render::Layout::Inline,
+                        Some("side-by-side") => crate::diff_render::Layout::SideBySide,
+                        _ => anyhow::bail!("--diff-layout requires inline or side-by-side"),
+                    })
+                }
+                "--width" => {
+                    let width = argv
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--width requires a column count"))?
+                        .parse()?;
+                    anyhow::ensure!((20..=4096).contains(&width), "--width must be 20..4096");
+                    args.diff_width = Some(width);
+                }
+                "--diff-context" => {
+                    let context = argv
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--diff-context requires a line count"))?
+                        .parse()?;
+                    anyhow::ensure!(context <= 1000, "--diff-context must be 0..1000");
+                    args.diff_context = Some(context);
+                }
+                "--diff-theme" => {
+                    args.diff_theme = Some(
+                        argv.next()
+                            .ok_or_else(|| anyhow::anyhow!("--diff-theme requires a theme name"))?,
+                    )
+                }
+                "--color" => {
+                    args.diff_color = Some(match argv.next().as_deref() {
+                        Some("auto") => crate::diff_render::ColorMode::Auto,
+                        Some("always") => crate::diff_render::ColorMode::Always,
+                        Some("never") => crate::diff_render::ColorMode::Never,
+                        _ => anyhow::bail!("--color requires auto, always or never"),
+                    })
+                }
                 "-" => args.stdin = true,
                 "--language" => {
                     args.language =
@@ -152,8 +196,32 @@ impl Args {
             anyhow::bail!("stdin (-) cannot be combined with file arguments");
         }
         if args.diff {
-            anyhow::ensure!(args.files.len() == 2 && !args.stdin && !args.load_tutor && !args.pager && args.split.is_none(), "--diff requires exactly two file paths, without pager, stdin, tutor or split flags");
+            anyhow::ensure!(
+                args.files.len() == 2 && !args.stdin && !args.load_tutor && args.split.is_none(),
+                "--diff requires exactly two file paths, without stdin, tutor or split flags"
+            );
             args.split = Some(Layout::Vertical);
+        }
+        if args.render_diff {
+            anyhow::ensure!(
+                args.files.len() == 2
+                    && !args.diff
+                    && !args.pager
+                    && !args.stdin
+                    && !args.load_tutor
+                    && args.split.is_none()
+                    && args.working_directory.is_none(),
+                "--render-diff requires two file/directory paths without editor or pager flags"
+            );
+        } else {
+            anyhow::ensure!(
+                args.diff_layout.is_none()
+                    && args.diff_width.is_none()
+                    && args.diff_context.is_none()
+                    && args.diff_theme.is_none()
+                    && args.diff_color.is_none(),
+                "diff layout/width/context/theme/color options require --render-diff"
+            );
         }
         if args.language.is_some() && !args.pager {
             anyhow::bail!("--language is currently supported with --pager only");
@@ -208,6 +276,37 @@ mod pager_tests {
     }
 
     #[test]
+    fn read_only_diff_render_options_are_validated_separately_from_editor_modes() {
+        let args = parse(&[
+            "hx",
+            "--render-diff",
+            "--diff-layout",
+            "inline",
+            "--width",
+            "80",
+            "--diff-context",
+            "0",
+            "--color",
+            "always",
+            "left",
+            "right",
+        ])
+        .unwrap();
+        assert!(args.render_diff && !args.diff && !args.pager);
+        assert_eq!(args.diff_width, Some(80));
+        assert_eq!(args.diff_layout, Some(crate::diff_render::Layout::Inline));
+        for args in [
+            vec!["hx", "--render-diff", "left"],
+            vec!["hx", "--diff", "--render-diff", "left", "right"],
+            vec!["hx", "--diff-layout", "inline", "left", "right"],
+            vec!["hx", "--render-diff", "--width", "0", "left", "right"],
+            vec!["hx", "--render-diff", "--color", "wat", "left", "right"],
+        ] {
+            assert!(parse(&args).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
     fn pager_flags_and_explicit_stdin() {
         let args = parse(&["hx", "--pager", "--language", "rust", "-"]).unwrap();
         assert!(args.pager && args.stdin);
@@ -221,11 +320,11 @@ mod pager_tests {
         let args = parse(&["hx", "--diff", "left.rs", "right.rs"]).unwrap();
         assert!(args.diff);
         assert!(matches!(args.split, Some(super::Layout::Vertical)));
+        assert!(parse(&["hx", "--diff", "--pager", "a", "b"]).unwrap().pager);
         for args in [
             vec!["hx", "--diff"],
             vec!["hx", "--diff", "same", "same"],
             vec!["hx", "--diff", "a", "b", "c"],
-            vec!["hx", "--diff", "--pager", "a", "b"],
             vec!["hx", "--diff", "--hsplit", "a", "b"],
         ] {
             assert!(parse(&args).is_err(), "{args:?}");

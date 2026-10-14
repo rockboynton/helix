@@ -2,6 +2,42 @@ use super::helpers::*;
 use helix_view::current_ref;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn standalone_read_only_diff_blocks_transfers_and_q_exits() -> anyhow::Result<()> {
+    let left = temp_file_with_contents("old\n")?;
+    let right = temp_file_with_contents("new\n")?;
+    let mut app = AppBuilder::new()
+        .with_file(left.path(), None)
+        .with_file(right.path(), None)
+        .with_diff()
+        .with_pager(None)
+        .build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(":diff-get<ret>:diff-put<ret>i<esc>"),
+                Some(&|app| {
+                    let session = app.editor.diff_session.as_ref().unwrap();
+                    for id in session.documents {
+                        let doc = app.editor.document(id).unwrap();
+                        assert!(doc.is_read_only());
+                        assert!(!doc.is_modified());
+                        assert!(doc.language_servers().next().is_none());
+                        assert!(doc.diff_handle.is_none());
+                    }
+                }),
+            ),
+            (Some("q"), None),
+        ],
+        true,
+    )
+    .await?;
+    assert_eq!(std::fs::read_to_string(left.path())?, "old\n");
+    assert_eq!(std::fs::read_to_string(right.path())?, "new\n");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn diff_gutter_uses_configured_helix_icons_for_each_hunk_kind() -> anyhow::Result<()> {
     for (before, after, expected) in [
         ("a\nb\n", "a\nextra\nb\n", 'A'),

@@ -49,6 +49,12 @@ FLAGS:
     --strict                       Bail on error for commands that can fail.
     --pager                        Browse files or piped stdin read-only; q exits
     --diff                         Open two files in an editable side-by-side diff
+    --render-diff                  Render two files/directories as read-only flow text
+    --diff-layout <layout>         Render inline or side-by-side (default)
+    --width <columns>              Render width (default 100)
+    --diff-context <lines>         Context lines per hunk (default 3)
+    --diff-theme <name>            Theme for read-only rendering
+    --color <mode>                 Render color: auto (default), always, never
     --language <name>              Set pager syntax language (for example rust)
     -                              Explicitly read stdin (without file arguments)
     --tutor                        Load the tutorial
@@ -83,6 +89,14 @@ FLAGS:
         std::process::exit(0);
     }
 
+    if args.render_diff {
+        helix_term::diff_render::run(
+            &args,
+            &mut std::io::stdout().lock(),
+            std::io::IsTerminal::is_terminal(&std::io::stdout()),
+        )?;
+        return Ok(0);
+    }
     // A pager in a pipeline must never write terminal escape sequences into the
     // downstream command. Preserve the input bytes and avoid initializing the UI.
     if args.pager && !std::io::IsTerminal::is_terminal(&std::io::stdout()) {

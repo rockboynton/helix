@@ -8,6 +8,7 @@ Inside Helix, `:diff-split other.rs` compares the current file with another;
 `:diff-split before.rs after.rs` opens both. Both panes are normal editable
 documents, with path-based language detection and Tree-sitter syntax colors.
 Use the normal `Ctrl-w h` / `Ctrl-w l` window commands to switch panes.
+Add `--pager` to browse both files read-only, with `q` to close the viewer.
 The gutter uses Helix's configured added/deleted/modified icons and theme
 styles, just like normal editing—not literal `+`/`-` signs. Replacements have
 the modified marker on both sides; empty hunks retain boundary markers.
@@ -43,12 +44,66 @@ and inline diagnostic rows to preserve logical-line alignment; other views keep
 their settings. Long lines can be scrolled horizontally. Character/word-level
 highlighting, Git/JJ revision inputs, and GitLens integration are not implemented.
 
+## Read-only rendering: standalone and jjui
+
+```sh
+hx --render-diff before.rs after.rs
+hx --render-diff --diff-layout inline before.rs after.rs
+hx --render-diff --color always --diff-layout inline before.rs after.rs | less -R
+hx --render-diff --width 120 before-directory after-directory
+```
+
+This emits flow text without acquiring a terminal. Both layouts use the same
+comparison model and Helix's native document renderer/Tree-sitter highlighting
+from each complete source document. Inline output shows old/new line numbers
+and all removed lines before added lines in a hunk. Output contains only text
+and optional SGR color/style codes: never cursor positioning, alternate-screen
+commands, OSC clipboard sequences, or controls from input text.
+
+Options: `--color auto|always|never`, `--width 20..4096` (default 100),
+`--diff-context 0..1000` (default 3), and `--diff-theme <name>`. Long lines are
+clipped with an explicit `…`; increase the width to see more. Directory inputs
+are compared recursively in sorted order. Symlinks are reported without
+following them; binary files, empty-file additions/removals, executable-bit
+changes and missing final newlines are reported explicitly. No files are written.
+
+The formatter loads built-in/TOML languages and an explicit/default theme; it
+does **not** execute Steel startup scripts or start LSP/VCS/watcher services.
+Use `--diff-theme modified_gruvbox` to match that theme without starting an editor.
+
+For jj/jjui, configure a named external formatter in **jj's** configuration:
+
+```toml
+[merge-tools.neohelix]
+program = "hx"
+diff-invocation-mode = "dir"
+diff-args = ["--render-diff", "--color", "always", "--width", "$width", "$left", "$right"]
+diff-expected-exit-codes = [0]
+```
+
+Try `jj diff --tool neohelix` first. To make it the default, set
+`ui.diff-formatter = "neohelix"`; add `"--diff-layout", "inline"` to the args
+for inline output. For checkout testing, use the absolute path to
+`contrib/hx-neohelix` as `program`; an older installed `hx` will not have this flag.
+This integrates with jjui's **read-only** diff view without a jjui fork.
+It is a formatter integration, not an embedded editable Helix terminal.
+Your existing jj/jjui/NixOS configuration is not changed automatically.
+If a jjui preview command contains `--config ui.diff-formatter=delta`, that
+explicit override wins over jj's default; remove it or change it to `neohelix`
+when you want the preview to use this renderer too.
+
+Validation on Linux: the renderer was invoked by `jj 0.46.0` with real exported
+snapshot directories in both layouts, and its output was displayed by jjui
+0.10.11's built-in diff screen in a PTY. Navigation/exit and terminal restoration
+were checked with isolated temporary repositories/configuration.
+
 ## Direction: standalone viewer and external hosts
 
 The intended end state is a standalone diff viewer/editor, not just an editor
 command: side-by-side **and** inline layouts, a changed-file list, revision/range
 inputs, history navigation, and eventually conflict-resolution layouts. These
-are development targets, not capabilities provided by this first version.
+include development targets beyond the current editable side-by-side UI and
+read-only side-by-side/inline formatter.
 [Diffview.nvim](https://github.com/sindrets/diffview.nvim) is a workflow reference,
 not a requirement to reproduce its UI or Git-specific implementation.
 
@@ -74,5 +129,7 @@ it as text ([diff source](https://github.com/idursun/jjui/blob/v0.10.11/internal
 Its interactive command runner uses a separate process-launch path. Therefore
 read-only styled output can use the formatter route; embedding Helix editing
 requires an interactive host integration, not only a `ui.pager` setting.
-Neither new contract is implemented yet. Current non-terminal `--pager` output
-is still byte-preserving passthrough, and `--diff` still takes two file paths.
+The formatter contract is implemented by `--render-diff`; the interactive host
+contract is future work. Current non-terminal `--pager` output is still
+byte-preserving passthrough, and `--diff` still takes two file paths. Raw unified
+patch ingestion and an interactive inline editor view are not implemented yet.
