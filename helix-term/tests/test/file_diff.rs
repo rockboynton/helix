@@ -2,6 +2,45 @@ use super::helpers::*;
 use helix_view::current_ref;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn repeated_diff_reuses_side_by_side_panes_and_retains_displaced_buffers(
+) -> anyhow::Result<()> {
+    let a = temp_file_with_contents("a\n")?;
+    let b = temp_file_with_contents("b\n")?;
+    let c = temp_file_with_contents("c\n")?;
+    let mut app = AppBuilder::new()
+        .with_file(a.path(), None)
+        .with_file(b.path(), None)
+        .with_diff()
+        .build()?;
+    let command = format!(
+        ":diff-split {} {}<ret>:diff-split {} {}<ret>",
+        a.path().display(),
+        c.path().display(),
+        a.path().display(),
+        b.path().display()
+    );
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(&command),
+                Some(&|app| {
+                    assert_eq!(app.editor.tree.views().count(), 2);
+                    assert!(app.editor.document_by_path(c.path()).is_some());
+                    let views = app.editor.tree.views().map(|(v, _)| v).collect::<Vec<_>>();
+                    assert_eq!(views[0].area.y, views[1].area.y);
+                    assert_ne!(views[0].area.x, views[1].area.x);
+                }),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn raw_patch_both_layouts_are_read_only_fragments_with_original_coordinates(
 ) -> anyhow::Result<()> {
     for layout in [

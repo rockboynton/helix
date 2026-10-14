@@ -8,6 +8,8 @@ Inside Helix, `:diff-split other.rs` compares the current file with another;
 `:diff-split before.rs after.rs` opens both. Both panes are normal editable
 documents, with path-based language detection and Tree-sitter syntax colors.
 Use the normal `Ctrl-w h` / `Ctrl-w l` window commands to switch panes.
+`:diff-split` reuses existing side-by-side panes in the focused row, creating
+only missing columns. Other rows and displaced buffers are preserved.
 Add `--pager` to browse both files read-only, with `q` to close the viewer.
 The gutter uses Helix's configured added/deleted/modified icons and theme
 styles, just like normal editing—not literal `+`/`-` signs. Replacements have

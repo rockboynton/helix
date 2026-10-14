@@ -2158,13 +2158,12 @@ fn diff_split(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
     };
     let right_path = paths.last().unwrap();
     anyhow::ensure!(left_path != *right_path, "compare two different files");
-    if paths.len() == 2 {
-        cx.editor.open(&left_path, Action::Replace)?;
-    }
-    let left = cx.editor.tree.focus;
-    cx.editor.open(right_path, Action::VerticalSplit)?;
-    let right = cx.editor.tree.focus;
-    cx.editor.start_diff([left, right])?;
+    let views = cx.editor.comparison_views(2);
+    cx.editor.focus(views[0]);
+    cx.editor.open(&left_path, Action::Replace)?;
+    cx.editor.focus(views[1]);
+    cx.editor.open(right_path, Action::Replace)?;
+    cx.editor.start_diff([views[0], views[1]])?;
     cx.editor
         .set_status("Editable diff: diff-next / diff-prev / diff-get / diff-put / diff-off");
     Ok(())

@@ -1621,6 +1621,39 @@ pub enum CloseError {
 }
 
 impl Editor {
+    /// Reuse panes in the focused horizontal band; only create missing columns.
+    /// Unrelated rows and displaced buffers remain intact.
+    pub fn comparison_views(&mut self, count: usize) -> Vec<ViewId> {
+        self.stop_diff();
+        let focused = self.tree.get(self.tree.focus).area;
+        let mut views = self
+            .tree
+            .views()
+            .filter(|(view, _)| view.area.y == focused.y && view.area.height == focused.height)
+            .map(|(view, _)| (view.area.x, view.id))
+            .collect::<Vec<_>>();
+        views.sort_by_key(|&(x, _)| x);
+        let focus = views
+            .iter()
+            .position(|&(_, id)| id == self.tree.focus)
+            .unwrap();
+        let start = focus.min(views.len().saturating_sub(count));
+        let mut views = views
+            .into_iter()
+            .skip(start)
+            .take(count)
+            .map(|(_, id)| id)
+            .collect::<Vec<_>>();
+        while views.len() < count {
+            let last = *views.last().unwrap();
+            self.focus(last);
+            let doc = self.tree.get(last).doc;
+            self.switch(doc, Action::VerticalSplit);
+            views.push(self.tree.focus);
+        }
+        views
+    }
+
     pub fn stop_diff(&mut self) {
         self.diff_session = None;
         for (view, _) in self.tree.views_mut() {
