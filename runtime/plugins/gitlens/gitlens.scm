@@ -26,19 +26,49 @@
                  (member c (string->list "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.")))
                (string->list name))))
 
-(define (github-repository remote)
-  (let loop ([prefixes '("https://github.com/" "http://github.com/"
-                         "ssh://git@github.com/" "git@github.com:"
-                         "git://github.com/")])
+(define (valid-host? host)
+  (and (> (string-length host) 0) (<= (string-length host) 253)
+       (every? (lambda (label)
+                 (and (> (string-length label) 0) (<= (string-length label) 63)
+                      (not (starts-with? label "-")) (not (ends-with? label "-"))
+                      (every? (lambda (c)
+                                (member c (string->list "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-")))
+                              (string->list label))))
+               (split-many host "."))))
+
+;; Host-qualified identities prevent public/Enterprise cache and link collisions.
+;; A hostname does not identify a forge: configured Git remotes are candidates,
+;; and a non-GitHub server simply falls back to local details if its API fails.
+(define (repository-authority remote)
+  (let loop ([prefixes '("https://" "http://" "ssh://git@" "git://")])
     (if (null? prefixes)
-        #f
+        (and (starts-with? remote "git@")
+             (let ([parts (split-many (trim-start-matches remote "git@") ":")])
+               (and (= (length parts) 2) (string-append (car parts) "/" (cadr parts)))))
         (if (starts-with? remote (car prefixes))
-            (let* ([path (trim-end-matches
-                          (trim-end-matches (trim-start-matches remote (car prefixes)) "/")
-                          ".git")]
-                   [parts (split-many path "/")])
-              (and (= (length parts) 2) (every? valid-name? parts) path))
+            (trim-start-matches remote (car prefixes))
             (loop (cdr prefixes))))))
+
+(define (github-repository remote)
+  (let ([authority (repository-authority remote)])
+    (and authority
+         (let* ([identity (trim-end-matches (trim-end-matches authority "/") ".git")]
+                [parts (split-many identity "/")])
+           (and (= (length parts) 3) (valid-host? (car parts))
+                (every? valid-name? (cdr parts))
+                (string-append (string-downcase (car parts)) "/" (cadr parts) "/" (list-ref parts 2)))))))
+
+;; Two-component arguments remain supported for existing plugin callers.
+(define (repository-host repo)
+  (let ([parts (split-many repo "/")])
+    (if (= (length parts) 3) (car parts) "github.com")))
+
+(define (repository-path repo)
+  (let ([parts (split-many repo "/")])
+    (if (= (length parts) 3) (string-append (cadr parts) "/" (list-ref parts 2)) repo)))
+
+(define (repository-url repo)
+  (string-append "https://" (repository-host repo) "/" (repository-path repo)))
 
 (define (repository-from-remotes remotes)
   (let loop ([remotes remotes])
@@ -64,12 +94,14 @@
   (repository-from-remotes (reverse (hash-ref data 'remotes))))
 
 (define (local-hints data repo)
-  (let ([source (source-reference data)])
+  (let* ([source (source-reference data)]
+         [remotes (hash-try-get data 'remotes)]
+         [hint-repo (or (and (list? remotes) (repository-from-remotes remotes)) repo)])
     (if source
         (list (hash 'number (cadr source) 'title "Original upstream PR" 'inferred #t
-                    'html_url (string-append "https://github.com/" (car source) "/pull/" (cadr source))))
+                    'html_url (string-append "https://" (repository-host hint-repo) "/" (car source) "/pull/" (cadr source))))
         (inferred-pulls (text-field data 'title "")
-                        (or (repository-from-remotes (hash-ref data 'remotes)) repo)))))
+                        hint-repo))))
 
 (define (human-datetime datetime)
   (with-handler (lambda (_) datetime)
@@ -98,20 +130,21 @@
     (if number
         (list (hash 'number number 'title "Inferred from commit message" 'inferred #t
                     'state "unverified"
-                    'html_url (string-append "https://github.com/" repo "/pull/" number)))
+                    'html_url (string-append (repository-url repo) "/pull/" number)))
         '())))
 
-(define (canonical-pr-url pr)
-  (let ([url (hash-try-get pr 'html_url)] [number (hash-try-get pr 'number)])
-    (and (string? url) (<= (string-length url) 4096) (starts-with? url "https://github.com/")
-         (let ([parts (split-many (trim-start-matches url "https://github.com/") "/")])
+(define (canonical-pr-url repo pr)
+  (let ([url (hash-try-get pr 'html_url)] [number (hash-try-get pr 'number)]
+        [prefix (string-append "https://" (repository-host repo) "/")])
+    (and (string? url) (<= (string-length url) 4096) (starts-with? url prefix)
+         (let ([parts (split-many (trim-start-matches url prefix) "/")])
            (and (= (length parts) 4)
                 (valid-name? (car parts)) (valid-name? (cadr parts))
                 (equal? (list-ref parts 2) "pull")
                 (equal? (list-ref parts 3) number) (valid-pr-number? number)
                 url)))))
 
-(define (safe-pulls _lookup-repo pulls)
+(define (safe-pulls lookup-repo pulls)
   (if (not (list? pulls)) '()
       ;; PR ownership need not match the repository used to look up a commit.
       ;; Retain the canonical GitHub URL after strict structural validation.
@@ -119,7 +152,7 @@
                      (and (hash? pr) (valid-pr-number? (hash-try-get pr 'number))
                           (string? (hash-try-get pr 'title))
                           (<= (string-length (hash-ref pr 'title)) 1000)
-                          (canonical-pr-url pr))) pulls)))
+                          (canonical-pr-url lookup-repo pr))) pulls)))
 
 ;; Commit messages are displayed as text, not interpreted as Markdown commands/links.
 (define (literal-text text)
@@ -152,8 +185,8 @@
 (define (popup-links data repo pulls)
   (append
     (if repo
-        (list (list "Commit" (string-append "https://github.com/"
-                                           (or (repository-from-remotes (reverse (hash-ref data 'remotes))) repo) "/commit/"
+        (list (list "Commit" (string-append (repository-url
+                                           (or (repository-from-remotes (reverse (hash-ref data 'remotes))) repo)) "/commit/"
                                            (hash-ref data 'commit))))
         '())
     (map (lambda (pr)
@@ -222,16 +255,19 @@
       (and (hash? error) (string? (hash-try-get error 'message))
            (starts-with? (hash-ref error 'message) "No commit found for SHA:")))))
 
+(define (pull-request-command repo commit)
+  (list "api" "--hostname" (repository-host repo) "-H"
+        "Accept: application/vnd.github+json"
+        "-H" "X-GitHub-Api-Version: 2022-11-28"
+        (string-append "repos/" (repository-path repo) "/commits/" commit "/pulls?per_page=20")
+        "--jq" "[.[] | {number:(.number|tostring), title, html_url, state, merged_at}]"))
+
 (define (refresh-pulls! id snapshot repo fallback)
   (let ([commit (hash-ref (hash-ref snapshot 'data) 'commit)]
         [cache-generation (pr-cache-generation)])
     (await-callback
       (run-command-async
-        "gh" (list "api" "--hostname" "github.com" "-H"
-                   "Accept: application/vnd.github+json"
-                   "-H" "X-GitHub-Api-Version: 2022-11-28"
-                   (string-append "repos/" repo "/commits/" commit "/pulls?per_page=20")
-                   "--jq" "[.[] | {number:(.number|tostring), title, html_url, state, merged_at}]")
+        "gh" (pull-request-command repo commit)
         5000)
       (lambda (result)
         (if (hash-ref result 'ok)
@@ -299,4 +335,4 @@
             [else
              (let ([repo (repository-for (hash-ref snapshot 'data))])
                (if repo (enrich-blame! id snapshot repo)
-                   (show-blame! id snapshot #f '() "No GitHub remote; showing local commit details.")))]))))))
+                   (show-blame! id snapshot #f '() "No supported repository remote; showing local commit details.")))]))))))

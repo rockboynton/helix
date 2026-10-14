@@ -12,8 +12,8 @@
 (define dirty? #f)
 (define generation 0)
 (define cache-name "gitlens-pr-v1")
-;; Invalidate records whose canonical upstream URLs were rewritten by the old policy.
-(define cache-version "2")
+;; Invalidate pre-Enterprise entries with hostless repository identities.
+(define cache-version "3")
 (define fresh-ms 300000)
 (define retain-ms 604800000)
 (define entry-limit 128)

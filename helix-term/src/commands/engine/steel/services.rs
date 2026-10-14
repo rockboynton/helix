@@ -287,10 +287,39 @@ mod tests {
             )
             .unwrap();
         for (url, expected) in [
-            ("git@github.com:owner/repo.git", Some("owner/repo")),
-            ("https://github.com/owner/repo.git", Some("owner/repo")),
-            ("ssh://git@github.com/owner/repo", Some("owner/repo")),
-            ("https://github.com.evil/owner/repo", None),
+            (
+                "https://THE.COMPANY.DEV/Owner/Repo.git",
+                Some("the.company.dev/Owner/Repo"),
+            ),
+            (
+                "git@github.com:owner/repo.git",
+                Some("github.com/owner/repo"),
+            ),
+            (
+                "https://github.com/owner/repo.git",
+                Some("github.com/owner/repo"),
+            ),
+            (
+                "ssh://git@github.com/owner/repo",
+                Some("github.com/owner/repo"),
+            ),
+            (
+                "git@the.company.dev:owner/repo.git",
+                Some("the.company.dev/owner/repo"),
+            ),
+            (
+                "https://the.company.dev/owner/repo.git",
+                Some("the.company.dev/owner/repo"),
+            ),
+            (
+                "ssh://git@the.company.dev/owner/repo",
+                Some("the.company.dev/owner/repo"),
+            ),
+            ("https://user:secret@the.company.dev/owner/repo", None),
+            ("https://-the.company.dev/owner/repo", None),
+            ("https://the..company.dev/owner/repo", None),
+            ("https://the.company.dev/owner/repo#fragment", None),
+            ("git@the.company.dev:owner/repo;evil", None),
             ("https://github.com/owner/../repo", None),
             ("https://github.com/owner/repo?token=secret", None),
         ] {
@@ -366,7 +395,7 @@ mod tests {
         let formatting = Value::try_from(formatting.last().unwrap().clone()).unwrap();
         assert_eq!(formatting[0], "Unknown");
         assert_eq!(formatting[1], "Dec 5, 2024 at 11:13 (UTC-06:00)");
-        assert_eq!(formatting[2], "rockboynton/helix");
+        assert_eq!(formatting[2], "github.com/rockboynton/helix");
         assert_eq!(
             formatting[3][0]["html_url"],
             "https://github.com/helix-editor/helix/pull/8675"
@@ -403,6 +432,41 @@ mod tests {
             canonical[1]["html_url"],
             "https://github.com/rockboynton/helix/pull/123"
         );
+        let enterprise = engine.run(r#"
+            (define enterprise-repo "the.company.dev/owner/repo")
+            (define enterprise-data (hash 'commit "abc" 'title "Fix (#123)" 'body ""
+                'remotes (list "git@the.company.dev:upstream/repo.git" "https://the.company.dev/owner/repo.git")))
+            (remember-prs! enterprise-repo "abc" (list (hash 'number "123" 'title "Enterprise")))
+            (remember-prs! "github.com/owner/repo" "abc" (list (hash 'number "123" 'title "Public")))
+            (list (repository-for enterprise-data)
+                  (popup-links enterprise-data enterprise-repo (local-hints enterprise-data enterprise-repo))
+                  (pull-request-command enterprise-repo "abc")
+                  (safe-pulls enterprise-repo
+                    (list (hash 'number "123" 'title "Upstream" 'html_url "https://the.company.dev/upstream/repo/pull/123")
+                          (hash 'number "123" 'title "Other host" 'html_url "https://github.com/owner/repo/pull/123")
+                          (hash 'number "123" 'title "Lookalike" 'html_url "https://the.company.dev.evil/owner/repo/pull/123")
+                          (hash 'number "123" 'title "Query" 'html_url "https://the.company.dev/owner/repo/pull/123?token=secret")))
+                  (cached-pr-entry enterprise-repo "abc")
+                  (cached-pr-entry "github.com/owner/repo" "abc"))
+        "#).unwrap();
+        let enterprise = Value::try_from(enterprise.last().unwrap().clone()).unwrap();
+        assert_eq!(enterprise[0], "the.company.dev/owner/repo");
+        assert_eq!(
+            enterprise[1][0][1],
+            "https://the.company.dev/owner/repo/commit/abc"
+        );
+        assert_eq!(
+            enterprise[1][1][1],
+            "https://the.company.dev/upstream/repo/pull/123"
+        );
+        assert_eq!(enterprise[2][2], "the.company.dev");
+        assert_eq!(
+            enterprise[2][7],
+            "repos/owner/repo/commits/abc/pulls?per_page=20"
+        );
+        assert_eq!(enterprise[3].as_array().unwrap().len(), 1);
+        assert_eq!(enterprise[4][0][0]["title"], "Enterprise");
+        assert_eq!(enterprise[5][0][0]["title"], "Public");
         let deferred = engine.run(r#"
             (define test-data (hash 'commit "abc" 'remotes (list "https://github.com/rockboynton/helix")))
             (set! showing-diff? #t)

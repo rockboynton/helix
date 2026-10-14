@@ -146,7 +146,17 @@ makes that hash available on GitHub.
 - GitHub enrichment requires `gh` and its existing authentication. Missing `gh`,
   offline/authentication failures, and non-GitHub repositories still show local
   commit metadata.
-- GitHub.com is supported; GitHub Enterprise hosts are not.
+- GitHub.com and GitHub Enterprise hosts are derived from repository remotes;
+  no hostname configuration is needed. HTTPS, `git@host:owner/repo.git`, and
+  `ssh://git@host/owner/repo.git` forms are supported. Lookups use
+  `gh api --hostname <remote-host>` and that host's existing authentication
+  (see [GitHub CLI authentication](https://cli.github.com/manual/gh_auth_login)).
+  Public and Enterprise PR caches are isolated by hostname. Canonical PR URLs
+  may point to another repository on the same host, but never another host.
+  A Git remote alone cannot identify its forge; non-GitHub hosts fall back to
+  local details when the GitHub API lookup fails. SSH aliases must resolve to
+  the actual web/API hostname in the remote; ports and credential-bearing URLs
+  are not currently supported.
 - The full commit patch requires the `git` executable and local commit history.
 - This is line/commit inspection, not the entire VS Code GitLens feature set:
   there is no file-history browser or general issue-reference resolver.
