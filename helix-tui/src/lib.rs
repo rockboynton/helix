@@ -1,6 +1,7 @@
 pub mod backend;
 pub mod buffer;
 pub mod extension;
+pub mod image;
 pub mod layout;
 pub mod symbols;
 pub mod terminal;

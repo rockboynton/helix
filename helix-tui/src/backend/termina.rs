@@ -416,6 +416,9 @@ impl TerminaBackend {
 }
 
 impl Backend for TerminaBackend {
+    fn image_commands(&mut self, commands: &[u8]) -> io::Result<()> {
+        self.terminal.write_all(commands)
+    }
     fn claim(&mut self) -> io::Result<()> {
         self.terminal.enter_raw_mode()?;
 

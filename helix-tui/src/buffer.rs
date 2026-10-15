@@ -165,6 +165,8 @@ pub struct Buffer {
     /// The content of the buffer. The length of this Vec should always be equal to area.width *
     /// area.height
     pub content: Vec<Cell>,
+    /// Images referenced by Unicode placeholder cells in this frame.
+    pub images: Vec<crate::image::Placement>,
 }
 
 impl Buffer {
@@ -179,7 +181,11 @@ impl Buffer {
     pub fn filled(area: Rect, cell: &Cell) -> Buffer {
         let size = area.area();
         let content = vec![cell.clone(); size];
-        Buffer { area, content }
+        Buffer {
+            area,
+            content,
+            images: Vec::new(),
+        }
     }
 
     /// Returns a Buffer containing the given lines
@@ -667,6 +673,7 @@ impl Buffer {
         for c in &mut self.content {
             c.reset();
         }
+        self.images.clear();
     }
 
     /// Clear an area in the buffer

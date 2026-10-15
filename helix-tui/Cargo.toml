@@ -26,6 +26,7 @@ unicode-segmentation.workspace = true
 termina = { workspace = true, optional = true }
 termini = "1.0"
 log = "~0.4"
+base64 = "0.22"
 steel-core = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]

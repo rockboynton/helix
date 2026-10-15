@@ -74,6 +74,7 @@ where
     /// Set to request a full clear. The erase is deferred to the next `flush` so it is emitted
     /// inside the same synchronized-output frame as the repaint to avoid painting blank frames
     force_clear: bool,
+    images: crate::image::ImageState,
 }
 
 /// Default terminal size: 80 columns, 24 lines
@@ -115,6 +116,7 @@ where
             cursor_kind: CursorKind::Block,
             viewport: options.viewport,
             force_clear: false,
+            images: Default::default(),
         })
     }
 
@@ -127,6 +129,7 @@ where
     }
 
     pub fn restore(&mut self) -> io::Result<()> {
+        self.backend.image_commands(&self.images.update(&[])?)?;
         self.backend.restore()
     }
 
@@ -154,9 +157,14 @@ where
     /// current backend for drawing.
     pub fn flush(&mut self) -> io::Result<()> {
         if self.force_clear {
+            // A physical screen erase may discard terminal image data too.
+            // Forget/delete old uploads before clearing, then upload after it.
+            self.backend.image_commands(&self.images.update(&[])?)?;
             self.backend.clear()?;
             self.force_clear = false;
         }
+        self.backend
+            .image_commands(&self.images.update(&self.buffers[self.current].images)?)?;
         let previous_buffer = &self.buffers[1 - self.current];
         let current_buffer = &self.buffers[self.current];
         let updates = previous_buffer.diff(current_buffer);

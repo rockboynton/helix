@@ -158,6 +158,9 @@ impl<W> Backend for CrosstermBackend<W>
 where
     W: Write,
 {
+    fn image_commands(&mut self, commands: &[u8]) -> io::Result<()> {
+        self.buffer.write_all(commands)
+    }
     fn claim(&mut self) -> io::Result<()> {
         terminal::enable_raw_mode()?;
         execute!(
