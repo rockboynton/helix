@@ -176,8 +176,8 @@ immutable file/tree objects and briefly lock the working copy. Workspace trust i
 required. User, repository, workspace, and scoped JJ configuration are read without
 migrating secure-config metadata.
 
-The native JJ library requires Rust 1.97.1; the repository toolchain and CI MSRV
-pins were updated accordingly.
+The native JJ library requires at least Rust 1.97.1. Neohelix pins Rust 1.99.0
+for the repository toolchain, package MSRV, and CI.
 
 ### Editable workspace refactoring
 

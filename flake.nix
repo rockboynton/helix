@@ -27,8 +27,8 @@
     packages = eachSystem (system: {
       inherit (pkgsFor.${system}) helix;
       /*
-      The default Helix build. Uses the latest stable Rust toolchain, and unstable
-      nixpkgs.
+      The default Helix build. Uses the repository's pinned Rust toolchain, and
+      unstable nixpkgs.
 
       The build inputs can be overridden with the following:
 
@@ -87,7 +87,18 @@
 
     overlays = {
       helix = final: prev: {
-        helix = final.callPackage ./default.nix {inherit gitRev;};
+        helix = let
+          # Keep the exported overlay usable without a separate Rust overlay.
+          buildPkgs = final.pkgsBuildHost.extend (import rust-overlay);
+          toolchain = buildPkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        in
+          final.callPackage ./default.nix {
+            inherit gitRev;
+            rustPlatform = final.makeRustPlatform {
+              cargo = toolchain;
+              rustc = toolchain;
+            };
+          };
       };
 
       default = self.overlays.helix;
