@@ -89,6 +89,8 @@ storage. For custom Enterprise hosts use `GH_ENTERPRISE_TOKEN` or
 Native access to a token saved by `gh` can trigger a macOS Keychain permission
 prompt for `hx`. Local blame still works without API authentication. Do not put
 tokens in version-controlled config.
+See [token creation and required permissions](gitlens.md#creating-a-token-without-keychain)
+for GitHub/Enterprise setup and the Keychain-free launch instructions.
 
 ## Render output for jjui / other pagers
 

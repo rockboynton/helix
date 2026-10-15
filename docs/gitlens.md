@@ -189,6 +189,35 @@ makes that hash available on GitHub.
 - This is line/commit inspection, not the entire VS Code GitLens feature set:
   there is no file-history browser or general issue-reference resolver.
 
+### Creating a token without Keychain
+
+Create the token on the **same GitHub host as the repository**: sign in to your
+company's Enterprise instance for company repositories, not github.com.
+
+1. Open **Settings → Developer settings → Personal access tokens → Fine-grained
+   tokens → Generate new token**.
+2. Name it `Neohelix`, choose an expiration, and select the organization/resource
+   owner and only the repositories you need.
+3. Under repository permissions, grant **Pull requests: Read-only**. That is the
+   permission required by GitLens's commit-to-PR endpoint; write/admin permissions
+   are not needed. Repository contents and blame are read from your local clone.
+4. Generate the token and complete any required organization approval before
+   accessing private repositories. Treat the token as a password.
+5. Supply it to a fresh Helix process using the prompt above:
+   `GH_ENTERPRISE_TOKEN` for custom Enterprise hosts, or `GH_TOKEN` for github.com
+   and `*.ghe.com`. A nonempty environment token bypasses Keychain entirely.
+
+GitHub's authoritative instructions cover
+[creating a fine-grained token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token)
+and the
+[commit-to-PR endpoint's required permissions](https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit).
+For Enterprise Server, select your server's version in GitHub Docs; token options
+depend on the installed version and company policy. If fine-grained tokens are
+unavailable or blocked, follow your administrator's approved authentication
+process rather than granting broad classic-token scopes as a workaround.
+Never put the token in committed Nix/Steel configuration, logs, or issue reports.
+After replacing or rotating it, restart Helix or run `:gitlens-clear-cache`.
+
 ### Implementation and disabling
 
 The core Steel bindings provide asynchronous native metadata, generic bounded

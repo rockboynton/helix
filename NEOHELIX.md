@@ -125,6 +125,8 @@ but remains an optional standalone module: importing it does not activate a shor
 See the
 [complete GitLens guide](docs/gitlens.md) for installation, limits, fork routing,
 and caching behavior. This is not a recreation of every VS Code GitLens feature.
+For Keychain-free authentication, see
+[token creation and permissions](docs/gitlens.md#creating-a-token-without-keychain).
 
 ### Native external-file watching
 
