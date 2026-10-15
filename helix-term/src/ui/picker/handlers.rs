@@ -61,7 +61,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
                 return;
             };
 
-            let Some(CachedPreview::Document(ref mut doc)) = picker.preview_cache.get_mut(&path)
+            let Some(CachedPreview::PendingSyntax(ref mut doc)) =
+                picker.preview_cache.get_mut(&path)
             else {
                 return;
             };
@@ -76,13 +77,14 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
 
             let loader = editor.syn_loader.load();
             let text = doc.text().clone();
+            let generation = picker.preview_generation.clone();
 
             tokio::task::spawn_blocking(move || {
                 let syntax = match helix_core::Syntax::new(text.slice(..), language, &loader) {
-                    Ok(syntax) => syntax,
+                    Ok(syntax) => Some(syntax),
                     Err(err) => {
                         log::info!("highlighting picker preview failed: {err}");
-                        return;
+                        None
                     }
                 };
 
@@ -94,18 +96,24 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
                         log::info!("picker closed before syntax highlighting finished");
                         return;
                     };
-                    let Some(CachedPreview::Document(ref mut doc)) =
-                        picker.preview_cache.get_mut(&path)
+                    if !Arc::ptr_eq(&generation, &picker.preview_generation) {
+                        return;
+                    }
+                    let Some(CachedPreview::PendingSyntax(mut doc)) =
+                        picker.preview_cache.remove(&path)
                     else {
                         return;
                     };
                     let diagnostics = helix_view::Editor::doc_diagnostics(
                         &editor.language_servers,
                         &editor.diagnostics,
-                        doc,
+                        &doc,
                     );
                     doc.replace_diagnostics(diagnostics, &[], None);
-                    doc.syntax = Some(syntax);
+                    doc.syntax = syntax;
+                    picker
+                        .preview_cache
+                        .insert(path, CachedPreview::Document(doc));
                 });
             });
         });

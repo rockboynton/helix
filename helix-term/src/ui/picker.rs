@@ -85,6 +85,7 @@ pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
 
 pub enum CachedPreview {
     Document(Box<Document>),
+    PendingSyntax(Box<Document>),
     Directory(Vec<(String, bool)>),
     Binary,
     LargeFile,
@@ -120,6 +121,7 @@ impl Preview<'_, '_> {
             Self::EditorDocument(_) => "<Invalid file location>",
             Self::Cached(preview) => match preview {
                 CachedPreview::Document(_) => "<Invalid file location>",
+                CachedPreview::PendingSyntax(_) => "<Loading syntax…>",
                 CachedPreview::Directory(_) => "<Invalid directory location>",
                 CachedPreview::Binary => "<Binary file>",
                 CachedPreview::LargeFile => "<File too large to preview>",
@@ -266,6 +268,7 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     pub truncate_start: bool,
     /// Caches paths to documents
     preview_cache: HashMap<Arc<Path>, CachedPreview>,
+    preview_generation: Arc<()>,
     read_buffer: Vec<u8>,
     /// Given an item in the picker, return the file path and line number to display.
     file_fn: Option<FileCallback<T>>,
@@ -400,6 +403,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             completion_height: 0,
             widths,
             preview_cache: HashMap::new(),
+            preview_generation: Arc::new(()),
             read_buffer: Vec::with_capacity(1024),
             file_fn: None,
             preview_highlight_handler: PreviewHighlightHandler::<T, D>::default().spawn(),
@@ -667,13 +671,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 }
 
                 if self.preview_cache.contains_key(path) {
-                    // NOTE: we use `HashMap::get_key_value` here instead of indexing so we can
-                    // retrieve the `Arc<Path>` key. The `path` in scope here is a `&Path` and
-                    // we can cheaply clone the key for the preview highlight handler.
-                    let (path, preview) = self.preview_cache.get_key_value(path).unwrap();
-                    if matches!(preview, CachedPreview::Document(doc) if doc.syntax().is_none()) {
-                        helix_event::send_blocking(&self.preview_highlight_handler, path.clone());
-                    }
+                    let preview = &self.preview_cache[path];
                     return Some((Preview::Cached(preview), range));
                 }
 
@@ -731,6 +729,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                                     &self.preview_highlight_handler,
                                     path.clone(),
                                 );
+                                return Ok(CachedPreview::PendingSyntax(Box::new(doc)));
                             }
                             Ok(CachedPreview::Document(Box::new(doc)))
                         } else {
@@ -1190,6 +1189,36 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::*;
+
+    #[test]
+    fn syntax_pending_is_not_presented_as_plaintext_and_failure_can_be_published() {
+        let config = Arc::new(arc_swap::ArcSwap::from_pointee(
+            helix_view::editor::Config::default(),
+        ));
+        let loader = Arc::new(arc_swap::ArcSwap::from_pointee(
+            helix_core::config::default_lang_loader(),
+        ));
+        let doc = Document::from(
+            helix_core::Rope::from_str("fn main() {}\n"),
+            None,
+            config,
+            loader,
+        );
+        let pending = CachedPreview::PendingSyntax(Box::new(doc));
+        let preview = Preview::Cached(&pending);
+        assert!(preview.document().is_none());
+        assert_eq!(preview.placeholder(), "<Loading syntax…>");
+        let CachedPreview::PendingSyntax(doc) = pending else {
+            unreachable!()
+        };
+        let fallback = CachedPreview::Document(doc);
+        assert!(Preview::Cached(&fallback).document().is_some());
     }
 }
 
