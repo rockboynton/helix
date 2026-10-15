@@ -83,7 +83,14 @@ A piped patch is
 immutable; reopen with new input instead of refreshing it.
 
 This is the first multi-file review layer, not yet a complete Hunk/Diffview-style
-VCS interface. Arbitrary revisions, staging, history browsing, editable inline
-deleted-text projections and continuous/folded changeset
+VCS interface. A native revision selector, staging, history browsing and continuous/folded changeset
 views are not implemented. Input is finite and catalogs retain source snapshots
 in memory; this is not a streaming viewer for arbitrarily large changesets.
+Use [JJ's external diff-tool integration](file-diff.md#interactive-jj-diff-editing-and-jjui-handoff)
+to select revisions/ranges and pass complete files to Helix.
+
+The generic Files tree implements expansion/collapse, navigation, opening files,
+ignore filtering and layout reservation. It does not yet implement file creation,
+rename/move/delete, filesystem-tree Git status badges or persistent filesystem-tree
+auto-refresh. Those are separate from review-catalog watching and from the
+toggleable per-line blame gutter.

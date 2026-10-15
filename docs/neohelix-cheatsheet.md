@@ -113,3 +113,9 @@ host controls navigation. See the [full file-diff guide](file-diff.md) for its
 width, context and color flags and the [changeset guide](diff-review.md) for
 review boundaries. Staging, arbitrary revision browsing and full semantic
 changeset analysis are not implemented.
+
+With JJ configured to use the `neohelix` tool, `jj diffedit -r REV` opens editable
+multi-file review. In jjui, **Shift-E** uses that same diff editor and returns to
+jjui on exit. Save in Helix first; JJ imports the saved right-side files and may
+rewrite the selected revision/rebase descendants. See the
+[JJ/jjui setup](file-diff.md#interactive-jj-diff-editing-and-jjui-handoff).

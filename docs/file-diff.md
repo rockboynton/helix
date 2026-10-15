@@ -181,7 +181,8 @@ diff-expected-exit-codes = [0]
 Try `jj diff --tool neohelix` first. To make it the default, set
 `ui.diff-formatter = "neohelix"`; add `"--diff-layout", "inline"` to the args
 for inline output. For checkout testing, use the absolute path to
-`contrib/hx-neohelix` as `program`; an older installed `hx` will not have this flag.
+`target/release/hx` as `program` and point `HELIX_RUNTIME` at that checkout's
+`runtime` directory; an older installed `hx` will not have this flag.
 This integrates with jjui's **read-only** diff view without a jjui fork.
 It is a formatter integration, not an embedded editable Helix terminal.
 Your existing jj/jjui/NixOS configuration is not changed automatically.
@@ -193,6 +194,41 @@ Validation on Linux: the renderer was invoked by `jj 0.46.0` with real exported
 snapshot directories in both layouts, and its output was displayed by jjui
 0.10.11's built-in diff screen in a PTY. Navigation/exit and terminal restoration
 were checked with isolated temporary repositories/configuration.
+
+### Interactive JJ diff editing and jjui handoff
+
+Let JJ resolve revisions/ranges and export complete snapshot directories rather
+than duplicating its revision-selection UI in Helix. Extend the tool above with:
+
+```toml
+[ui]
+diff-formatter = "neohelix"
+diff-editor = "neohelix"
+diff-instructions = false
+
+[merge-tools.neohelix]
+program = "hx"
+diff-args = ["--render-diff", "--color", "always", "--width", "$width", "$left", "$right"]
+diff-invocation-mode = "dir"
+edit-args = ["--review", "--diff-layout", "inline", "$left", "$right"]
+edit-invocation-mode = "dir"
+```
+
+Use `jj diff -r REV` (or `--from`/`--to`) for formatted output and
+`jj diffedit -r REV` for interactive editing. Switch layouts with `:diff-layout`,
+save working files with `:write`/`:write-all`, then exit with `:quit-all` (or use
+`:write-quit-all`). JJ reads back the exported right directory after Helix exits.
+That can rewrite the selected revision and rebase descendants; it is not merely
+a viewer. Raw patch streams are intentionally not used as editable save targets.
+
+jjui's [unified action system (#515)](https://github.com/idursun/jjui/issues/515)
+was implemented in [merged PR #533](https://github.com/idursun/jjui/pull/533).
+In jjui 0.10.11, the default **Shift-E** binding invokes `revisions.diff_edit`,
+which runs `jj diffedit` interactively and refreshes when the subprocess returns.
+Setting JJ's `ui.diff-editor` is therefore sufficient; a custom action is optional.
+Do not use the unmerged `[diff]` configuration proposal from PR #453.
+Embedded read-only previews still use the formatter path, separately from this
+full-terminal editor handoff.
 
 ## Direction: standalone viewer and external hosts
 
@@ -226,8 +262,9 @@ it as text ([diff source](https://github.com/idursun/jjui/blob/v0.10.11/internal
 Its interactive command runner uses a separate process-launch path. Therefore
 read-only styled output can use the formatter route; embedding Helix editing
 requires an interactive host integration, not only a `ui.pager` setting.
-The formatter contract is implemented by `--render-diff`; the interactive host
-contract is future work. Current non-terminal `--pager` output is still
+The formatter contract is implemented by `--render-diff`; full-terminal handoff
+uses jjui's existing interactive runner. In-screen interactive terminal embedding
+would still require host support. Current non-terminal `--pager` output is still
 byte-preserving passthrough (except explicit patch formatting). Interactive
 raw-patch views are read-only; full-file split and inline comparison are editable
 unless `--pager` is specified.
