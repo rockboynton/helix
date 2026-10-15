@@ -11,6 +11,28 @@ use crate::{job, ui::overlay::Overlay};
 
 use super::{CachedPreview, DynQueryCallback, Picker};
 
+struct PreviewParseGuard(Arc<atomic::AtomicBool>);
+impl Drop for PreviewParseGuard {
+    fn drop(&mut self) {
+        self.0.store(false, atomic::Ordering::Release);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn abandoned_preview_callback_allows_retry() {
+        let running = Arc::new(atomic::AtomicBool::new(true));
+        let guard = PreviewParseGuard(running.clone());
+        let callback = move || drop(guard);
+        // Closing the picker can discard the completion callback entirely.
+        drop(callback);
+        assert!(!running.load(atomic::Ordering::Acquire));
+    }
+}
+
 pub(super) struct PreviewHighlightHandler<T: 'static + Send + Sync, D: 'static + Send + Sync> {
     trigger: Option<Arc<Path>>,
     phantom_data: std::marker::PhantomData<(T, D)>,
@@ -61,7 +83,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
                 return;
             };
 
-            let Some(CachedPreview::PendingSyntax(ref mut doc)) =
+            let Some(CachedPreview::PendingSyntax(doc, running)) =
                 picker.preview_cache.get_mut(&path)
             else {
                 return;
@@ -74,6 +96,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
             let Some(language) = doc.language_config().map(|config| config.language()) else {
                 return;
             };
+            if running.swap(true, atomic::Ordering::AcqRel) {
+                return;
+            }
+            let guard = PreviewParseGuard(running.clone());
 
             let loader = editor.syn_loader.load();
             let text = doc.text().clone();
@@ -89,6 +115,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
                 };
 
                 job::dispatch_blocking(move |editor, compositor| {
+                    let _guard = guard;
                     let Some(Overlay {
                         content: picker, ..
                     }) = compositor.find::<Overlay<Picker<T, D>>>()
@@ -99,7 +126,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
                     if !Arc::ptr_eq(&generation, &picker.preview_generation) {
                         return;
                     }
-                    let Some(CachedPreview::PendingSyntax(mut doc)) =
+                    let Some(CachedPreview::PendingSyntax(mut doc, _)) =
                         picker.preview_cache.remove(&path)
                     else {
                         return;

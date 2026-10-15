@@ -85,7 +85,7 @@ pub type FileLocation<'a> = (PathOrId<'a>, Option<(usize, usize)>);
 
 pub enum CachedPreview {
     Document(Box<Document>),
-    PendingSyntax(Box<Document>),
+    PendingSyntax(Box<Document>, Arc<atomic::AtomicBool>),
     Directory(Vec<(String, bool)>),
     Binary,
     LargeFile,
@@ -121,7 +121,7 @@ impl Preview<'_, '_> {
             Self::EditorDocument(_) => "<Invalid file location>",
             Self::Cached(preview) => match preview {
                 CachedPreview::Document(_) => "<Invalid file location>",
-                CachedPreview::PendingSyntax(_) => "<Loading syntax…>",
+                CachedPreview::PendingSyntax(..) => "<Loading syntax…>",
                 CachedPreview::Directory(_) => "<Invalid directory location>",
                 CachedPreview::Binary => "<Binary file>",
                 CachedPreview::LargeFile => "<File too large to preview>",
@@ -684,7 +684,11 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 }
 
                 if self.preview_cache.contains_key(path) {
-                    let preview = &self.preview_cache[path];
+                    let (key, preview) = self.preview_cache.get_key_value(path).unwrap();
+                    if matches!(preview, CachedPreview::PendingSyntax(_, running) if !running.load(atomic::Ordering::Acquire))
+                    {
+                        helix_event::send_blocking(&self.preview_highlight_handler, key.clone());
+                    }
                     return Some((Preview::Cached(preview), range));
                 }
 
@@ -742,7 +746,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                                     &self.preview_highlight_handler,
                                     path.clone(),
                                 );
-                                return Ok(CachedPreview::PendingSyntax(Box::new(doc)));
+                                return Ok(CachedPreview::PendingSyntax(
+                                    Box::new(doc),
+                                    Arc::new(atomic::AtomicBool::new(false)),
+                                ));
                             }
                             Ok(CachedPreview::Document(Box::new(doc)))
                         } else {
@@ -1257,11 +1264,12 @@ mod preview_tests {
             config,
             loader,
         );
-        let pending = CachedPreview::PendingSyntax(Box::new(doc));
+        let pending =
+            CachedPreview::PendingSyntax(Box::new(doc), Arc::new(atomic::AtomicBool::new(false)));
         let preview = Preview::Cached(&pending);
         assert!(preview.document().is_none());
         assert_eq!(preview.placeholder(), "<Loading syntax…>");
-        let CachedPreview::PendingSyntax(doc) = pending else {
+        let CachedPreview::PendingSyntax(doc, _) = pending else {
             unreachable!()
         };
         let fallback = CachedPreview::Document(doc);
