@@ -269,6 +269,9 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// Caches paths to documents
     preview_cache: HashMap<Arc<Path>, CachedPreview>,
     preview_generation: Arc<()>,
+    wrap_selected: Option<usize>,
+    wrap_scroll: usize,
+    wrap_cursor: u32,
     read_buffer: Vec<u8>,
     /// Given an item in the picker, return the file path and line number to display.
     file_fn: Option<FileCallback<T>>,
@@ -404,6 +407,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             widths,
             preview_cache: HashMap::new(),
             preview_generation: Arc::new(()),
+            wrap_selected: None,
+            wrap_scroll: 0,
+            wrap_cursor: 0,
             read_buffer: Vec::with_capacity(1024),
             file_fn: None,
             preview_highlight_handler: PreviewHighlightHandler::<T, D>::default().spawn(),
@@ -489,6 +495,12 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     pub fn with_default_action(mut self, action: Action) -> Self {
         self.default_action = action;
+        self
+    }
+
+    /// Wrap the active row's message without affecting ordinary picker rows.
+    pub fn with_wrapped_selected_column(mut self, column: usize) -> Self {
+        self.wrap_selected = Some(column);
         self
     }
 
@@ -607,6 +619,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn handle_prompt_change(&mut self, is_paste: bool) {
+        self.wrap_scroll = 0;
         // TODO: better track how the pattern has changed
         let line = self.prompt.line();
         let old_query = self.query.parse(line);
@@ -751,6 +764,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
     }
 
     fn render_picker(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
+        if self.wrap_cursor != self.cursor {
+            self.wrap_cursor = self.cursor;
+            self.wrap_scroll = 0;
+        }
         let status = self.matcher.tick(10);
         let snapshot = self.matcher.snapshot();
         if status.changed {
@@ -861,6 +878,13 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                     unreachable!();
                 };
                 let mut cell = column.format(item.data, &self.editor_data);
+                let trailing_lines = cell
+                    .content
+                    .lines
+                    .iter()
+                    .skip(1)
+                    .cloned()
+                    .collect::<Vec<_>>();
                 let mut width = if column.filter {
                     snapshot.pattern().column_pattern(matcher_index).indices(
                         item.matcher_columns[matcher_index].slice(..),
@@ -907,6 +931,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
                     span_list.push(Span::styled(current_span, current_style));
                     cell = Cell::from(Spans::from(span_list));
+                    cell.content.lines.extend(trailing_lines);
                     matcher_index += 1;
                     width
                 } else {
@@ -935,12 +960,34 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             }))
         });
 
+        let options = options.collect::<Vec<_>>();
+        let mut wrapped_widths = self.widths.clone();
+        if let Some(column) = self.wrap_selected {
+            // Reserve the message's space before giving metadata columns their widths.
+            let available = inner
+                .width
+                .saturating_sub(3 + self.widths.len().saturating_sub(1) as u16);
+            let cap = available / (2 * self.widths.len().saturating_sub(1).max(1)) as u16;
+            let mut used: u16 = 0;
+            for (index, constraint) in wrapped_widths.iter_mut().enumerate() {
+                if index != column {
+                    if let Constraint::Length(width) = constraint {
+                        *width = (*width).min(cap);
+                        used += *width;
+                    }
+                }
+            }
+            wrapped_widths[column] = Constraint::Length(available.saturating_sub(used));
+        }
         let mut table = Table::new(options)
             .style(text_style)
             .highlight_style(selected)
             .highlight_symbol(" > ")
             .column_spacing(1)
-            .widths(&self.widths);
+            .widths(&wrapped_widths);
+        if let Some(column) = self.wrap_selected {
+            table = table.wrap_selected_column(column, self.wrap_scroll);
+        }
 
         // -- Header
         if self.always_show_headers || self.columns.len() > 1 {
@@ -1288,6 +1335,12 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         };
 
         match key_event {
+            alt!(']') if self.wrap_selected.is_some() => {
+                self.wrap_scroll = self.wrap_scroll.saturating_add(1);
+            }
+            alt!('[') if self.wrap_selected.is_some() => {
+                self.wrap_scroll = self.wrap_scroll.saturating_sub(1);
+            }
             shift!(Tab) | key!(Up) | ctrl!('p') => {
                 self.move_by(1, Direction::Backward);
             }

@@ -1,7 +1,7 @@
 use crate::{
     buffer::Buffer,
     layout::Constraint,
-    text::Text,
+    text::{Span, Spans, StyledGrapheme, Text},
     widgets::{Block, Widget},
 };
 use helix_core::unicode::width::UnicodeWidthStr;
@@ -208,6 +208,7 @@ pub struct Table<'a> {
     header: Option<Row<'a>>,
     /// Data to display in each row
     rows: Vec<Row<'a>>,
+    wrap_selected: Option<(usize, usize)>,
 }
 
 impl<'a> Table<'a> {
@@ -224,11 +225,18 @@ impl<'a> Table<'a> {
             highlight_symbol: None,
             header: None,
             rows: rows.into_iter().collect(),
+            wrap_selected: None,
         }
     }
 
     pub fn block(mut self, block: Block<'a>) -> Self {
         self.block = Some(block);
+        self
+    }
+
+    /// Expand one selected cell within its assigned column, scrolling tall messages.
+    pub fn wrap_selected_column(mut self, column: usize, scroll: usize) -> Self {
+        self.wrap_selected = Some((column, scroll));
         self
     }
 
@@ -423,8 +431,24 @@ impl Table<'_> {
         }
 
         // Draw rows
-        if self.rows.is_empty() {
+        if self.rows.is_empty() || rows_height == 0 {
             return;
+        }
+        if let Some((column, scroll)) = self.wrap_selected {
+            if let Some((row, width)) = state.selected.and_then(|selected| {
+                Some((self.rows.get_mut(selected)?, *columns_widths.get(column)?))
+            }) {
+                if let Some(cell) = row.cells.get_mut(column) {
+                    let lines = wrapped_lines(&cell.content, width);
+                    let scroll = scroll.min(lines.len().saturating_sub(1));
+                    cell.content.lines = lines
+                        .into_iter()
+                        .skip(scroll)
+                        .take(rows_height as usize)
+                        .collect();
+                    row.height = (cell.content.lines.len() as u16).max(1).min(rows_height);
+                }
+            }
         }
         let (start, end) = self.get_row_bounds(state.selected, state.offset, rows_height);
         state.offset = start;
@@ -482,6 +506,29 @@ impl Table<'_> {
     }
 }
 
+fn wrapped_lines(text: &Text<'_>, width: u16) -> Vec<Spans<'static>> {
+    use super::reflow::{LineComposer, WordWrapper};
+    let mut graphemes = text.lines.iter().flat_map(|line| {
+        line.0
+            .iter()
+            .flat_map(|span| span.styled_graphemes(Style::default()))
+            .chain(std::iter::once(StyledGrapheme {
+                symbol: "\n",
+                style: Style::default(),
+            }))
+    });
+    let mut wrapper = WordWrapper::new(&mut graphemes, width, false);
+    let mut lines = Vec::new();
+    while let Some((line, _)) = wrapper.next_line() {
+        lines.push(Spans::from(
+            line.iter()
+                .map(|grapheme| Span::styled(grapheme.symbol.to_owned(), grapheme.style))
+                .collect::<Vec<_>>(),
+        ));
+    }
+    lines
+}
+
 fn render_cell(buf: &mut Buffer, cell: &Cell, area: Rect, truncate: bool) {
     buf.set_style(area, cell.style);
     for (i, spans) in cell.content.lines.iter().enumerate() {
@@ -506,6 +553,55 @@ impl Widget for Table<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrapped_selected_cell_preserves_unicode_styles_and_scrolls_without_overflow() {
+        use helix_view::graphics::Color;
+        let text = Text::from(Span::styled(
+            "café first second third fourth final",
+            Style::default().fg(Color::Red),
+        ));
+        let lines = wrapped_lines(&text, 9);
+        assert!(lines.len() > 3);
+        assert!(lines.iter().all(|line| line.width() <= 9));
+        assert!(lines
+            .iter()
+            .flat_map(|line| &line.0)
+            .all(|span| span.style.fg == Some(Color::Red)));
+        let render = |scroll| {
+            let mut buffer = Buffer::empty(Rect::new(0, 0, 15, 3));
+            Table::new([Row::new([Cell::from("ERR"), Cell::from(text.clone())])])
+                .widths(&[Constraint::Length(3), Constraint::Length(9)])
+                .wrap_selected_column(1, scroll)
+                .render_table(
+                    buffer.area,
+                    &mut buffer,
+                    &mut TableState {
+                        offset: 0,
+                        selected: Some(0),
+                    },
+                    false,
+                );
+            buffer
+        };
+        let first = render(0);
+        assert_eq!(first[(4, 0)].symbol.as_str(), "c");
+        let last = render(usize::MAX);
+        assert_eq!(last[(4, 0)].symbol.as_str(), "f");
+        // No rows fit: do not enter selection visibility loops with a zero-height viewport.
+        let mut empty = Buffer::empty(Rect::new(0, 0, 15, 0));
+        Table::new([Row::from("message")])
+            .wrap_selected_column(0, 0)
+            .render_table(
+                empty.area,
+                &mut empty,
+                &mut TableState {
+                    offset: 0,
+                    selected: Some(0),
+                },
+                false,
+            );
+    }
 
     #[test]
     #[should_panic]

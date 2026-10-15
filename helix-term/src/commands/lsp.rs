@@ -314,6 +314,7 @@ fn diag_picker(
     )
     .with_preview(move |_editor, diag| location_to_file_location(&diag.location))
     .with_title("Diagnostics".into())
+    .with_wrapped_selected_column(primary_column)
     .with_icon(|editor, item| {
         Some(match item.diag.severity {
             Some(lsp::DiagnosticSeverity::ERROR) => editor.icons.diagnostic.error.clone(),

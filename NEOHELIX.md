@@ -128,6 +128,15 @@ and caching behavior. This is not a recreation of every VS Code GitLens feature.
 For Keychain-free authentication, see
 [token creation and permissions](docs/gitlens.md#creating-a-token-without-keychain).
 
+### Picker readability
+
+File previews wait for their asynchronous syntax result instead of flashing
+plaintext first; unsupported/failed parsers fall back to a stable plaintext view.
+Diagnostic pickers expand and wrap the active message inside the list pane,
+without overlapping the file preview. `Alt-]` / `Alt-[` scroll a message taller
+than the picker; moving to another diagnostic resets that message's scroll.
+Other picker rows stay compact and normal preview-scrolling keys are unchanged.
+
 ### Native external-file watching
 
 File watching is based on PR #14544 at

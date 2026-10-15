@@ -68,6 +68,14 @@ Theme overrides: `ui.diff.minus`, `ui.diff.plus`, `ui.diff.minus.word`,
 `ui.diff.plus.word` (set `bg`, not the syntax foreground).
 Word highlighting is textual, not a compiler-semantic analysis.
 
+## Picker readability
+
+The active diagnostic message wraps within its picker column instead of being
+hidden behind the preview. `Alt-]` / `Alt-[` scroll long messages; moving to a
+different diagnostic resets the scroll. File previews show a loading state until
+asynchronous Tree-sitter highlighting resolves, with plaintext fallback if no
+parser is available.
+
 ## GitLens
 
 With your `B` binding, open on-demand blame details without continuously rendering
