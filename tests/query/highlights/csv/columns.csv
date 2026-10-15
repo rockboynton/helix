@@ -1,0 +1,30 @@
+first,second,third,fourth,fifth,sixth,seventh
+# ^ @type
+#     ^ @function
+#            ^ @constant
+#                  ^ @keyword
+#                         ^ @function.macro
+#                               ^ @tag
+#                                     ^ @variable.builtin
+#    ^ @punctuation.delimiter
+
+first;second;third;fourth;fifth;sixth;seventh
+# ^ @type
+#     ^ @function
+#            ^ @constant
+#                  ^ @keyword
+#                         ^ @function.macro
+#                               ^ @tag
+#                                     ^ @variable.builtin
+#    ^ @punctuation.delimiter
+
+first|second|third|fourth|fifth|sixth|seventh
+# ^ @type
+#     ^ @function
+#            ^ @constant
+#                  ^ @keyword
+#                         ^ @function.macro
+#                               ^ @tag
+#                                     ^ @variable.builtin
+#    ^ @punctuation.delimiter
+

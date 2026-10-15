@@ -1,10 +1,10 @@
-(first)@type
-(second)@function
-(third)@constant
-(fourth)@operator
-(fifth)@type
-(sixth)@function
-(seventh)@constant
+(first) @type
+(second) @function
+(third) @constant
+(fourth) @keyword
+(fifth) @function.macro
+(sixth) @tag
+(seventh) @variable.builtin
 
 [
   ";"
