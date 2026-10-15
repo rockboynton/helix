@@ -4520,6 +4520,7 @@ fn goto_prev_change(cx: &mut Context) {
 
 fn goto_next_change_impl(cx: &mut Context, direction: Direction) {
     if cx.editor.diff_session.is_some()
+        || cx.editor.inline_diff_session.is_some()
         || cx.editor.three_diff_session.is_some()
         || doc!(cx.editor).inline_diff.is_some()
     {

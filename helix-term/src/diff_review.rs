@@ -340,7 +340,11 @@ pub fn finish(editor: &mut Editor, compositor: &mut crate::compositor::Composito
         Some((entry.documents[1]?, review.views.clone()))
     });
     let target = review_target.or_else(|| {
-        if let Some(session) = &editor.diff_session {
+        if let Some(session) = editor
+            .diff_session
+            .as_ref()
+            .or(editor.inline_diff_session.as_ref())
+        {
             Some((session.documents[1], session.views.to_vec()))
         } else {
             editor.three_diff_session.as_ref().map(|session| {
@@ -740,7 +744,16 @@ impl Review {
         }
         let texts = ids.map(|id| editor.document(id).unwrap().text().clone());
         let versions = ids.map(|id| editor.document(id).unwrap().version());
-        if self.layout == Layout::Inline {
+        if self.layout == Layout::Inline
+            && entry.patch.is_none()
+            && entry.message.is_none()
+            && !editor.document(ids[1]).unwrap().is_read_only()
+        {
+            editor.focus(self.views[0]);
+            editor.switch(ids[1], Action::Replace);
+            restore(editor, ids[1], self.views[0], self.positions.get(&ids[1]));
+            editor.start_inline_diff(ids, self.views[0])?;
+        } else if self.layout == Layout::Inline {
             let id = if let Some((id, _, _)) = entry.inline.filter(|(id, old_ids, old)| {
                 *old_ids == ids && *old == versions && editor.document(*id).is_some()
             }) {
@@ -802,7 +815,9 @@ impl Review {
             index + 1,
             self.entries.len(),
             self.entries[index].name.display(),
-            if self.layout == Layout::Inline {
+            if editor.inline_diff_session.is_some() {
+                "inline, editable"
+            } else if self.layout == Layout::Inline {
                 "inline, read-only"
             } else {
                 "split"
@@ -819,7 +834,11 @@ impl Review {
         if entry.patch.is_some() || entry.message.is_some() {
             return;
         }
-        let Some(session) = &editor.diff_session else {
+        let Some(session) = editor
+            .diff_session
+            .as_ref()
+            .or(editor.inline_diff_session.as_ref())
+        else {
             return;
         };
         if entry.documents != session.documents.map(Some) {

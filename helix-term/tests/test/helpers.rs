@@ -408,6 +408,12 @@ impl AppBuilder {
         self
     }
 
+    pub fn with_editable_inline_diff(mut self) -> Self {
+        self.args.diff = true;
+        self.args.diff_layout = Some(helix_term::diff_render::Layout::Inline);
+        self
+    }
+
     pub fn with_patch(mut self, layout: helix_term::diff_render::Layout) -> Self {
         self.args.patch = true;
         self.args.pager = true;

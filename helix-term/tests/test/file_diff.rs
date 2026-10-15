@@ -1,6 +1,103 @@
 use super::helpers::*;
 use helix_view::current_ref;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn editable_inline_uses_real_working_document_and_virtual_source_highlighting(
+) -> anyhow::Result<()> {
+    use std::io::Write;
+    let mut left = tempfile::Builder::new().suffix(".rs").tempfile()?;
+    let mut right = tempfile::Builder::new().suffix(".rs").tempfile()?;
+    left.write_all(b"/*\nfn old() {}\n*/\n")?;
+    right.write_all(b"fn new() {}\n")?;
+    let mut app = AppBuilder::new()
+        .with_file(left.path(), None)
+        .with_file(right.path(), None)
+        .with_editable_inline_diff()
+        .build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                None,
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert!(!doc.is_read_only());
+                    assert_eq!(doc.path().unwrap(), right.path());
+                    assert!(doc.syntax().is_some());
+                    assert!(
+                        doc.inline_diff.is_none(),
+                        "not a synthetic editable patch buffer"
+                    );
+                    assert_eq!(doc.text().to_string(), "fn new() {}\n");
+                    let area = view.inner_area(doc);
+                    let surface = app.test_surface();
+                    let old = &surface[(area.x, area.y + 1)];
+                    let new = &surface[(area.x, area.y + 3)];
+                    assert_eq!(old.symbol.as_str(), "f");
+                    assert_eq!(new.symbol.as_str(), "f");
+                    assert_ne!(old.fg, new.fg, "deleted comment uses baseline syntax");
+                    assert!(view
+                        .text_pos_at_screen_coords(
+                            doc,
+                            area.y + 1,
+                            area.x,
+                            view.text_format(doc, area.width, None),
+                            &view.text_annotations(doc, None),
+                            true
+                        )
+                        .is_none());
+                }),
+            ),
+            (
+                Some("A // edited<esc>:w<ret>"),
+                Some(&|app| {
+                    let (_, doc) = current_ref!(app.editor);
+                    assert_eq!(doc.text().to_string(), "fn new() {} // edited\n");
+                    assert!(!doc.is_modified());
+                    assert_eq!(
+                        std::fs::read_to_string(right.path()).unwrap(),
+                        "fn new() {} // edited\n"
+                    );
+                }),
+            ),
+            (
+                Some(":diff-get<ret>"),
+                Some(&|app| {
+                    assert_eq!(
+                        current_ref!(app.editor).1.text().to_string(),
+                        "/*\nfn old() {}\n*/\n"
+                    );
+                }),
+            ),
+            (
+                Some("u"),
+                Some(&|app| {
+                    assert_eq!(
+                        current_ref!(app.editor).1.text().to_string(),
+                        "fn new() {} // edited\n"
+                    );
+                }),
+            ),
+            (
+                Some(":diff-off<ret>"),
+                Some(&|app| {
+                    assert!(app.editor.inline_diff_session.is_none());
+                    assert_eq!(app.editor.tree.views().count(), 1);
+                    assert_eq!(current_ref!(app.editor).1.path().unwrap(), right.path());
+                }),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    assert_eq!(
+        std::fs::read_to_string(left.path())?,
+        "/*\nfn old() {}\n*/\n"
+    );
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn three_way_scrolls_all_columns_and_preserves_alignment_on_focus() -> anyhow::Result<()> {
     let lines = (0..260)

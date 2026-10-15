@@ -1465,6 +1465,7 @@ type Diagnostics = BTreeMap<Uri, Vec<(lsp::Diagnostic, DiagnosticProvider)>>;
 
 pub struct Editor {
     pub diff_session: Option<crate::diff_session::DiffSession>,
+    pub inline_diff_session: Option<crate::diff_session::DiffSession>,
     pub navigation_generation: u64,
     pub three_diff_session: Option<crate::diff_session::DiffSession<3>>,
     /// Pager session policy; documents themselves retain independent access flags.
@@ -1658,6 +1659,7 @@ impl Editor {
 
     pub fn stop_diff(&mut self) {
         self.diff_session = None;
+        self.inline_diff_session = None;
         self.three_diff_session = None;
         for (view, _) in self.tree.views_mut() {
             if view.diff_document == Some(view.doc) {
@@ -1700,6 +1702,38 @@ impl Editor {
 
     /// Only snapshots on the UI thread; diff computation runs in the worker.
     pub fn refresh_diff(&mut self) {
+        if let Some(mut session) = self.inline_diff_session.take() {
+            let view = session.views[1];
+            if !self
+                .tree
+                .try_get(view)
+                .is_some_and(|view| view.doc == session.documents[1])
+                || session
+                    .documents
+                    .iter()
+                    .any(|id| !self.documents.contains_key(id))
+            {
+                self.stop_diff();
+            } else {
+                let versions = session.documents.map(|id| self.documents[&id].version());
+                session.update(
+                    session
+                        .documents
+                        .map(|id| self.documents[&id].text().clone()),
+                    versions,
+                );
+                self.tree.get_mut(view).diff = session
+                    .result
+                    .load_full()
+                    .filter(|layout| layout.versions == versions)
+                    .map(|layout| crate::diff_session::DiffView {
+                        document: session.documents[1],
+                        version: versions[1],
+                        side: layout.sides[1].clone(),
+                    });
+                self.inline_diff_session = Some(session);
+            }
+        }
         if let Some(mut session) = self.diff_session.take() {
             if self.refresh_comparison(&mut session) {
                 self.diff_session = Some(session);
@@ -1740,6 +1774,39 @@ impl Editor {
         let versions = documents.map(|id| self.document(id).unwrap().version());
         self.three_diff_session = Some(crate::diff_session::DiffSession::new(
             documents, views, texts, versions,
+        ));
+        Ok(())
+    }
+
+    pub fn start_inline_diff(
+        &mut self,
+        documents: [DocumentId; 2],
+        view: ViewId,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            documents[0] != documents[1]
+                && documents.iter().all(|id| self.documents.contains_key(id)),
+            "compare two existing different buffers"
+        );
+        anyhow::ensure!(
+            self.tree.get(view).doc == documents[1],
+            "inline view must show the working document"
+        );
+        self.stop_diff();
+        self.tree.get_mut(view).diff_document = Some(documents[1]);
+        let doc = self.documents.get_mut(&documents[1]).unwrap();
+        let mut offset = doc.view_offset(view);
+        offset.anchor = doc.text().line_to_char(
+            doc.text()
+                .char_to_line(offset.anchor.min(doc.text().len_chars())),
+        );
+        offset.vertical_offset = 0;
+        doc.set_view_offset(view, offset);
+        self.inline_diff_session = Some(crate::diff_session::DiffSession::new_inline(
+            documents,
+            view,
+            documents.map(|id| self.documents[&id].text().clone()),
+            documents.map(|id| self.documents[&id].version()),
         ));
         Ok(())
     }
@@ -1838,6 +1905,7 @@ impl Editor {
             mode: Mode::Normal,
             pager: false,
             diff_session: None,
+            inline_diff_session: None,
             navigation_generation: 0,
             three_diff_session: None,
             tree: Tree::new(area),

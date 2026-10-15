@@ -283,6 +283,16 @@ impl Application {
                 );
                 editor.new_file_from_document(Action::VerticalSplit, doc);
             }
+        } else if args.diff
+            && args.diff_layout == Some(crate::diff_render::Layout::Inline)
+            && !args.pager
+        {
+            let paths = diff_paths.as_ref().unwrap();
+            let before = editor.open(&paths[0], Action::VerticalSplit)?;
+            editor.document_mut(before).unwrap().access =
+                helix_view::document::DocumentAccess::ReadOnly;
+            let after = editor.open(&paths[1], Action::Replace)?;
+            editor.start_inline_diff([before, after], editor.tree.focus)?;
         } else if args.diff && args.diff_layout == Some(crate::diff_render::Layout::Inline) {
             let paths = diff_paths.as_ref().unwrap();
             let mut sources = Vec::new();

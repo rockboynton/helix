@@ -133,7 +133,8 @@ async fn directory_review_navigates_layouts_keeps_edits_and_refreshes_new_files(
                 Some(":diff-file-prev<ret>:diff-layout inline<ret>"),
                 Some(&|app| {
                     let (_, doc) = current_ref!(app.editor);
-                    assert!(doc.is_read_only());
+                    assert!(!doc.is_read_only());
+                    assert!(app.editor.inline_diff_session.is_some());
                     assert!(doc.text().to_string().contains("// edited"));
                     assert_eq!(app.editor.tree.views().count(), 1);
                 }),

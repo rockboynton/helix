@@ -2466,16 +2466,30 @@ fn diff_action(
             layout,
         )
     } else {
+        let inline = cx.editor.inline_diff_session.is_some();
         let session = cx
             .editor
             .diff_session
             .as_ref()
+            .or(cx.editor.inline_diff_session.as_ref())
             .ok_or_else(|| anyhow!("no active file comparison"))?;
-        let side = session
-            .views
-            .iter()
-            .position(|&id| id == cx.editor.tree.focus)
-            .ok_or_else(|| anyhow!("focus a diff pane first"))?;
+        let side = if inline {
+            anyhow::ensure!(
+                cx.editor.tree.focus == session.views[1],
+                "focus the inline diff first"
+            );
+            anyhow::ensure!(
+                action != "put",
+                "inline baseline is read-only; use diff-get to restore a hunk"
+            );
+            1
+        } else {
+            session
+                .views
+                .iter()
+                .position(|&id| id == cx.editor.tree.focus)
+                .ok_or_else(|| anyhow!("focus a diff pane first"))?
+        };
         let documents = session.documents;
         let views = session.views;
         let versions = documents.map(|id| cx.editor.document(id).unwrap().version());

@@ -22,6 +22,14 @@ pub struct DiffSide {
     pub changed: Vec<Range<usize>>,
     pub gutter_hunks: Vec<DiffGutterHunk>,
     pub words: Vec<Range<usize>>,
+    /// Baseline rows displayed virtually before working lines in editable inline mode.
+    pub removed: Vec<RemovedBlock>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RemovedBlock {
+    pub row: usize,
+    pub lines: Range<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +98,34 @@ impl LineAnnotation for Alignment {
     }
 }
 impl<const N: usize> DiffLayout<N> {
+    fn inline(texts: &[Rope; N], versions: [i32; N]) -> Self {
+        assert_eq!(N, 2);
+        let mut layout = Self::compute(texts, versions);
+        let working = Arc::make_mut(&mut layout.sides[1]);
+        working.rows.clear();
+        let mut hunks = layout.hunks.iter().peekable();
+        let mut row = 0;
+        for line in 0..texts[1].len_lines() {
+            while let Some(hunk) = hunks
+                .peek()
+                .filter(|hunk| hunk.after.start as usize == line)
+            {
+                if !hunk.before.is_empty() {
+                    let lines = hunk.before.start as usize..hunk.before.end as usize;
+                    working.removed.push(RemovedBlock {
+                        row,
+                        lines: lines.clone(),
+                    });
+                    row += lines.len();
+                }
+                hunks.next();
+            }
+            working.rows.push(row);
+            row += 1;
+        }
+        layout
+    }
+
     pub fn compute(texts: &[Rope; N], versions: [i32; N]) -> Self {
         assert!(N == 2 || N == 3);
         if N == 3 {
@@ -262,6 +298,26 @@ impl<const N: usize> DiffSession<N> {
         texts: [Rope; N],
         versions: [i32; N],
     ) -> Self {
+        Self::spawn(documents, views, texts, versions, false)
+    }
+
+    pub fn new_inline(
+        documents: [DocumentId; N],
+        view: ViewId,
+        texts: [Rope; N],
+        versions: [i32; N],
+    ) -> Self {
+        assert_eq!(N, 2);
+        Self::spawn(documents, [view; N], texts, versions, true)
+    }
+
+    fn spawn(
+        documents: [DocumentId; N],
+        views: [ViewId; N],
+        texts: [Rope; N],
+        versions: [i32; N],
+        inline: bool,
+    ) -> Self {
         let (sender, mut receiver) = watch::channel(Request { texts, versions });
         let result = Arc::new(ArcSwapOption::empty());
         let output = result.clone();
@@ -270,7 +326,11 @@ impl<const N: usize> DiffSession<N> {
                 let request = receiver.borrow_and_update().clone();
                 let versions = request.versions;
                 let Ok(layout) = tokio::task::spawn_blocking(move || {
-                    DiffLayout::compute(&request.texts, versions)
+                    if inline {
+                        DiffLayout::inline(&request.texts, versions)
+                    } else {
+                        DiffLayout::compute(&request.texts, versions)
+                    }
                 })
                 .await
                 else {
@@ -311,6 +371,20 @@ impl<const N: usize> Drop for DiffSession<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn inline_rows_reserve_removed_text_before_working_lines_including_eof() {
+        let before = Rope::from_str("old\nold2\nsame\nremoved\n");
+        let after = Rope::from_str("new\nsame\n");
+        let layout = DiffLayout::inline(&[before, after], [1, 2]);
+        let side = &layout.sides[1];
+        assert_eq!(side.rows, [2, 3, 5]);
+        assert_eq!(side.removed.len(), 2);
+        assert_eq!(side.removed[0].row, 0);
+        assert_eq!(side.removed[0].lines, 0..2);
+        assert_eq!(side.removed[1].row, 4);
+        assert_eq!(side.removed[1].lines, 3..4);
+        assert_eq!(side.padding_after(1), 1);
+    }
     #[test]
     fn three_way_alignment_combines_both_variants_gaps_and_base_changes() {
         let texts = [

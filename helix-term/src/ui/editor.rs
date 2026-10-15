@@ -288,6 +288,7 @@ impl EditorView {
                 decorations,
                 Some(view.text_format(doc, inner.width, Some(theme))),
             );
+            text_decorations::diff::render_removed(editor, doc, view, surface);
 
             // if we're not at the edge of the screen, draw a right border
             if viewport.right() != view.area.right() {

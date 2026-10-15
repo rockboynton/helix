@@ -14,8 +14,8 @@ jj diff --color-words --color never | hx --patch
 
 File paths select the normal Helix language/Tree-sitter configuration. Patches
 accept Git unified and native JJ markers, are read-only, and never open paths
-named inside the patch. Inline views are read-only projections; switch a review
-to side-by-side to edit its working file. `--pager` makes file inputs read-only.
+named inside the patch. Inline file/review views edit the real working document;
+deleted baseline rows are virtual and read-only. `--pager` makes file inputs read-only.
 
 ## Inside the editor
 

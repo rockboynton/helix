@@ -91,14 +91,19 @@ resolver, and requires three complete files (not partial patch input).
 
 ## Interactive inline viewing
 
-`hx --diff --diff-layout inline before.rs after.rs` opens a single read-only
-Helix buffer. Use normal movement, search, selection, yank and horizontal
-scrolling; `q` exits. `:diff-next` and `:diff-prev` jump between hunks. The
-gutter shows old/new source line numbers and normal Helix change icons.
-Removed lines precede added lines; unchanged lines appear once. Syntax is
-queried from each original complete source tree, not a synthetic patch tree.
-Presentation newlines separate unterminated source lines without modifying
-either file. Writes and hunk transfers are rejected, including forced writes.
+`hx --diff --diff-layout inline before.rs after.rs` opens the real `after.rs`
+document for editing, with removed baseline lines rendered as virtual, read-only
+rows before the corresponding working lines. Movement, selections, search,
+LSP, undo and saves operate on the working file, not synthetic patch text.
+Deleted rows retain syntax highlighting from the complete baseline source tree
+and use the normal configured gutter icons. They are not cursor/edit targets.
+`:diff-next` / `:diff-prev` navigate hunks; `:diff-get` restores a baseline hunk
+into the working file as an undoable edit. `:diff-put` is rejected because the
+inline baseline is read-only. Nothing is saved until `:write`.
+
+Add `--pager` for a strictly read-only synthetic presentation in which both old
+and new text are searchable/selectable and `q` exits. Raw patch input remains
+read-only too: partial patches do not provide a complete save target.
 
 ## Read-only rendering: standalone and jjui
 
@@ -224,5 +229,5 @@ requires an interactive host integration, not only a `ui.pager` setting.
 The formatter contract is implemented by `--render-diff`; the interactive host
 contract is future work. Current non-terminal `--pager` output is still
 byte-preserving passthrough (except explicit patch formatting). Interactive
-inline and raw-patch views are read-only; paired full-file comparison remains
-editable unless `--pager` is specified.
+raw-patch views are read-only; full-file split and inline comparison are editable
+unless `--pager` is specified.

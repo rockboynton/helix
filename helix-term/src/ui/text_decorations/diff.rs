@@ -1,6 +1,135 @@
 //! Diff backgrounds are independent of bright gutter colors.
 use helix_view::{graphics::Color, Theme};
 
+/// Render only visible baseline rows into space reserved by the working view's
+/// line annotations. These rows never belong to the editable document.
+pub fn render_removed(
+    editor: &helix_view::Editor,
+    doc: &helix_view::Document,
+    view: &helix_view::View,
+    surface: &mut tui::buffer::Buffer,
+) {
+    let Some(session) = editor
+        .inline_diff_session
+        .as_ref()
+        .filter(|session| session.views[1] == view.id)
+    else {
+        return;
+    };
+    let Some(layout) = session.result.load_full().filter(|layout| {
+        layout.versions
+            == session
+                .documents
+                .map(|id| editor.document(id).unwrap().version())
+    }) else {
+        return;
+    };
+    let Some(side) = view.diff_side(doc) else {
+        return;
+    };
+    let baseline = editor.document(session.documents[0]).unwrap();
+    let offset = doc.view_offset(view.id);
+    let line = doc
+        .text()
+        .char_to_line(offset.anchor.min(doc.text().len_chars()));
+    let top = side
+        .row(line)
+        .saturating_sub(if offset.anchor == 0 { side.rows[0] } else { 0 })
+        + offset.vertical_offset;
+    let inner = view.inner_area(doc);
+    let theme = &editor.theme;
+    let loader = editor.syn_loader.load();
+    let first = side
+        .removed
+        .partition_point(|block| block.row + block.lines.len() <= top);
+    for block in side.removed[first..]
+        .iter()
+        .take_while(|block| block.row < top + inner.height as usize)
+    {
+        for source_line in block.lines.clone() {
+            let row = block.row + source_line - block.lines.start;
+            if !(top..top + inner.height as usize).contains(&row) {
+                continue;
+            }
+            let viewport = helix_view::graphics::Rect::new(
+                inner.x,
+                inner.y + (row - top) as u16,
+                inner.width,
+                1,
+            );
+            let anchor = baseline.text().line_to_char(source_line);
+            let end = anchor + baseline.text().line(source_line).len_chars();
+            let words = &layout.sides[0].words;
+            let begin = words.partition_point(|range| range.end <= anchor);
+            let mut decorations = super::DecorationManager::default();
+            decorations.add_decoration(Words(Some(
+                words[begin..]
+                    .iter()
+                    .take_while(|range| range.start < end)
+                    .map(|range| (range.clone(), word_background(theme, true)))
+                    .collect(),
+            )));
+            let bg = background(theme, true);
+            decorations.add_decoration(
+                move |renderer: &mut crate::ui::document::TextRenderer,
+                      pos: crate::ui::document::LinePos| {
+                    renderer.set_line_background(Some(bg), pos.visual_line);
+                },
+            );
+            let highlighter =
+                crate::ui::EditorView::doc_syntax_highlighter(baseline, anchor, 1, &loader);
+            let mut format = baseline.text_format(inner.width, Some(theme));
+            format.soft_wrap = false;
+            crate::ui::document::render_document(
+                surface,
+                viewport,
+                baseline,
+                helix_view::view::ViewPosition {
+                    anchor,
+                    horizontal_offset: offset.horizontal_offset,
+                    vertical_offset: 0,
+                },
+                &helix_core::text_annotations::TextAnnotations::default(),
+                highlighter,
+                Vec::new(),
+                theme,
+                decorations,
+                Some(format),
+            );
+            // Respect the configured gutter layout and icons rather than adding patch +/- prefixes.
+            let mut x = view.area.x;
+            for gutter in &view.gutters.layout {
+                let width = gutter.width(view, doc);
+                match gutter {
+                    helix_view::editor::GutterType::LineNumbers => {
+                        surface.set_stringn(
+                            x,
+                            viewport.y,
+                            &format!("{:>width$}", source_line + 1),
+                            width,
+                            theme.get("ui.linenr"),
+                        );
+                    }
+                    helix_view::editor::GutterType::Diff => {
+                        let icon = &editor.icons.diff.deleted;
+                        surface.set_stringn(
+                            x,
+                            viewport.y,
+                            &icon.icon_char.to_string(),
+                            width,
+                            icon.style
+                                .map(Into::into)
+                                .unwrap_or_else(|| theme.get("diff.minus.gutter")),
+                        );
+                    }
+                    _ => {}
+                }
+                x = x.saturating_add(width as u16);
+            }
+        }
+    }
+}
+
 pub fn word_background(theme: &Theme, removed: bool) -> Color {
     let scope = if removed {
         "ui.diff.minus.word"

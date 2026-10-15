@@ -17,8 +17,11 @@ are reused; switching files retains unsaved buffers. `:diff-get` can restore a
 baseline hunk into the working file; `:diff-put` cannot modify the baseline.
 Native `]c` / `[c` and `:diff-next` / `:diff-prev` navigate hunks.
 
-Inline review is currently a **read-only presentation** of the latest in-memory
-sources, including unsaved edits. Switch back to split view to edit. Patch input
+Inline review edits the **real working document** with deleted baseline lines
+rendered as virtual, read-only rows. Editing, undo, search, LSP operations and
+saves use working-file coordinates; deleted text cannot leak into a save.
+`:diff-get` restores the baseline hunk; `:diff-put` cannot edit the hidden baseline.
+Layout switches retain the working buffer and its unsaved edits. Patch input
 and `--pager` remain read-only in either layout; referenced patch paths are never
 opened. See [file comparison](file-diff.md) for rendering and patch format details.
 
