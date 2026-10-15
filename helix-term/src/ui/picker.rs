@@ -692,6 +692,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 if self.preview_cache.contains_key(path) {
                     let (key, preview) = self.preview_cache.get_key_value(path).unwrap();
                     if matches!(preview, CachedPreview::PendingSyntax(_, running) if !running.load(atomic::Ordering::Acquire))
+                        && handlers::preview_parse_slot_available()
                     {
                         helix_event::send_blocking(&self.preview_highlight_handler, key.clone());
                     }

@@ -7,6 +7,15 @@ use std::{
 use helix_event::AsyncHook;
 use tokio::time::Instant;
 
+// Shared across picker instances, including parsers finishing after a picker
+// closes. Never queue speculative parses behind these workers: a pending
+// selection is retried on the redraw triggered by a completed parse.
+static PREVIEW_PARSE_SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+
+pub(super) fn preview_parse_slot_available() -> bool {
+    PREVIEW_PARSE_SLOTS.available_permits() != 0
+}
+
 use crate::{job, ui::overlay::Overlay};
 
 use super::{CachedPreview, DynQueryCallback, Picker};
@@ -31,17 +40,42 @@ mod tests {
         drop(callback);
         assert!(!running.load(atomic::Ordering::Acquire));
     }
+
+    #[test]
+    fn saturated_parsers_do_not_trigger_a_redraw_retry_loop() {
+        let first = PREVIEW_PARSE_SLOTS.try_acquire().unwrap();
+        let second = PREVIEW_PARSE_SLOTS.try_acquire().unwrap();
+        assert!(!preview_parse_slot_available());
+        drop(first);
+        assert!(preview_parse_slot_available());
+        drop(second);
+    }
+
+    #[cfg(feature = "integration")]
+    #[tokio::test]
+    async fn preview_highlighting_dispatches_immediately_without_a_timer() {
+        let mut jobs = job::Jobs::new();
+        let mut handler = PreviewHighlightHandler::<(), ()>::default();
+        let path: Arc<Path> = Path::new("preview.rs").into();
+        // Even an existing distant timer must not defer preview work.
+        let deadline = Instant::now() + Duration::from_secs(60);
+        assert!(handler.handle_event(path.clone(), Some(deadline)).is_none());
+        assert!(jobs.callbacks.try_recv().is_ok());
+        // Repeated selection/redraw events are immediate too. The callback's
+        // running flag prevents duplicate parses, not a debounce timer.
+        assert!(handler.handle_event(path, None).is_none());
+        assert!(jobs.callbacks.try_recv().is_ok());
+        assert!(jobs.callbacks.try_recv().is_err());
+    }
 }
 
 pub(super) struct PreviewHighlightHandler<T: 'static + Send + Sync, D: 'static + Send + Sync> {
-    trigger: Option<Arc<Path>>,
     phantom_data: std::marker::PhantomData<(T, D)>,
 }
 
 impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Default for PreviewHighlightHandler<T, D> {
     fn default() -> Self {
         Self {
-            trigger: None,
             phantom_data: Default::default(),
         }
     }
@@ -55,26 +89,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
     fn handle_event(
         &mut self,
         path: Self::Event,
-        timeout: Option<tokio::time::Instant>,
+        _timeout: Option<tokio::time::Instant>,
     ) -> Option<tokio::time::Instant> {
-        if self
-            .trigger
-            .as_ref()
-            .is_some_and(|trigger| trigger == &path)
-        {
-            // If the path hasn't changed, don't reset the debounce
-            timeout
-        } else {
-            self.trigger = Some(path);
-            Some(Instant::now() + Duration::from_millis(150))
-        }
-    }
-
-    fn finish_debounce(&mut self) {
-        let Some(path) = self.trigger.take() else {
-            return;
-        };
-
         job::dispatch_blocking(move |editor, compositor| {
             let Some(Overlay {
                 content: picker, ..
@@ -96,6 +112,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
             let Some(language) = doc.language_config().map(|config| config.language()) else {
                 return;
             };
+            let Ok(permit) = PREVIEW_PARSE_SLOTS.try_acquire() else {
+                return;
+            };
             if running.swap(true, atomic::Ordering::AcqRel) {
                 return;
             }
@@ -113,6 +132,9 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
                         None
                     }
                 };
+                // Release before publishing: that callback redraws the picker
+                // and may immediately retry a selection waiting for a slot.
+                drop(permit);
 
                 job::dispatch_blocking(move |editor, compositor| {
                     let _guard = guard;
@@ -144,7 +166,10 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> AsyncHook
                 });
             });
         });
+        None
     }
+
+    fn finish_debounce(&mut self) {}
 }
 
 pub(super) struct DynamicQueryChange {

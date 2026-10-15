@@ -142,6 +142,10 @@ code or replacing the file-tree sidebar. Repository work stays in the background
 
 File previews wait for their asynchronous syntax result instead of flashing
 plaintext first; unsupported/failed parsers fall back to a stable plaintext view.
+Preview parsing starts immediately, independently of `idle-timeout`, with no
+highlighting debounce. At most two previews parse concurrently across pickers;
+the selected file retries when a worker becomes available. Ready cached previews
+and already-open buffers are reused without parsing again.
 Diagnostic pickers expand and wrap the active message inside the list pane,
 without overlapping the file preview. `Alt-]` / `Alt-[` scroll a message taller
 than the picker; moving to another diagnostic resets that message's scroll.
