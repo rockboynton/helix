@@ -46,7 +46,7 @@ location; existing visible cursors and multiple selections are preserved.
 | `:diff-next`, `:diff-prev` | Jump between changed hunks in the focused pane |
 | `:diff-get` | Replace the hunk at the cursor with the other pane's version |
 | `:diff-put` | Copy the hunk at the cursor into the other pane |
-| `:diff-off` | Remove comparison decorations; keep both buffers open |
+| `:diff-off` | Keep working file in the left pane; close extra comparison panes, retaining buffers |
 
 Transfers are ordinary undoable edits, not writes to disk. Save each file with
 `:write`, or both with `:write-all`. Nothing is automatically saved. An empty
@@ -83,7 +83,9 @@ From an outer pane, `:diff-get` copies the base hunk into that variant;
 `:diff-put` copies that variant's hunk into base. These are undoable edits,
 never automatic writes. Transfer commands in the base pane require choosing
 an outer pane first, rather than guessing a variant. Editing base recomputes
-both comparisons. `:diff-off` ends the comparison without closing buffers.
+both comparisons. `:diff-off` keeps the focused outer variant (or the right
+variant when base is focused) in the leftmost comparison pane and closes the
+other comparison panes. All buffers, including unsaved edits, remain available.
 This is a three-way comparison/editor, not an automatic merge or conflict
 resolver, and requires three complete files (not partial patch input).
 

@@ -279,6 +279,13 @@ fn load_impl(
                     }
                 }
                 if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+                    if view
+                        .file_tree
+                        .as_ref()
+                        .is_some_and(|tree| tree.review.is_none())
+                    {
+                        view.review_previous_tree = view.file_tree.take();
+                    }
                     view.file_tree = Some(tree);
                 }
                 if pending {
@@ -318,10 +325,71 @@ pub fn load_tree(editor: &mut Editor, jobs: &mut crate::job::Jobs, root: PathBuf
                         }
                     }
                     view.file_tree = Some(tree);
+                    view.review_previous_tree = None;
                 }
             },
         )))
     });
+}
+
+/// End the comparison without discarding any buffers or writing files.
+pub fn finish(editor: &mut Editor, compositor: &mut crate::compositor::Compositor) {
+    let review_target = compositor.find::<crate::ui::EditorView>().and_then(|view| {
+        let review = view.file_tree.as_ref()?.review.as_ref()?;
+        let entry = review.entries.get(review.active?)?;
+        Some((entry.documents[1]?, review.views.clone()))
+    });
+    let target = review_target.or_else(|| {
+        if let Some(session) = &editor.diff_session {
+            Some((session.documents[1], session.views.to_vec()))
+        } else {
+            editor.three_diff_session.as_ref().map(|session| {
+                let side = if editor.tree.focus == session.views[0] {
+                    0
+                } else {
+                    2
+                };
+                (session.documents[side], session.views.to_vec())
+            })
+        }
+    });
+    editor.navigation_generation += 1;
+    editor.file_watcher.set_review_roots(Vec::new());
+    editor.stop_diff();
+    if let Some((document, views)) = target {
+        if let Some(&left) = views.iter().find(|&&id| editor.tree.contains(id)) {
+            // Capture the working pane's cursor/scroll before closing its view.
+            let position = views.iter().find_map(|&id| {
+                let view = editor.tree.try_get(id)?;
+                let doc = editor.document(document)?;
+                (view.doc == document).then(|| (doc.selection(id).clone(), doc.view_offset(id)))
+            });
+            if editor.document(document).is_some() {
+                editor.focus(left);
+                editor.switch(document, Action::Replace);
+                if let Some((selection, offset)) = position {
+                    let doc = editor.document_mut(document).unwrap();
+                    doc.set_selection(left, selection);
+                    doc.set_view_offset(left, offset);
+                }
+                for id in views {
+                    if id != left && editor.tree.contains(id) {
+                        editor.close(id);
+                    }
+                }
+                editor.focus(left);
+            }
+        }
+    }
+    if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+        let was_review = view
+            .file_tree
+            .as_ref()
+            .is_some_and(|tree| tree.review.is_some());
+        if was_review || view.review_previous_tree.is_some() {
+            view.file_tree = view.review_previous_tree.take();
+        }
+    }
 }
 
 impl Review {

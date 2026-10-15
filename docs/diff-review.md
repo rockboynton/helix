@@ -34,12 +34,20 @@ opened. See [file comparison](file-diff.md) for rendering and patch format detai
 | `:diff-review-refresh` | Reload the catalog and clean sources, retaining unsaved edits |
 | `Space E`, `:file-tree [directory]` | Focus the current sidebar, or browse a directory |
 | `:file-tree-close` | Close the sidebar without closing documents |
+| `:diff-off` | Keep working file in the left pane and restore the previous sidebar |
 
 While the sidebar is focused: `j`/`k` or arrows select, `h` collapses or selects
 the parent, `l` expands, and Enter opens a file or toggles a directory. `g`/`G`
 select first/last; Tab or Escape returns to the editor. `r` refreshes. In a review,
 `n`/`p` select next/previous file and `v` toggles layouts. Mouse selection and
 wheel scrolling are supported. `Space e` still opens Helix's original file picker.
+
+Ending a review with `:diff-off` replaces the baseline in the leftmost comparison
+pane with the working file and closes only the extra comparison panes. The
+sidebar that preceded the review is restored, including its expansion,
+selection, scroll and focus state; if there was no sidebar, it closes. Unsaved
+edits and baseline buffers remain available, and nothing is saved automatically.
+This works after switching the review to inline layout as well.
 
 The Files sidebar is reusable outside reviews. It respects file-picker ignore,
 hidden-file and depth settings, excludes `.git`/`.jj`, and does not descend into
@@ -73,6 +81,6 @@ immutable; reopen with new input instead of refreshing it.
 
 This is the first multi-file review layer, not yet a complete Hunk/Diffview-style
 VCS interface. Arbitrary revisions, staging, history browsing, editable inline
-deleted-text projections, word-level highlights and continuous/folded changeset
+deleted-text projections and continuous/folded changeset
 views are not implemented. Input is finite and catalogs retain source snapshots
 in memory; this is not a streaming viewer for arbitrarily large changesets.

@@ -2384,8 +2384,10 @@ impl Editor {
                 // Boolean value is determined before the call to `view_mut` because the operation requires a borrow
                 // of `self.tree`, which is mutably borrowed when `view_mut` is called.
                 let remove_empty_scratch = !doc.is_modified()
-                    // If the buffer has no path and is not modified, it is an empty scratch buffer.
+                    // Named/loaded snapshots are buffers too, not disposable empty scratches.
                     && doc.path().is_none()
+                    && doc.name.is_none()
+                    && doc.text().len_chars() == 0
                     // If the buffer we are changing to is not this buffer
                     && id != doc.id
                     // Ensure the buffer is not displayed in any other splits.

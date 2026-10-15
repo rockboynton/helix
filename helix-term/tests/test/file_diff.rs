@@ -152,6 +152,7 @@ async fn three_way_diff_aligns_edits_transfers_undo_and_reuses_columns() -> anyh
                 Some(&|app| {
                     assert!(app.editor.three_diff_session.is_none());
                     assert!(app.editor.tree.views().all(|(view, _)| view.diff.is_none()));
+                    assert_eq!(app.editor.tree.views().count(), 1);
                 }),
             ),
             (Some(":qa!<ret>"), None),
@@ -762,7 +763,8 @@ async fn editable_diff_get_put_undo_and_stop() -> anyhow::Result<()> {
                 Some(&|app| {
                     assert!(app.editor.diff_session.is_none());
                     assert!(app.editor.tree.views().all(|(view, _)| view.diff.is_none()));
-                    assert_eq!(app.editor.tree.views().count(), 2);
+                    assert_eq!(app.editor.tree.views().count(), 1);
+                    assert_eq!(current_ref!(app.editor).1.path().unwrap(), right.path());
                 }),
             ),
             (Some(":qa!<ret>"), None),

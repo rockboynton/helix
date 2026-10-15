@@ -11,6 +11,86 @@ fn tree(app: &helix_term::application::Application) -> &helix_term::ui::file_tre
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn diff_off_restores_sidebar_and_keeps_dirty_working_file_on_left() -> anyhow::Result<()> {
+    check_diff_off(false).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn diff_off_from_inline_restores_sidebar_and_keeps_dirty_working_file() -> anyhow::Result<()>
+{
+    check_diff_off(true).await
+}
+
+async fn check_diff_off(inline: bool) -> anyhow::Result<()> {
+    let left = tempfile::tempdir()?;
+    let right = tempfile::tempdir()?;
+    std::fs::create_dir(left.path().join("src"))?;
+    std::fs::create_dir(right.path().join("src"))?;
+    std::fs::write(left.path().join("src/main.rs"), "fn old() {}\n")?;
+    std::fs::write(right.path().join("src/main.rs"), "fn new() {}\n")?;
+    let mut app = AppBuilder::new().build()?;
+    let browse = format!(":file-tree {}<ret>", left.path().display());
+    let review = format!(
+        ":diff-review {} {}<ret>",
+        left.path().display(),
+        right.path().display()
+    );
+    test_key_sequences(
+        &mut app,
+        vec![
+            (Some(&browse), None),
+            (
+                Some("l<esc>"),
+                Some(&|app| {
+                    assert!(tree(app).expanded.contains(std::path::Path::new("src")));
+                }),
+            ),
+            (
+                Some(&review),
+                Some(&|app| assert!(tree(app).review.is_some())),
+            ),
+            (Some("A // unsaved<esc>"), None),
+            (
+                Some(if inline {
+                    ":diff-layout inline<ret>"
+                } else {
+                    "<esc>"
+                }),
+                None,
+            ),
+            (
+                Some(":diff-off<ret>"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert_eq!(app.editor.tree.views().count(), 1);
+                    assert!(app.editor.diff_session.is_none());
+                    assert_eq!(doc.path().unwrap(), &right.path().join("src/main.rs"));
+                    assert!(doc.is_modified());
+                    assert!(doc.text().to_string().contains("// unsaved"));
+                    assert!(view.diff.is_none());
+                    assert_eq!(tree(app).root, left.path());
+                    assert!(tree(app).review.is_none());
+                    assert!(!tree(app).focused);
+                    assert!(tree(app).expanded.contains(std::path::Path::new("src")));
+                    assert!(app.editor.documents().any(|doc| doc
+                        .name
+                        .as_deref()
+                        .is_some_and(|name| name.starts_with("Before:"))));
+                }),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    assert_eq!(
+        std::fs::read_to_string(right.path().join("src/main.rs"))?,
+        "fn new() {}\n"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn directory_review_navigates_layouts_keeps_edits_and_refreshes_new_files(
 ) -> anyhow::Result<()> {
     let left = tempfile::tempdir()?;

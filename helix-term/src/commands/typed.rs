@@ -2374,7 +2374,11 @@ fn diff_three(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
 
 fn diff_off(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event == PromptEvent::Validate {
-        cx.editor.stop_diff();
+        cx.jobs.callback(async {
+            Ok(job::Callback::EditorCompositor(Box::new(
+                crate::diff_review::finish,
+            )))
+        });
     }
     Ok(())
 }
@@ -4357,7 +4361,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand { name: "diff-layout", aliases: &[], doc: "Switch/toggle review layout: inline or side-by-side.", fun: diff_layout, completer: CommandCompleter::none(), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
     TypableCommand { name: "diff-review-refresh", aliases: &[], doc: "Refresh the changeset while preserving open edits.", fun: diff_review_refresh, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-three", aliases: &["diff3"], doc: "Compare left, base, right files in three aligned editable columns.", fun: diff_three, completer: CommandCompleter::all(completers::filename), signature: Signature { positionals: (3, Some(3)), ..Signature::DEFAULT } },
-    TypableCommand { name: "diff-off", aliases: &[], doc: "Stop comparing; keep comparison buffers open.", fun: diff_off, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "diff-off", aliases: &[], doc: "Keep the working file in the left pane, close comparison panes and restore the sidebar; retain all buffers.", fun: diff_off, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-next", aliases: &[], doc: "Jump to the next change in the paired diff.", fun: diff_next, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-prev", aliases: &[], doc: "Jump to the previous change in the paired diff.", fun: diff_prev, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-get", aliases: &[], doc: "Replace this hunk with the other pane's version, without saving.", fun: diff_get, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
