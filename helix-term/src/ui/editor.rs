@@ -168,23 +168,31 @@ impl EditorView {
                 decorations.add_decoration(line_decoration);
             }
 
+            let visible_lines =
+                view.folds
+                    .visible_lines(doc, view_offset.anchor, usize::from(inner.height) + 1);
+            let syntax_anchor = doc
+                .text()
+                .line_to_char(visible_lines.first().copied().unwrap_or(0));
+            let syntax_height = visible_lines
+                .last()
+                .map_or(0, |last| last + 1 - visible_lines[0]);
             let syntax_highlighter =
-                Self::doc_syntax_highlighter(doc, view_offset.anchor, inner.height, &loader);
+                Self::doc_syntax_highlighter(doc, syntax_anchor, syntax_height, &loader);
             let mut overlays = Vec::new();
 
             if doc.inline_diff.is_some() {
                 overlays.push(Self::inline_syntax_highlights(
                     doc,
-                    view_offset.anchor,
-                    inner.height,
+                    visible_lines.iter().copied(),
                     &loader,
                 ));
             }
 
             overlays.push(Self::overlay_syntax_highlights(
                 doc,
-                view_offset.anchor,
-                inner.height,
+                syntax_anchor,
+                syntax_height,
                 &text_annotations,
             ));
 
@@ -193,13 +201,9 @@ impl EditorView {
                 .and_then(|config| config.rainbow_brackets)
                 .unwrap_or(config.rainbow_brackets)
             {
-                if let Some(overlay) = Self::doc_rainbow_highlights(
-                    doc,
-                    view_offset.anchor,
-                    inner.height,
-                    theme,
-                    &loader,
-                ) {
+                if let Some(overlay) =
+                    Self::doc_rainbow_highlights(doc, syntax_anchor, syntax_height, theme, &loader)
+                {
                     overlays.push(overlay);
                 }
             }
@@ -414,12 +418,12 @@ impl EditorView {
     fn viewport_byte_range(
         text: helix_core::RopeSlice,
         row: usize,
-        height: u16,
+        height: usize,
     ) -> std::ops::Range<usize> {
         // Calculate viewport byte ranges:
         // Saturating subs to make it inclusive zero indexing.
         let last_line = text.len_lines().saturating_sub(1);
-        let last_visible_line = (row + height as usize).saturating_sub(1).min(last_line);
+        let last_visible_line = row.saturating_add(height).saturating_sub(1).min(last_line);
         let start = text.line_to_byte(row.min(last_line));
         let end = text.line_to_byte(last_visible_line + 1);
 
@@ -432,13 +436,13 @@ impl EditorView {
     pub fn doc_syntax_highlighter<'editor>(
         doc: &'editor Document,
         anchor: usize,
-        height: u16,
+        height: impl Into<usize>,
         loader: &'editor syntax::Loader,
     ) -> Option<syntax::Highlighter<'editor>> {
         let syntax = doc.syntax()?;
         let text = doc.text().slice(..);
         let row = text.char_to_line(anchor.min(text.len_chars()));
-        let range = Self::viewport_byte_range(text, row, height);
+        let range = Self::viewport_byte_range(text, row, height.into());
         let range = range.start as u32..range.end as u32;
 
         let highlighter = syntax.highlighter(text, loader, range);
@@ -449,14 +453,15 @@ impl EditorView {
     /// presentation buffer deliberately has no synthetic code syntax tree.
     fn inline_syntax_highlights(
         doc: &Document,
-        anchor: usize,
-        height: u16,
+        lines: impl IntoIterator<Item = usize>,
         loader: &syntax::Loader,
     ) -> OverlayHighlights {
         let model = doc.inline_diff.as_ref().unwrap();
-        let start = doc.text().char_to_line(anchor.min(doc.text().len_chars()));
         let mut highlights = Vec::new();
-        for index in start..(start + usize::from(height) + 1).min(model.lines.len()) {
+        for index in lines
+            .into_iter()
+            .take_while(|&index| index < model.lines.len())
+        {
             let line = model.lines[index];
             let source = &model.sources[line.source];
             let Some(syntax) = source.syntax() else {
@@ -495,13 +500,13 @@ impl EditorView {
     pub fn overlay_syntax_highlights(
         doc: &Document,
         anchor: usize,
-        height: u16,
+        height: impl Into<usize>,
         text_annotations: &TextAnnotations,
     ) -> OverlayHighlights {
         let text = doc.text().slice(..);
         let row = text.char_to_line(anchor.min(text.len_chars()));
 
-        let mut range = Self::viewport_byte_range(text, row, height);
+        let mut range = Self::viewport_byte_range(text, row, height.into());
         range = text.byte_to_char(range.start)..text.byte_to_char(range.end);
 
         text_annotations.collect_overlay_highlights(range)
@@ -510,14 +515,14 @@ impl EditorView {
     pub fn doc_rainbow_highlights(
         doc: &Document,
         anchor: usize,
-        height: u16,
+        height: impl Into<usize>,
         theme: &Theme,
         loader: &syntax::Loader,
     ) -> Option<OverlayHighlights> {
         let syntax = doc.syntax()?;
         let text = doc.text().slice(..);
         let row = text.char_to_line(anchor.min(text.len_chars()));
-        let visible_range = Self::viewport_byte_range(text, row, height);
+        let visible_range = Self::viewport_byte_range(text, row, height.into());
         let start = syntax::child_for_byte_range(
             &syntax.tree().root_node(),
             visible_range.start as u32..visible_range.end as u32,
@@ -1869,6 +1874,7 @@ impl Component for EditorView {
 
     fn render(&mut self, area: Rect, surface: &mut Surface, cx: &mut Context) {
         cx.editor.refresh_diff();
+        cx.editor.refresh_folds();
         // clear with background color
         surface.set_style(area, cx.editor.theme.get("ui.background"));
         let config = cx.editor.config();

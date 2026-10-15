@@ -9,6 +9,7 @@ pub mod document;
 pub mod editor;
 pub mod events;
 pub mod expansion;
+pub mod folding;
 pub mod graphics;
 pub mod gutter;
 pub mod handlers;

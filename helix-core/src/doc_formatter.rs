@@ -29,7 +29,7 @@ use crate::{Position, RopeSlice};
 #[derive(Debug, Clone, Copy)]
 pub enum GraphemeSource {
     Document {
-        codepoints: u32,
+        codepoints: usize,
     },
     /// Inline virtual text can not be highlighted with a `Highlight` iterator
     /// because it's not part of the document. Instead the `Highlight`
@@ -52,7 +52,7 @@ impl GraphemeSource {
 
     pub fn doc_chars(self) -> usize {
         match self {
-            GraphemeSource::Document { codepoints } => codepoints as usize,
+            GraphemeSource::Document { codepoints } => codepoints,
             GraphemeSource::VirtualText { .. } => 0,
         }
     }
@@ -171,6 +171,7 @@ impl Default for TextFormat {
 
 #[derive(Debug)]
 pub struct DocumentFormatter<'t> {
+    text: RopeSlice<'t>,
     text_fmt: &'t TextFormat,
     annotations: &'t TextAnnotations<'t>,
 
@@ -214,9 +215,14 @@ impl<'t> DocumentFormatter<'t> {
         // TODO divide long lines into blocks to avoid bad performance for long lines
         let block_line_idx = text.char_to_line(char_idx.min(text.len_chars()));
         let block_char_idx = text.line_to_char(block_line_idx);
+        let block_char_idx = annotations
+            .fold_at(block_char_idx)
+            .map_or(block_char_idx, |fold| fold.start);
+        let block_line_idx = text.char_to_line(block_char_idx);
         annotations.reset_pos(block_char_idx);
 
         DocumentFormatter {
+            text,
             text_fmt,
             annotations,
             visual_pos: Position {
@@ -269,8 +275,22 @@ impl<'t> DocumentFormatter<'t> {
         let (grapheme, source) =
             if let Some((grapheme, highlight)) = self.next_inline_annotation_grapheme(char_pos) {
                 (grapheme.into(), GraphemeSource::VirtualText { highlight })
+            } else if let Some(fold) = self
+                .annotations
+                .fold_at(char_pos)
+                .filter(|_| char_pos < self.text.len_chars())
+            {
+                let end = fold.end.min(self.text.len_chars());
+                self.graphemes = self.text.slice(end..).graphemes();
+                self.annotations.skip_concealed(end);
+                (
+                    "\n".into(),
+                    GraphemeSource::Document {
+                        codepoints: end - char_pos,
+                    },
+                )
             } else if let Some(grapheme) = self.graphemes.next() {
-                let codepoints = grapheme.len_chars() as u32;
+                let codepoints = grapheme.len_chars();
 
                 let overlay = self.annotations.overlay_at(char_pos);
                 let grapheme = match overlay {
@@ -470,13 +490,27 @@ impl<'t> Iterator for DocumentFormatter<'t> {
         if grapheme.raw == Grapheme::Newline {
             // move to end of newline char
             self.visual_pos.col += 1;
+            // A concealed run inherits padding at its last source line, not
+            // its summary's first line (e.g. an insertion immediately after
+            // a zero-context fold in a paired or inline diff).
+            let concealed =
+                !grapheme.is_virtual() && self.annotations.fold_at(grapheme.char_idx).is_some();
+            let line_end = if concealed {
+                self.text.char_to_line(self.char_pos).saturating_sub(1)
+            } else {
+                self.line_pos
+            };
             let virtual_lines =
                 self.annotations
-                    .virtual_lines_at(self.char_pos, self.visual_pos, self.line_pos);
+                    .virtual_lines_at(self.char_pos, self.visual_pos, line_end);
             self.visual_pos.row += 1 + virtual_lines;
             self.visual_pos.col = 0;
             if !grapheme.is_virtual() {
-                self.line_pos += 1;
+                if concealed {
+                    self.line_pos = self.text.char_to_line(self.char_pos);
+                } else {
+                    self.line_pos += 1;
+                }
             }
         } else {
             self.visual_pos.col += grapheme.width();

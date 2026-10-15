@@ -21,6 +21,7 @@ mod test {
     mod diff_review;
     mod file_diff;
     mod file_watching;
+    mod folding;
     mod movement;
     mod pager;
     mod picker_runtime;

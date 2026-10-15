@@ -127,9 +127,20 @@ pub fn move_vertically(
 
     // Compute the new position.
     let mut new_line_idx = match dir {
-        Direction::Forward => line_idx.saturating_add(count),
-        Direction::Backward => line_idx.saturating_sub(count),
+        Direction::Forward => annotations.line_at_folded_offset(
+            slice,
+            line_idx,
+            count.min(isize::MAX as usize) as isize,
+        ),
+        Direction::Backward => annotations.line_at_folded_offset(
+            slice,
+            line_idx,
+            -(count.min(isize::MAX as usize) as isize),
+        ),
     };
+    if let Some(fold) = annotations.fold_at(slice.line_to_char(new_line_idx)) {
+        return range.put_cursor(slice, fold.start, behaviour == Movement::Extend);
+    }
 
     let line = if new_line_idx >= slice.len_lines() - 1 {
         // there is no line terminator for the last line

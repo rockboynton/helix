@@ -280,6 +280,8 @@ impl<T: ?Sized> Drop for RawBox<T> {
 /// Also commonly called virtual text.
 #[derive(Default)]
 pub struct TextAnnotations<'a> {
+    folds: Vec<(Range<usize>, InlineAnnotation, Option<Highlight>)>,
+    fold_label: Cell<usize>,
     inline_annotations: Vec<Layer<'a, InlineAnnotation, Option<Highlight>>>,
     overlays: Vec<Layer<'a, Overlay, Option<Highlight>>>,
     line_annotations: Vec<(Cell<usize>, RawBox<dyn LineAnnotation + 'a>)>,
@@ -295,6 +297,53 @@ impl Debug for TextAnnotations<'_> {
 }
 
 impl<'a> TextAnnotations<'a> {
+    /// Conceal complete, non-overlapping document lines with one summary row.
+    /// Ranges must be sorted and end at a line boundary (or EOF).
+    pub fn add_fold(&mut self, range: Range<usize>, label: String, highlight: Option<Highlight>) {
+        debug_assert!(self
+            .folds
+            .last()
+            .is_none_or(|fold| fold.0.end <= range.start));
+        self.folds.push((
+            range.clone(),
+            InlineAnnotation::new(range.start, label),
+            highlight,
+        ));
+    }
+
+    pub(crate) fn fold_at(&self, char_idx: usize) -> Option<&Range<usize>> {
+        let index = self.folds.partition_point(|fold| fold.0.end <= char_idx);
+        self.folds
+            .get(index)
+            .filter(|fold| fold.0.contains(&char_idx))
+            .map(|fold| &fold.0)
+    }
+
+    pub(crate) fn line_at_folded_offset(
+        &self,
+        text: crate::RopeSlice,
+        line: usize,
+        offset: isize,
+    ) -> usize {
+        let mut visual = line;
+        for (fold, _, _) in &self.folds {
+            let start = text.char_to_line(fold.start);
+            let end = text.char_to_line(fold.end);
+            visual -= line
+                .saturating_sub(start)
+                .min((end - start).saturating_sub(1));
+        }
+        let mut target = visual.saturating_add_signed(offset);
+        for (fold, _, _) in &self.folds {
+            let start = text.char_to_line(fold.start);
+            let end = text.char_to_line(fold.end);
+            if target > start {
+                target = target.saturating_add((end - start).saturating_sub(1));
+            }
+        }
+        target.min(text.len_lines() - 1)
+    }
+
     pub fn leading_rows(&self) -> usize {
         self.line_annotations
             .iter()
@@ -303,6 +352,8 @@ impl<'a> TextAnnotations<'a> {
     }
     /// Prepare the TextAnnotations for iteration starting at char_idx
     pub fn reset_pos(&self, char_idx: usize) {
+        self.fold_label
+            .set(self.folds.partition_point(|fold| fold.0.start < char_idx));
         reset_pos(&self.inline_annotations, char_idx, |annot| annot.char_idx);
         reset_pos(&self.overlays, char_idx, |annot| annot.char_idx);
         for (next_anchor, layer) in &self.line_annotations {
@@ -313,13 +364,20 @@ impl<'a> TextAnnotations<'a> {
     pub fn collect_overlay_highlights(&self, char_range: Range<usize>) -> OverlayHighlights {
         let mut highlights = Vec::new();
         self.reset_pos(char_range.start);
-        for char_idx in char_range {
+        let mut char_idx = char_range.start;
+        while char_idx < char_range.end {
+            if let Some(fold) = self.fold_at(char_idx) {
+                char_idx = fold.end;
+                self.skip_concealed(char_idx);
+                continue;
+            }
             if let Some((_, Some(highlight))) = self.overlay_at(char_idx) {
                 // we don't know the number of chars the original grapheme takes
                 // however it doesn't matter as highlight boundaries are automatically
                 // aligned to grapheme boundaries in the rendering code
                 highlights.push((highlight, char_idx..char_idx + 1));
             }
+            char_idx += 1;
         }
 
         OverlayHighlights::Heterogenous { highlights }
@@ -384,6 +442,14 @@ impl<'a> TextAnnotations<'a> {
         &self,
         char_idx: usize,
     ) -> Option<(&InlineAnnotation, Option<Highlight>)> {
+        if self.fold_at(char_idx).is_some() {
+            let fold = self.folds.get(self.fold_label.get())?;
+            if fold.0.start != char_idx {
+                return None;
+            }
+            self.fold_label.set(self.fold_label.get() + 1);
+            return Some((&fold.1, fold.2));
+        }
         self.inline_annotations.iter().find_map(|layer| {
             let annotation = layer.consume(char_idx, |annot| annot.char_idx)?;
             Some((annotation, layer.metadata))
@@ -398,6 +464,16 @@ impl<'a> TextAnnotations<'a> {
             }
         }
         overlay
+    }
+
+    pub(crate) fn skip_concealed(&self, end: usize) {
+        reset_pos(&self.inline_annotations, end, |annot| annot.char_idx);
+        reset_pos(&self.overlays, end, |annot| annot.char_idx);
+        for (anchor, layer) in &self.line_annotations {
+            if anchor.get() < end {
+                anchor.set(unsafe { layer.get().skip_concealed_anchors(end) });
+            }
+        }
     }
 
     pub(crate) fn process_virtual_text_anchors(&self, grapheme: &FormattedGrapheme) {

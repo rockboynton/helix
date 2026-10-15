@@ -2430,6 +2430,39 @@ fn blame_toggle(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> an
     Ok(())
 }
 
+fn diff_fold(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        let context = args
+            .first()
+            .map(|arg| arg.parse::<usize>())
+            .transpose()?
+            .unwrap_or(3);
+        cx.editor.fold_diff_context(context)?;
+    }
+    Ok(())
+}
+
+fn fold_selection(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        cx.editor.fold_selection()?;
+    }
+    Ok(())
+}
+
+fn fold_open(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        cx.editor.open_fold(false);
+    }
+    Ok(())
+}
+
+fn fold_open_all(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        cx.editor.open_fold(true);
+    }
+    Ok(())
+}
+
 fn diff_off(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event == PromptEvent::Validate {
         cx.jobs.callback(async {
@@ -4435,6 +4468,10 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand { name: "diff-three", aliases: &["diff3"], doc: "Compare left, base, right files in three aligned editable columns.", fun: diff_three, completer: CommandCompleter::all(completers::filename), signature: Signature { positionals: (3, Some(3)), ..Signature::DEFAULT } },
     TypableCommand { name: "blame-toggle", aliases: &[], doc: "Toggle full-file blame annotations in the focused view's left gutter.", fun: blame_toggle, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-off", aliases: &[], doc: "Keep the working file in the left pane, close comparison panes and restore the sidebar; retain all buffers.", fun: diff_off, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "diff-fold", aliases: &[], doc: "Collapse unchanged diff context, keeping N lines at each edge (default 3).", fun: diff_fold, completer: CommandCompleter::none(), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
+    TypableCommand { name: "fold-selection", aliases: &[], doc: "Fold selected lines in the focused non-diff view.", fun: fold_selection, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "fold-open", aliases: &[], doc: "Open the fold at the cursor, including its paired diff folds.", fun: fold_open, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "fold-open-all", aliases: &[], doc: "Open all folds in the focused view or comparison.", fun: fold_open_all, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-next", aliases: &[], doc: "Jump to the next change in the paired diff.", fun: diff_next, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-prev", aliases: &[], doc: "Jump to the previous change in the paired diff.", fun: diff_prev, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-get", aliases: &[], doc: "Replace this hunk with the other pane's version, without saving.", fun: diff_get, completer: CommandCompleter::none(), signature: Signature::DEFAULT },

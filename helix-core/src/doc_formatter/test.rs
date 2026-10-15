@@ -1,6 +1,86 @@
 use crate::doc_formatter::{DocumentFormatter, TextFormat};
 use crate::text_annotations::{InlineAnnotation, Overlay, TextAnnotations};
 
+#[test]
+fn folded_lines_preserve_source_positions_and_checkpoint_mapping() {
+    let text = crate::Rope::from("head\r\nαβ\r\nhidden\r\ntail\r\n");
+    let start = text.line_to_char(1);
+    let end = text.line_to_char(3);
+    let mut annotations = TextAnnotations::default();
+    annotations.add_fold(start..end, "… 2 lines …".into(), None);
+    for soft_wrap in [false, true] {
+        let format = TextFormat::new_test(soft_wrap);
+        let rendered =
+            DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0)
+                .collect::<Vec<_>>();
+        assert!(!rendered.iter().any(|g| g.line_idx == 2));
+        let tail = rendered.iter().find(|g| g.char_idx == end).unwrap();
+        assert_eq!(tail.line_idx, 3);
+        assert_eq!(tail.visual_pos.row, 2);
+        let mut inside = DocumentFormatter::new_at_prev_checkpoint(
+            text.slice(..),
+            &format,
+            &annotations,
+            text.line_to_char(2),
+        );
+        assert_eq!(inside.next().unwrap().char_idx, start);
+        drop(inside);
+        drop(rendered);
+        let range = crate::Range::point(start);
+        let next = crate::movement::move_vertically(
+            text.slice(..),
+            range,
+            crate::movement::Direction::Forward,
+            1,
+            crate::movement::Movement::Move,
+            &format,
+            &mut annotations,
+        );
+        assert_eq!(text.char_to_line(next.cursor(text.slice(..))), 3);
+        let prev = crate::movement::move_vertically(
+            text.slice(..),
+            next,
+            crate::movement::Direction::Backward,
+            1,
+            crate::movement::Movement::Move,
+            &format,
+            &mut annotations,
+        );
+        assert_eq!(prev.cursor(text.slice(..)), start);
+    }
+    assert_eq!(text.to_string(), "head\r\nαβ\r\nhidden\r\ntail\r\n");
+}
+
+#[test]
+fn folding_skips_hidden_annotations_and_large_ranges_without_visiting_each_line() {
+    let text = crate::Rope::from(format!("head\n{}tail\n", "hidden\n".repeat(100_000)));
+    let end = text.line_to_char(100_001);
+    let inline = [
+        InlineAnnotation::new(10, "HIDDEN"),
+        InlineAnnotation::new(end, "VISIBLE"),
+    ];
+    let overlays = [Overlay::new(12, "X"), Overlay::new(end, "T")];
+    let mut annotations = TextAnnotations::default();
+    annotations
+        .add_inline_annotations(&inline, None)
+        .add_overlay(&overlays, None);
+    annotations.add_fold(5..end, "fold".into(), None);
+    let format = TextFormat::new_test(false);
+    let rendered =
+        DocumentFormatter::new_at_prev_checkpoint(text.slice(..), &format, &annotations, 0)
+            .collect::<Vec<_>>();
+    assert!(rendered.len() < 30, "hidden lines must be jumped over");
+    assert!(!rendered
+        .iter()
+        .any(|g| g.line_idx > 0 && g.line_idx < 100_001 && g.char_idx != 5));
+    let tail = rendered
+        .iter()
+        .filter(|g| g.line_idx == 100_001)
+        .map(|g| g.raw.to_string())
+        .collect::<String>();
+    assert!(tail.starts_with("VISIBLETail"), "{tail:?}");
+}
+
 impl TextFormat {
     fn new_test(softwrap: bool) -> Self {
         TextFormat {

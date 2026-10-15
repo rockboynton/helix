@@ -36,18 +36,20 @@ pub fn render_removed(
         .row(line)
         .saturating_sub(if offset.anchor == 0 { side.rows[0] } else { 0 })
         + offset.vertical_offset;
+    let top = view.folds.row(doc, side, top);
     let inner = view.inner_area(doc);
     let theme = &editor.theme;
     let loader = editor.syn_loader.load();
-    let first = side
+    for block in side
         .removed
-        .partition_point(|block| block.row + block.lines.len() <= top);
-    for block in side.removed[first..]
         .iter()
-        .take_while(|block| block.row < top + inner.height as usize)
+        .skip_while(|block| view.folds.row(doc, side, block.row + block.lines.len()) <= top)
+        .take_while(|block| view.folds.row(doc, side, block.row) < top + inner.height as usize)
     {
         for source_line in block.lines.clone() {
-            let row = block.row + source_line - block.lines.start;
+            let row = view
+                .folds
+                .row(doc, side, block.row + source_line - block.lines.start);
             if !(top..top + inner.height as usize).contains(&row) {
                 continue;
             }
@@ -77,7 +79,7 @@ pub fn render_removed(
                 },
             );
             let highlighter =
-                crate::ui::EditorView::doc_syntax_highlighter(baseline, anchor, 1, &loader);
+                crate::ui::EditorView::doc_syntax_highlighter(baseline, anchor, 1_u16, &loader);
             let mut format = baseline.text_format(inner.width, Some(theme));
             format.soft_wrap = false;
             crate::ui::document::render_document(

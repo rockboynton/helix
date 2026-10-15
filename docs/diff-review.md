@@ -34,6 +34,8 @@ opened. See [file comparison](file-diff.md) for rendering and patch format detai
 | `:diff-review-patch file.patch` | Review a patch file |
 | `:diff-file-next`, `:diff-file-prev` | Select the next/previous changed file |
 | `:diff-layout [inline\|side-by-side]` | Select a layout, or toggle with no argument |
+| `:diff-fold [N]` | Collapse unchanged context for the current file (default 3 lines at each edge) |
+| `:fold-open`, `:fold-open-all` | Expand the current fold or all folds in this file |
 | `:diff-review-refresh` | Reload the catalog and clean sources, retaining unsaved edits |
 | `Space E`, `:file-tree [directory]` | Focus the current sidebar, or browse a directory |
 | `:file-tree-close` | Close the sidebar without closing documents |
@@ -82,9 +84,11 @@ it preserves dirty buffers, active file, focus and sidebar selection/expansion.
 A piped patch is
 immutable; reopen with new input instead of refreshing it.
 
+Unchanged context can be folded per file in split and inline layouts; see
+[folding commands and editing behavior](file-diff.md#folding-unchanged-context).
 This is the first multi-file review layer, not yet a complete Hunk/Diffview-style
-VCS interface. A native revision selector, staging, history browsing and continuous/folded changeset
-views are not implemented. Input is finite and catalogs retain source snapshots
+VCS interface. A native revision selector, staging, history browsing and a continuous
+multi-file changeset view are not implemented. Input is finite and catalogs retain source snapshots
 in memory; this is not a streaming viewer for arbitrarily large changesets.
 Use [JJ's external diff-tool integration](file-diff.md#interactive-jj-diff-editing-and-jjui-handoff)
 to select revisions/ranges and pass complete files to Helix.

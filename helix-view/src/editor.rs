@@ -1666,6 +1666,7 @@ impl Editor {
         self.three_diff_session = None;
         for (view, _) in self.tree.views_mut() {
             if view.diff_document == Some(view.doc) {
+                view.folds = Default::default();
                 if let Some(doc) = self.documents.get_mut(&view.doc) {
                     let mut offset = doc.view_offset(view.id);
                     offset.vertical_offset = 0;
@@ -1674,6 +1675,9 @@ impl Editor {
             }
             view.diff_document = None;
             view.diff = None;
+            if view.folds.comparison {
+                view.folds = Default::default();
+            }
         }
     }
 

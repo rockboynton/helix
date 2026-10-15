@@ -85,6 +85,10 @@ Tree-sitter syntax highlighting, diff backgrounds/gutters, virtual alignment
 rows, and synchronized scrolling. `:diff-split` starts a comparison inside the
 editor. Hunk navigation and undoable `:diff-get` / `:diff-put` transfers never
 save automatically. `--pager --diff` provides read-only browsing.
+`:diff-fold [N]` collapses unchanged context in split, three-way and inline views;
+`:fold-open` / `:fold-open-all` expand it. The same view-local infrastructure
+supports manual `:fold-selection` outside comparisons, without changing saved
+text. See [folding behavior and limits](docs/file-diff.md#folding-unchanged-context).
 `--render-diff` renders files or snapshot directories as read-only side-by-side
 or inline flow text using the native Tree-sitter renderer; it can be registered
 as a jj external formatter for jjui's built-in diff view. See the

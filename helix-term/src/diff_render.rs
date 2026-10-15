@@ -528,7 +528,7 @@ impl Renderer {
         }
         let loader = self.loader.load();
         let anchor = doc.text().line_to_char(line);
-        let highlighter = EditorView::doc_syntax_highlighter(doc, anchor, 1, &loader);
+        let highlighter = EditorView::doc_syntax_highlighter(doc, anchor, 1_u16, &loader);
         let mut decorations = DecorationManager::default();
         if let Some(removed) = removed {
             let bg = text_decorations::diff::background(&self.theme, removed);

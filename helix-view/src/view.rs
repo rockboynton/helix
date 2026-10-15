@@ -144,6 +144,7 @@ pub struct ViewPosition {
 
 #[derive(Clone)]
 pub struct View {
+    pub folds: crate::folding::Folds,
     pub diff_document: Option<DocumentId>,
     pub diff: Option<crate::diff_session::DiffView>,
     pub id: ViewId,
@@ -211,6 +212,7 @@ impl View {
     }
     pub fn new(doc: DocumentId, gutters: GutterConfig) -> Self {
         Self {
+            folds: Default::default(),
             diff_document: None,
             diff: None,
             id: ViewId::default(),
@@ -499,6 +501,17 @@ impl View {
         theme: Option<&Theme>,
     ) -> TextAnnotations<'a> {
         let mut text_annotations = TextAnnotations::default();
+        if self.folds.valid(doc) {
+            for range in &self.folds.ranges {
+                let lines =
+                    doc.text().char_to_line(range.end) - doc.text().char_to_line(range.start);
+                text_annotations.add_fold(
+                    range.clone(),
+                    format!("… {lines} lines folded …"),
+                    theme.and_then(|t| t.find_highlight("ui.virtual")),
+                );
+            }
+        }
 
         if let Some(labels) = doc.jump_labels.get(&self.id) {
             let style = theme.and_then(|t| t.find_highlight("ui.virtual.jump-label"));

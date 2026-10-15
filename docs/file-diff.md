@@ -46,12 +46,41 @@ location; existing visible cursors and multiple selections are preserved.
 | `:diff-next`, `:diff-prev` | Jump between changed hunks in the focused pane |
 | `:diff-get` | Replace the hunk at the cursor with the other pane's version |
 | `:diff-put` | Copy the hunk at the cursor into the other pane |
+| `:diff-fold [N]` | Collapse unchanged context, retaining N lines at each edge (default 3) |
+| `:fold-open` | Expand the summary row at the cursor, in all compared panes |
+| `:fold-open-all` | Expand all folds in the current comparison |
 | `:diff-off` | Keep working file in the left pane; close extra comparison panes, retaining buffers |
 
 Transfers are ordinary undoable edits, not writes to disk. Save each file with
 `:write`, or both with `:write-all`. Nothing is automatically saved. An empty
 side of a hunk is addressed at the following line, or at EOF for trailing changes.
 If the diff is still updating, transfer/navigation commands ask you to retry.
+
+### Folding unchanged context
+
+Use `:diff-fold` to focus on changes without changing the underlying files.
+`:diff-fold 5` retains more context; `:diff-fold 0` shows just changes and fold
+summaries. Runs shorter than two hidden lines remain expanded. Collapsing is
+explicit, not enabled by default. It works in two-pane, three-way and editable
+inline comparisons, and read-only inline patch views. Multi-file reviews use
+the same commands for the current file; collapse again after switching files.
+
+Summary rows retain the real source line number. Normal up/down movement skips
+folded text, and `:fold-open` opens the summary at the cursor. Search/goto targets
+inside hidden lines reveal their fold. Compared panes open/collapse together,
+preserving alignment and inline deleted-row highlighting. Folds containing an
+existing cursor stay open. Edits (including undo, reload and hunk transfers)
+currently open all folds in the comparison; use `:diff-fold` again after the
+updated diff is ready. This conservative invalidation prevents stale ranges
+from hiding newly changed text.
+
+Outside diff mode, select lines and run `:fold-selection` to use the same
+view-local folding mechanism; `:fold-open` and `:fold-open-all` also work there.
+Fold commands do not modify text, and save writes the complete file. Selections,
+operators and clipboard actions still address real text, including hidden lines
+when a selection spans a fold. This is line-folding infrastructure, not automatic
+Tree-sitter/LSP fold discovery or a nested-fold hierarchy yet. No default keys
+are taken over; the commands can be bound in TOML or Steel like other commands.
 
 One comparison session (two or three panes) is supported per editor. Closing a
 compared pane or switching its buffer ends the comparison. Comparison panes temporarily disable soft-wrap
