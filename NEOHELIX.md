@@ -1,5 +1,7 @@
 # Neohelix
 
+Start with the [review and GitLens cheat sheet](docs/neohelix-cheatsheet.md).
+
 Inline review: `hx --diff --diff-layout inline before.rs after.rs`.
 Three-way editing/review: `hx --diff3 left.rs base.rs right.rs`.
 Raw Git or native jj patches: `git diff | hx --patch` or

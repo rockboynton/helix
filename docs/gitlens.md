@@ -163,6 +163,24 @@ makes that hash available on GitHub.
   (Linux Secret Service, macOS Keychain, Windows Credential Manager). No tokens
   enter Steel, popups, logs, or the PR cache. `GH_CONFIG_DIR`/`XDG_CONFIG_HOME`
   are respected. You can still use `gh auth login` to set up a saved login.
+  A nonempty environment token bypasses credential-store access entirely; use
+  `GH_ENTERPRISE_TOKEN` for custom Enterprise hosts when Keychain access by `hx`
+  is unavailable. Inject it with your approved secret tooling into the process
+  that launches Helix, not into version-controlled Nix or Steel configuration.
+  Restart Helix after setting it. SSH keys authenticate Git transport, not PR
+  API requests. No `gh` credential-helper subprocess is used.
+
+  For a one-session token supplied manually, Bash and Zsh can prompt without
+  echoing it or putting the token itself in shell history:
+
+  ```sh
+  printf 'Enterprise token: '
+  read -r -s neohelix_token
+  printf '\n'
+  GH_ENTERPRISE_TOKEN="$neohelix_token" hx
+  unset neohelix_token
+  ```
+
 - HTTP clients are reused for up to eight hosts. After changing credentials,
   run `gitlens-clear-cache` or restart Helix to rebuild clients. Requests have a
   five-second total deadline and a 1 MiB response limit; redirects and retries
