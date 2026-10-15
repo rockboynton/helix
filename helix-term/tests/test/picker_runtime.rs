@@ -2,6 +2,73 @@ use helix_term::ui::picker::{Column, Picker};
 use std::time::Duration;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn png_preview_uses_graphics_or_an_explicit_unsupported_terminal_fallback(
+) -> anyhow::Result<()> {
+    use helix_term::{
+        compositor::{Component, Context},
+        job::Jobs,
+    };
+    use helix_view::graphics::Rect;
+    let dir = tempfile::tempdir()?;
+    let path = dir.path().join("preview.png");
+    std::fs::write(&path, include_bytes!("../../../contrib/helix.png"))?;
+    let mut app = super::helpers::AppBuilder::new().build()?;
+    let mut picker = Picker::new(
+        [Column::new("path", |path: &std::path::PathBuf, _: &()| {
+            path.to_string_lossy().into_owned().into()
+        })],
+        0,
+        [path],
+        (),
+        |_, _, _| {},
+    )
+    .with_preview(|_, path| Some((path.as_path().into(), None)));
+    let mut jobs = Jobs::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let mut surface = tui::buffer::Buffer::empty(Rect::new(0, 0, 120, 24));
+        picker.render(
+            surface.area,
+            &mut surface,
+            &mut Context {
+                editor: &mut app.editor,
+                jobs: &mut jobs,
+                scroll: None,
+            },
+        );
+        if tui::image::supported() {
+            if !surface.images.is_empty() {
+                assert!(surface
+                    .content
+                    .iter()
+                    .any(|cell| cell.symbol.starts_with('\u{10eeee}')));
+                assert_eq!(
+                    app.editor.documents().count(),
+                    1,
+                    "preview must not open binary text buffers"
+                );
+                break;
+            }
+        } else {
+            let text = surface
+                .content
+                .iter()
+                .map(|cell| cell.symbol.as_str())
+                .collect::<String>();
+            assert!(text.contains("Ghostty/Kitty"));
+            assert!(surface.images.is_empty());
+            break;
+        }
+        anyhow::ensure!(
+            tokio::time::Instant::now() < deadline,
+            "PNG preview did not complete"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn selected_message_wraps_inside_the_picker_without_being_covered_by_preview(
 ) -> anyhow::Result<()> {
     use super::helpers::*;

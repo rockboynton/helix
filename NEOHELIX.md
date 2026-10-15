@@ -1,5 +1,8 @@
 # Neohelix
 
+PNG/PDF file-picker previews use native terminal graphics, with asynchronous
+Poppler CLI rendering for PDFs; see [media previews](docs/media-previews.md).
+
 Start with the [review and GitLens cheat sheet](docs/neohelix-cheatsheet.md).
 
 Inline review: `hx --diff --diff-layout inline before.rs after.rs`.

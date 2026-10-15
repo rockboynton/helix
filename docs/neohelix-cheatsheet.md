@@ -76,6 +76,10 @@ different diagnostic resets the scroll. File previews show a loading state until
 asynchronous Tree-sitter highlighting resolves, with plaintext fallback if no
 parser is available.
 
+PNG/PDF picker previews work in direct Ghostty/Kitty sessions. PDFs require
+`pdftoppm`; `Alt-j` / `Alt-k` change pages. See [media previews](media-previews.md)
+for limits and current multiplexer support.
+
 ## GitLens
 
 `:blame-toggle` shows/hides a full-file commit/date/author strip to the left of

@@ -269,6 +269,8 @@ pub struct Picker<T: 'static + Send + Sync, D: 'static> {
     /// Caches paths to documents
     preview_cache: HashMap<Arc<Path>, CachedPreview>,
     preview_generation: Arc<()>,
+    media_preview: crate::media::Preview,
+    media_pdf: bool,
     wrap_selected: Option<usize>,
     wrap_scroll: usize,
     wrap_cursor: u32,
@@ -407,6 +409,8 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
             widths,
             preview_cache: HashMap::new(),
             preview_generation: Arc::new(()),
+            media_preview: Default::default(),
+            media_pdf: false,
             wrap_selected: None,
             wrap_scroll: 0,
             wrap_cursor: 0,
@@ -506,6 +510,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
 
     /// Moves the picker file preview by a number of lines, either down (`Forward`) or up (`Backward`)
     fn move_preview_by(&mut self, amount: usize, move_direction: Direction) {
+        let amount = if self.media_pdf { 1 } else { amount };
         let (current_scroll_direction, current_scroll_offset) = self.preview_scroll_offset;
 
         match move_direction {
@@ -628,6 +633,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         }
         // If the query has meaningfully changed, reset the cursor to the top of the results.
         self.cursor = 0;
+        self.preview_scroll_offset = (Direction::Forward, 0);
         // Have nucleo reparse each changed column.
         for (i, column) in self
             .columns
@@ -1057,8 +1063,47 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
         let cursor_position = self.cursor_picker;
         if self.cursor != cursor_position {
             preview_scroll_offset = (Direction::Forward, 0);
+            self.preview_scroll_offset = preview_scroll_offset;
             self.cursor_picker = self.cursor;
         }
+
+        let media_path = self.selection().and_then(|item| {
+            let (path, _) = (self.file_fn.as_ref()?)(cx.editor, item)?;
+            let path = match path {
+                PathOrId::Path(path) => path,
+                PathOrId::Id(id) => cx.editor.document(id)?.path()?,
+            };
+            crate::media::Kind::for_path(path).map(|kind| (path.to_owned(), kind))
+        });
+        self.media_pdf = matches!(media_path, Some((_, crate::media::Kind::Pdf)));
+        if let Some((path, kind)) = media_path {
+            if self.media_preview.path() != Some(path.as_path()) {
+                preview_scroll_offset = (Direction::Forward, 0);
+            }
+            if !tui::image::supported() {
+                self.media_preview.cancel();
+                surface.set_stringn(
+                    inner.x,
+                    inner.y + inner.height / 2,
+                    "Image previews require Ghostty/Kitty without a multiplexer",
+                    inner.width as usize,
+                    text,
+                );
+                return;
+            }
+            let page = if kind == crate::media::Kind::Pdf
+                && preview_scroll_offset.0 == Direction::Forward
+            {
+                preview_scroll_offset.1.min(9999)
+            } else {
+                0
+            };
+            self.preview_scroll_offset = (Direction::Forward, page);
+            self.media_preview
+                .render(&path, page, inner, surface, text, background);
+            return;
+        }
+        self.media_preview.cancel();
 
         if let Some((preview, range)) = self.get_preview(cx.editor) {
             let doc = match preview.document() {
@@ -1301,6 +1346,9 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         if render_preview {
             let preview_area = area.clip_left(picker_width);
             self.render_preview(preview_area, surface, cx);
+        } else {
+            self.media_preview.cancel();
+            self.media_pdf = false;
         }
     }
 
@@ -1318,6 +1366,7 @@ impl<I: 'static + Send + Sync, D: 'static + Send + Sync> Component for Picker<I,
         };
 
         let close_fn = |picker: &mut Self| {
+            picker.media_preview.cancel();
             let id = picker.id().unwrap_or_else(|| picker.type_name());
 
             // if the picker is very large don't store it as last_picker to avoid
