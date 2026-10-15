@@ -1,6 +1,6 @@
 # PNG and PDF picker previews
 
-In a direct Ghostty or Kitty session, open a file picker (`Space f` or `Space e`)
+In Ghostty or Kitty, open a file picker (`Space f` or `Space e`)
 and select a `.png` or `.pdf`. The existing preview pane displays the image instead
 of binary text. File extensions are case-insensitive. No Steel plugin is needed.
 
@@ -28,9 +28,13 @@ an explanation rather than raw process output.
   budget, plus its active preview. Cache identity includes path, size, modification
   time and page. Revisiting an entry checks that identity; an active preview is a
   snapshot, not continuously reread on each frame.
-- The first transport supports Kitty Unicode placeholders in direct Ghostty and
-  Kitty sessions. Tmux and Zellij currently show a fallback message; their
-  passthrough/graphics support is not assumed. Other protocols are not implemented.
+- The transport uses Kitty Unicode placeholders in direct Ghostty and Kitty
+  sessions. The Neohelix-compatible Zellij fork also supports them: its server
+  sets `ZELLIJ_KITTY_UNICODE_PLACEHOLDERS=1` in new panes after interpreting
+  placeholders itself (based on Zellij PR #5531). Restart the server after updating;
+  updating only the client does not upgrade an existing session. Do not set this
+  variable manually on stock Zellij. Tmux and unpatched Zellij show a fallback
+  message. Other protocols are not implemented.
 - Images fit the available rectangle while retaining their aspect ratio. Rendering
   uses at most 128 columns by 128 rows. Placeholder cells participate in the normal
   compositor, so overlapping UI erases them normally. Terminal image data is freed

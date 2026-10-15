@@ -110,17 +110,33 @@ pub struct Placement {
 }
 
 /// Only enables known Unicode-placement terminals, not every Kitty-like terminal.
-/// Multiplexer passthrough is deliberately not assumed.
+/// A patched Zellij server can advertise its Unicode-placement interpreter.
+/// Stock Zellij and tmux are not assumed to support it.
 pub fn supported() -> bool {
-    if std::env::var_os("TMUX").is_some() || std::env::var_os("ZELLIJ").is_some() {
-        return false;
-    }
     let program = std::env::var("TERM_PROGRAM").unwrap_or_default();
     let term = std::env::var("TERM").unwrap_or_default();
-    program.eq_ignore_ascii_case("ghostty")
-        || program.eq_ignore_ascii_case("kitty")
-        || term == "xterm-ghostty"
-        || term == "xterm-kitty"
+    supported_in_environment(
+        std::env::var_os("TMUX").is_some(),
+        std::env::var_os("ZELLIJ").is_some(),
+        std::env::var("ZELLIJ_KITTY_UNICODE_PLACEHOLDERS").is_ok_and(|value| value == "1"),
+        &program,
+        &term,
+    )
+}
+
+fn supported_in_environment(
+    tmux: bool,
+    zellij: bool,
+    zellij_unicode: bool,
+    program: &str,
+    term: &str,
+) -> bool {
+    !tmux
+        && (!zellij || zellij_unicode)
+        && (program.eq_ignore_ascii_case("ghostty")
+            || program.eq_ignore_ascii_case("kitty")
+            || term == "xterm-ghostty"
+            || term == "xterm-kitty")
 }
 
 #[derive(Debug, Default)]
@@ -173,6 +189,24 @@ impl ImageState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn requires_a_capable_outer_terminal_and_a_verified_zellij_server() {
+        for (tmux, zellij, patched, program, term, expected) in [
+            (false, false, false, "ghostty", "xterm-256color", true),
+            (false, true, false, "ghostty", "xterm-256color", false),
+            (false, true, true, "ghostty", "xterm-256color", true),
+            (true, true, true, "ghostty", "xterm-256color", false),
+            (false, true, true, "unknown", "xterm-256color", false),
+            (false, true, true, "", "xterm-kitty", true),
+        ] {
+            assert_eq!(
+                supported_in_environment(tmux, zellij, patched, program, term),
+                expected,
+                "tmux={tmux}, zellij={zellij}, patched={patched}, program={program}, term={term}"
+            );
+        }
+    }
 
     fn image() -> Arc<Image> {
         Image::png(include_bytes!("../../contrib/helix.png")).unwrap()

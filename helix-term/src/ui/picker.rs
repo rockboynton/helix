@@ -1085,7 +1085,7 @@ impl<T: 'static + Send + Sync, D: 'static + Send + Sync> Picker<T, D> {
                 surface.set_stringn(
                     inner.x,
                     inner.y + inner.height / 2,
-                    "Image previews require Ghostty/Kitty without a multiplexer",
+                    "Requires Ghostty/Kitty; Zellij needs Unicode support",
                     inner.width as usize,
                     text,
                 );
