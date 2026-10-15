@@ -128,6 +128,13 @@ impl EditorView {
                         .as_ref()
                         .is_some_and(|session| session.views[1] == view_id);
                 let background = text_decorations::diff::background(theme, is_left);
+                let word_bg = text_decorations::diff::word_background(theme, is_left);
+                decorations.add_decoration(text_decorations::diff::Words(Some(
+                    side.words
+                        .iter()
+                        .map(|range| (range.clone(), word_bg))
+                        .collect(),
+                )));
                 decorations.add_decoration(move |renderer: &mut TextRenderer, pos: LinePos| {
                     let changed = side.is_changed(pos.doc_line);
                     renderer.set_line_background(

@@ -1,6 +1,42 @@
 //! Diff backgrounds are independent of bright gutter colors.
 use helix_view::{graphics::Color, Theme};
 
+pub fn word_background(theme: &Theme, removed: bool) -> Color {
+    let scope = if removed {
+        "ui.diff.minus.word"
+    } else {
+        "ui.diff.plus.word"
+    };
+    theme
+        .try_get_exact(scope)
+        .and_then(|style| style.bg)
+        .unwrap_or_else(|| {
+            let light = matches!(
+                default_background(theme.get("ui.background").bg, removed),
+                Color::Rgb(255, 224, 224) | Color::Rgb(224, 246, 224)
+            );
+            match (light, removed) {
+                (false, true) => Color::Rgb(80, 24, 24),
+                (false, false) => Color::Rgb(24, 72, 32),
+                (true, true) => Color::Rgb(255, 184, 184),
+                (true, false) => Color::Rgb(184, 226, 184),
+            }
+        })
+}
+
+pub struct Words(pub Option<Vec<(std::ops::Range<usize>, Color)>>);
+impl super::Decoration for Words {
+    fn decorate_line(
+        &mut self,
+        renderer: &mut crate::ui::document::TextRenderer,
+        _: crate::ui::document::LinePos,
+    ) {
+        if let Some(words) = self.0.take() {
+            renderer.set_word_backgrounds(words);
+        }
+    }
+}
+
 pub fn background(theme: &Theme, removed: bool) -> Color {
     let (scope, legacy) = if removed {
         ("ui.diff.minus", "diff.minus")

@@ -25,6 +25,16 @@ override them with `"ui.diff.minus" = { bg = "#300000" }` and
 `"ui.diff.plus" = { bg = "#002800" }`. Explicit backgrounds in `diff.minus` and
 `diff.plus` are also honored; bright foreground/gutter colors are never used as
 background fills. Syntax foregrounds remain unchanged.
+
+Replacement hunks also emphasize changed words with a stronger, muted background,
+while retaining Tree-sitter foreground colors. This applies to split, three-way,
+inline and patch views, including `--render-diff` output. Themes can override
+`ui.diff.minus.word` and `ui.diff.plus.word` with background colors.
+Unicode word boundaries are used. Pure additions/deletions keep the line fill;
+replacement blocks above 128 lines, 16,384 characters on either side, or 2,048
+tokens fall back to line-only highlighting to bound refinement work. This is
+textual word diffing, not compiler-aware semantic equivalence.
+
 Blank alignment rows are virtual: they never become file contents. Scrolling
 either focused pane synchronizes the other's aligned position. Diff computation
 runs in the background and stale results are hidden while edits are recomputed.
@@ -46,8 +56,8 @@ If the diff is still updating, transfer/navigation commands ask you to retry.
 One comparison session (two or three panes) is supported per editor. Closing a
 compared pane or switching its buffer ends the comparison. Comparison panes temporarily disable soft-wrap
 and inline diagnostic rows to preserve logical-line alignment; other views keep
-their settings. Long lines can be scrolled horizontally. Character/word-level
-highlighting, Git/JJ revision inputs, and GitLens integration are not implemented.
+their settings. Long lines can be scrolled horizontally. Arbitrary Git/JJ revision
+inputs and GitLens integration are not implemented.
 
 ## Three-way comparison
 

@@ -63,6 +63,7 @@ struct SourceLine<'a> {
     numbers: [Option<usize>; 2],
     removed: Option<bool>,
     change: Option<DiffChange>,
+    words: &'a [Range<usize>],
 }
 
 pub fn run(args: &Args, output: &mut impl Write, stdout_is_terminal: bool) -> Result<()> {
@@ -231,6 +232,7 @@ impl Renderer {
                             Rect::new(x, 0, widths[side], 1),
                             SourceLine {
                                 doc: &model.sources[line.source],
+                                words: &model.source_words[line.source],
                                 index: line.line,
                                 numbers: if self.layout == Layout::Inline {
                                     line.numbers
@@ -384,6 +386,7 @@ impl Renderer {
                         Rect::new(x, 0, widths[side], 1),
                         SourceLine {
                             doc: &docs[side],
+                            words: &layout.sides[side].words,
                             index: line,
                             numbers: [Some(line + 1), None],
                             removed: layout.sides[side].is_changed(line).then_some(side == 0),
@@ -443,6 +446,7 @@ impl Renderer {
                             area,
                             SourceLine {
                                 doc: &docs[side],
+                                words: &layout.sides[side].words,
                                 index: line,
                                 numbers,
                                 removed: Some(side == 0),
@@ -466,6 +470,7 @@ impl Renderer {
                     area,
                     SourceLine {
                         doc: &docs[1],
+                        words: &[],
                         index: line,
                         numbers: lines.map(|line| line.map(|line| line + 1)),
                         removed: None,
@@ -485,6 +490,7 @@ impl Renderer {
             numbers,
             removed,
             change,
+            words,
         } = source;
         let numbers =
             numbers.map(|number| number.map(|number| number.to_string()).unwrap_or_default());
@@ -526,6 +532,10 @@ impl Renderer {
         let mut decorations = DecorationManager::default();
         if let Some(removed) = removed {
             let bg = text_decorations::diff::background(&self.theme, removed);
+            let word_bg = text_decorations::diff::word_background(&self.theme, removed);
+            decorations.add_decoration(text_decorations::diff::Words(Some(
+                words.iter().map(|range| (range.clone(), word_bg)).collect(),
+            )));
             decorations.add_decoration(move |renderer: &mut TextRenderer, pos: LinePos| {
                 renderer.set_line_background(Some(bg), pos.visual_line)
             });
@@ -728,6 +738,30 @@ mod tests {
         assert_eq!(std::fs::read_to_string(left).unwrap(), before);
         assert_eq!(std::fs::read_to_string(right).unwrap(), after);
         String::from_utf8(output).unwrap()
+    }
+
+    #[test]
+    fn replacement_words_have_distinct_backgrounds_in_both_layouts() {
+        for layout in [Layout::Inline, Layout::SideBySide] {
+            let output = render_pair("fn old() {}\n", "fn new() {}\n", layout, true);
+            for color in [
+                "48;2;48;0;0",
+                "48;2;0;40;0",
+                "48;2;80;24;24",
+                "48;2;24;72;32",
+            ] {
+                assert!(output.contains(color), "missing {color}: {output:?}");
+            }
+            let patch = crate::diff_patch::parse(
+                "--- a/x.rs\n+++ b/x.rs\n@@ -50 +60 @@\n-fn old() {}\n+fn new() {}\n",
+            )
+            .unwrap();
+            let mut output = Vec::new();
+            renderer(layout, true).patch(&patch, &mut output).unwrap();
+            let output = String::from_utf8(output).unwrap();
+            assert!(output.contains("48;2;80;24;24"), "{output:?}");
+            assert!(output.contains("48;2;24;72;32"), "{output:?}");
+        }
     }
 
     #[test]

@@ -92,9 +92,9 @@ async fn three_way_diff_aligns_edits_transfers_undo_and_reuses_columns() -> anyh
                         let doc = app.editor.document(session.documents[side]).unwrap();
                         let inner = view.inner_area(doc);
                         let expected = if side == 1 {
-                            helix_view::graphics::Color::Rgb(48, 0, 0)
+                            helix_view::graphics::Color::Rgb(80, 24, 24)
                         } else {
-                            helix_view::graphics::Color::Rgb(0, 40, 0)
+                            helix_view::graphics::Color::Rgb(24, 72, 32)
                         };
                         assert_eq!(app.test_surface()[(inner.x, inner.y + 1)].bg, expected);
                     }

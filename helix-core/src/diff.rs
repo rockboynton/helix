@@ -130,6 +130,86 @@ pub fn line_hunks(before: &Rope, after: &Rope) -> Vec<Hunk> {
         .collect()
 }
 
+/// Word emphasis in replacement hunks, in source character coordinates.
+/// Bound refinement work; pathological/minified hunks keep line-only coloring.
+pub fn word_ranges(before: &Rope, after: &Rope, hunks: &[Hunk]) -> [Vec<Range<usize>>; 2] {
+    use crate::unicode::segmentation::UnicodeSegmentation;
+    let mut result: [Vec<Range<usize>>; 2] = Default::default();
+    for hunk in hunks {
+        if hunk.before.is_empty() || hunk.after.is_empty() {
+            continue;
+        }
+        let texts = [before, after];
+        let lines = [hunk.before.clone(), hunk.after.clone()];
+        let starts = std::array::from_fn::<_, 2, _>(|side| {
+            texts[side].line_to_char(lines[side].start as usize)
+        });
+        let ends = std::array::from_fn::<_, 2, _>(|side| {
+            texts[side].line_to_char(lines[side].end as usize)
+        });
+        if (0..2).any(|side| ends[side] - starts[side] > 16_384 || lines[side].len() > 128) {
+            continue;
+        }
+        let strings = [0, 1].map(|side| texts[side].slice(starts[side]..ends[side]).to_string());
+        let tokens = strings
+            .each_ref()
+            .map(|text| text.split_word_bounds().collect::<Vec<_>>());
+        if tokens.iter().any(|tokens| tokens.len() > 2048) {
+            continue;
+        }
+        let positions = [0, 1].map(|side| {
+            let mut positions = vec![starts[side]];
+            for token in &tokens[side] {
+                positions.push(positions.last().unwrap() + token.chars().count());
+            }
+            positions
+        });
+        let mut input = InternedInput::default();
+        input.update_before(tokens[0].iter().copied());
+        input.update_after(tokens[1].iter().copied());
+        let diff = Diff::compute(Algorithm::Histogram, &input);
+        for word in diff.hunks() {
+            for (side, range) in [word.before, word.after].into_iter().enumerate() {
+                if !range.is_empty() {
+                    result[side].push(
+                        positions[side][range.start as usize]..positions[side][range.end as usize],
+                    );
+                }
+            }
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod word_tests {
+    use super::*;
+    #[test]
+    fn replacement_words_preserve_unicode_and_unchanged_tokens() {
+        let before = Rope::from_str("let café = old_value;\n");
+        let after = Rope::from_str("let café = new_value;\n");
+        let ranges = word_ranges(&before, &after, &line_hunks(&before, &after));
+        assert_eq!(
+            ranges[0]
+                .iter()
+                .map(|range| before.slice(range.clone()).to_string())
+                .collect::<Vec<_>>(),
+            ["old_value"]
+        );
+        assert_eq!(
+            ranges[1]
+                .iter()
+                .map(|range| after.slice(range.clone()).to_string())
+                .collect::<Vec<_>>(),
+            ["new_value"]
+        );
+        let long = Rope::from_str(&"x".repeat(20_000));
+        assert!(word_ranges(&before, &long, &line_hunks(&before, &long))
+            .iter()
+            .all(Vec::is_empty));
+    }
+}
+
 impl<'a> imara_diff::TokenSource for RopeLines<'a> {
     type Token = RopeSlice<'a>;
     type Tokenizer = ropey::iter::Lines<'a>;

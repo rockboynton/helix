@@ -26,6 +26,8 @@ pub fn document(
         lines: Vec::new(),
         hunks: Vec::new(),
         max_number: 1,
+        source_words: Vec::new(),
+        words: Vec::new(),
     };
     let mut presentation = String::new();
     let mut changed = false;
@@ -77,7 +79,16 @@ pub fn document(
         }
         changed = false;
     }
-    let mut doc = Document::from(Rope::from(presentation), None, config, loader);
+    for pair in model.sources.chunks_exact(2) {
+        let texts = [pair[0].text(), pair[1].text()];
+        let hunks = helix_core::diff::line_hunks(texts[0], texts[1]);
+        model
+            .source_words
+            .extend(helix_core::diff::word_ranges(texts[0], texts[1], &hunks));
+    }
+    let presentation = Rope::from(presentation);
+    model.project_words(&presentation);
+    let mut doc = Document::from(presentation, None, config, loader);
     doc.access = DocumentAccess::ReadOnly;
     doc.name = Some(
         match side {

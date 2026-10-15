@@ -7,6 +7,8 @@ pub struct InlineDiff {
     pub lines: Vec<InlineLine>,
     pub hunks: Vec<usize>,
     pub max_number: usize,
+    pub source_words: Vec<Vec<std::ops::Range<usize>>>,
+    pub words: Vec<(std::ops::Range<usize>, bool)>,
 }
 
 #[derive(Clone, Copy)]
@@ -26,6 +28,8 @@ impl InlineDiff {
             lines: Vec::new(),
             hunks: Vec::new(),
             max_number: 1,
+            source_words: layout.sides.iter().map(|side| side.words.clone()).collect(),
+            words: Vec::new(),
         };
         let mut text = String::new();
         let mut before = 0;
@@ -63,7 +67,30 @@ impl InlineDiff {
             before += 1;
             after += 1;
         }
-        (Rope::from(text), model)
+        let text = Rope::from(text);
+        model.project_words(&text);
+        (text, model)
+    }
+
+    pub fn project_words(&mut self, presentation: &Rope) {
+        self.words.clear();
+        for (index, line) in self.lines.iter().enumerate() {
+            let Some(removed) = line.removed else {
+                continue;
+            };
+            let source = self.sources[line.source].text();
+            let start = source.line_to_char(line.line);
+            let end = start + source.line(line.line).len_chars();
+            let words = &self.source_words[line.source];
+            let begin = words.partition_point(|range| range.end <= start);
+            for range in words[begin..].iter().take_while(|range| range.start < end) {
+                let base = presentation.line_to_char(index);
+                self.words.push((
+                    base + range.start.max(start) - start..base + range.end.min(end) - start,
+                    removed,
+                ));
+            }
+        }
     }
 
     fn append(

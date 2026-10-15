@@ -21,6 +21,7 @@ pub struct DiffSide {
     pub rows: Vec<usize>,
     pub changed: Vec<Range<usize>>,
     pub gutter_hunks: Vec<DiffGutterHunk>,
+    pub words: Vec<Range<usize>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +97,10 @@ impl<const N: usize> DiffLayout<N> {
         }
         let hunks = line_hunks(&texts[0], &texts[1]);
         let mut sides: [DiffSide; N] = std::array::from_fn(|_| DiffSide::default());
+        let words = helix_core::diff::word_ranges(&texts[0], &texts[1], &hunks);
+        for (side, words) in words.into_iter().enumerate() {
+            sides[side].words = words;
+        }
         let mut lines = [0usize; 2];
         let mut row = 0;
         for hunk in &hunks {
@@ -181,6 +186,7 @@ impl<const N: usize> DiffLayout<N> {
                 };
             }
             sides[1].changed.extend(pair.sides[0].changed.clone());
+            sides[1].words.extend(pair.sides[0].words.clone());
             sides[1]
                 .gutter_hunks
                 .extend(pair.sides[0].gutter_hunks.clone());
@@ -195,6 +201,16 @@ impl<const N: usize> DiffLayout<N> {
             }
         }
         sides[1].changed = changed;
+        sides[1].words.sort_by_key(|range| range.start);
+        let mut words: Vec<Range<usize>> = Vec::new();
+        for range in std::mem::take(&mut sides[1].words) {
+            if let Some(last) = words.last_mut().filter(|last| last.end >= range.start) {
+                last.end = last.end.max(range.end);
+            } else {
+                words.push(range);
+            }
+        }
+        sides[1].words = words;
         // Union base ranges, including zero-width insertion boundary markers.
         sides[1]
             .gutter_hunks

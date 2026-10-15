@@ -215,6 +215,7 @@ mod pager_render_tests {
 #[derive(Debug)]
 pub struct TextRenderer<'a> {
     line_background: Option<helix_view::graphics::Color>,
+    word_backgrounds: Vec<(std::ops::Range<usize>, helix_view::graphics::Color)>,
     surface: &'a mut Surface,
     render_controls: bool,
     pub text_style: Style,
@@ -240,6 +241,12 @@ pub struct GraphemeStyle {
 }
 
 impl<'a> TextRenderer<'a> {
+    pub fn set_word_backgrounds(
+        &mut self,
+        words: Vec<(std::ops::Range<usize>, helix_view::graphics::Color)>,
+    ) {
+        self.word_backgrounds = words;
+    }
     pub fn set_line_background(
         &mut self,
         background: Option<helix_view::graphics::Color>,
@@ -303,6 +310,22 @@ impl<'a> TextRenderer<'a> {
 
         TextRenderer {
             line_background: None,
+            word_backgrounds: doc
+                .inline_diff
+                .as_ref()
+                .map(|model| {
+                    model
+                        .words
+                        .iter()
+                        .map(|(range, removed)| {
+                            (
+                                range.clone(),
+                                crate::ui::text_decorations::diff::word_background(theme, *removed),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             surface,
             indent_guide_char: editor_config.indent_guides.character.into(),
             newline,
@@ -388,6 +411,18 @@ impl<'a> TextRenderer<'a> {
         let mut style = grapheme_style.syntax_style;
         if let Some(bg) = self.line_background {
             style.bg = Some(bg);
+        }
+        if !is_virtual {
+            let index = self
+                .word_backgrounds
+                .partition_point(|(range, _)| range.end <= grapheme.char_idx);
+            if let Some((_, bg)) = self
+                .word_backgrounds
+                .get(index)
+                .filter(|(range, _)| range.contains(&grapheme.char_idx))
+            {
+                style.bg = Some(*bg);
+            }
         }
         if is_whitespace {
             style = style.patch(self.whitespace_style);
