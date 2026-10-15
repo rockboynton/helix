@@ -127,6 +127,9 @@ See the
 and caching behavior. This is not a recreation of every VS Code GitLens feature.
 For Keychain-free authentication, see
 [token creation and permissions](docs/gitlens.md#creating-a-token-without-keychain).
+`:blame-toggle` independently toggles full-file author/date/commit annotations
+in the focused view's left gutter, scrolling with source lines without covering
+code or replacing the file-tree sidebar. Repository work stays in the background.
 
 ### Picker readability
 

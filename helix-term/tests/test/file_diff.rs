@@ -2,6 +2,88 @@ use super::helpers::*;
 use helix_view::current_ref;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn full_file_blame_toggle_is_view_local_and_scrolls_in_the_gutter() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let file = root.path().join("main.rs");
+    std::fs::write(
+        &file,
+        (0..100)
+            .map(|line| format!("fn line_{line}() {{}}\n"))
+            .collect::<String>(),
+    )?;
+    let git = |args: &[&str]| {
+        let result = std::process::Command::new("git")
+            .args(args)
+            .current_dir(root.path())
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+    };
+    git(&["init", "-q"]);
+    git(&["add", "."]);
+    git(&[
+        "-c",
+        "user.name=Blame Test",
+        "-c",
+        "user.email=blame@example.com",
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-qm",
+        "baseline",
+    ]);
+    let mut app = AppBuilder::new().with_file(&file, None).build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(":blame-toggle<ret>"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert!(view
+                        .gutters
+                        .layout
+                        .contains(&helix_view::editor::GutterType::Blame));
+                    assert!(doc.file_blame.as_ref().unwrap().is_ok());
+                    let area = view.area;
+                    let row = (area.x..view.inner_area(doc).x)
+                        .map(|x| app.test_surface()[(x, area.y)].symbol.as_str())
+                        .collect::<String>();
+                    assert!(row.contains("Blame Test"), "{row:?}");
+                }),
+            ),
+            (
+                Some("80j"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert!(doc.cursor_line(view.id) >= 80);
+                    assert!(view.inner_area(doc).x > 30);
+                }),
+            ),
+            (
+                Some(":blame-toggle<ret>"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert!(!view
+                        .gutters
+                        .layout
+                        .contains(&helix_view::editor::GutterType::Blame));
+                    assert!(view.inner_area(doc).x < 10);
+                }),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn editable_inline_uses_real_working_document_and_virtual_source_highlighting(
 ) -> anyhow::Result<()> {
     use std::io::Write;

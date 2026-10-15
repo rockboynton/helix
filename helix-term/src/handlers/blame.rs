@@ -3,7 +3,7 @@ use std::{collections::HashMap, mem, time::Duration};
 use helix_event::register_hook;
 use helix_vcs::FileBlame;
 use helix_view::{
-    events::{DocumentDidOpen, EditorConfigDidChange},
+    events::{DocumentDidOpen, DocumentFocusLost, EditorConfigDidChange},
     handlers::{BlameEvent, Handlers},
     DocumentId,
 };
@@ -47,6 +47,7 @@ impl helix_event::AsyncHook for BlameHandler {
                         return;
                     }
                     doc.file_blame = Some(result);
+                    doc.is_blame_potentially_out_of_date = false;
                     if !editor.config().inline_blame.auto_fetch {
                         if let Some(line) = event.line {
                             crate::commands::blame_line_impl(editor, doc_id, line);
@@ -62,9 +63,20 @@ impl helix_event::AsyncHook for BlameHandler {
 }
 
 pub(super) fn register_hooks(handlers: &Handlers) {
+    register_hook!(move |event: &mut DocumentFocusLost<'_>| {
+        request_visible_annotations(event.editor);
+        Ok(())
+    });
     let tx = handlers.blame.clone();
     register_hook!(move |event: &mut DocumentDidOpen<'_>| {
-        if event.editor.config().inline_blame.auto_fetch {
+        if event.editor.config().inline_blame.auto_fetch
+            || event
+                .editor
+                .config()
+                .gutters
+                .layout
+                .contains(&helix_view::editor::GutterType::Blame)
+        {
             helix_event::send_blocking(
                 &tx,
                 BlameEvent {
@@ -99,4 +111,45 @@ pub(super) fn register_hooks(handlers: &Handlers) {
         }
         Ok(())
     });
+}
+
+/// Event-driven requests only; the gutter renderer never starts repository work.
+pub(super) fn request_visible_annotations(editor: &mut helix_view::Editor) {
+    let ids = editor
+        .tree
+        .views()
+        .filter(|(view, _)| {
+            view.gutters
+                .layout
+                .contains(&helix_view::editor::GutterType::Blame)
+        })
+        .map(|(view, _)| view.doc)
+        .collect::<std::collections::BTreeSet<_>>();
+    for id in ids {
+        let doc = editor.document(id).unwrap();
+        if doc.file_blame.is_some() && !doc.is_blame_potentially_out_of_date {
+            continue;
+        }
+        let Some(path) = doc.path().map(std::path::Path::to_path_buf) else {
+            continue;
+        };
+        if !editor
+            .workspace_trust
+            .query(
+                &helix_loader::find_workspace_in(&path).0,
+                helix_loader::workspace_trust::TrustQuery::Git,
+            )
+            .is_trusted()
+        {
+            continue;
+        }
+        helix_event::send_blocking(
+            &editor.handlers.blame,
+            BlameEvent {
+                path,
+                doc_id: id,
+                line: None,
+            },
+        );
+    }
 }

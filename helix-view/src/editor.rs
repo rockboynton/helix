@@ -1093,6 +1093,8 @@ pub enum GutterType {
     Diff,
     /// Indicator for when code actions are available
     CodeActionHint,
+    /// Toggleable full-file blame annotations to the left of source text.
+    Blame,
 }
 
 impl std::str::FromStr for GutterType {
@@ -1105,8 +1107,9 @@ impl std::str::FromStr for GutterType {
             "line-numbers" => Ok(Self::LineNumbers),
             "diff" => Ok(Self::Diff),
             "code-action-hint" => Ok(Self::CodeActionHint),
+            "blame" => Ok(Self::Blame),
             _ => anyhow::bail!(
-                "Gutter type can only be `diagnostics`, `spacer`, `line-numbers` or `diff`."
+                "Unknown gutter type; expected diagnostics, spacer, line-numbers, diff, code-action-hint or blame."
             ),
         }
     }

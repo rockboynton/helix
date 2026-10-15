@@ -33,6 +33,7 @@ impl GutterType {
             GutterType::Spacer => padding(editor, doc, view, theme, is_focused),
             GutterType::Diff => diff(editor, doc, view, theme, is_focused),
             GutterType::CodeActionHint => code_action_hint(editor, doc, view, theme, is_focused),
+            GutterType::Blame => blame(doc, theme),
         }
     }
 
@@ -43,8 +44,34 @@ impl GutterType {
             GutterType::Spacer => 1,
             GutterType::Diff => 1,
             GutterType::CodeActionHint => 1,
+            GutterType::Blame => {
+                if view.area.width < 60 {
+                    0
+                } else {
+                    (view.area.width as usize / 3).min(38)
+                }
+            }
         }
     }
+}
+
+fn blame<'doc>(doc: &'doc Document, theme: &Theme) -> GutterFn<'doc> {
+    let style = theme
+        .try_get("ui.virtual.blame")
+        .unwrap_or_else(|| theme.get("ui.virtual.inline-blame"));
+    Box::new(move |line, _, first, out| {
+        if !first {
+            return None;
+        }
+        let label = match doc.line_blame(line as u32, "{commit} {date} {author}") {
+            Ok(label) => label,
+            Err(crate::document::LineBlameError::NotCommittedYet) => "Uncommitted".into(),
+            Err(crate::document::LineBlameError::NotReadyYet) => "…".into(),
+            Err(crate::document::LineBlameError::NoFileBlame(_, _)) => "Blame unavailable".into(),
+        };
+        out.extend(label.chars().filter(|ch| !ch.is_control()));
+        Some(style)
+    })
 }
 
 pub fn diagnostic<'doc>(

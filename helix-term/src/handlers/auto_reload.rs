@@ -477,6 +477,7 @@ fn reload_document(editor: &mut Editor, doc_id: DocumentId) -> anyhow::Result<()
         view.sync_changes(editor.documents.get_mut(&doc_id).unwrap());
         view.ensure_cursor_in_view(editor.documents.get_mut(&doc_id).unwrap(), scrolloff);
     }
+    super::blame::request_visible_annotations(editor);
     Ok(())
 }
 

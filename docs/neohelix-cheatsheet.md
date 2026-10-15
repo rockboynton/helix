@@ -78,6 +78,11 @@ parser is available.
 
 ## GitLens
 
+`:blame-toggle` shows/hides a full-file commit/date/author strip to the left of
+the focused buffer, independently of the file tree and popup. The author's
+config binds it to `' g b`. Metadata loads asynchronously; no GitHub token is
+needed for these local annotations.
+
 With your `B` binding, open on-demand blame details without continuously rendering
 inline blame. Within the popup:
 

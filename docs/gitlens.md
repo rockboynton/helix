@@ -140,6 +140,24 @@ Older cache records with rewritten links are invalidated automatically.
 Confirmed unpublished commits omit the dead commit link; publishing the branch
 makes that hash available on GitHub.
 
+### Toggleable full-file annotations
+
+`:blame-toggle` toggles a GitLens-style strip to the left of the focused view's
+source text: abbreviated commit, commit date and author for each real source
+line. It reserves actual gutter width and scrolls with the file, including when
+soft wrapping is enabled. Continuation rows stay blank. The strip hides on panes
+narrower than 60 columns and otherwise uses up to 38 columns (at most one third
+of the pane). The file-tree sidebar remains independent.
+
+This is a native core command, not the Steel popup plugin. It reuses the full-file
+blame worker/cache; no repository or network requests are started by rendering.
+It requires a saved path and workspace trust. Inserted/uncommitted lines are
+marked `Uncommitted`. Toggle on again to request a fresh snapshot; reloaded files
+also refresh visible annotations. The annotation theme scope is `ui.virtual.blame`
+with `ui.virtual.inline-blame` as fallback. No shortcut is installed by importing
+the plugin; bind `:blame-toggle` in your keymap (the author's config uses `' g b`).
+The existing on-demand popup shortcut remains separate.
+
 ### Requirements and limitations
 
 - The repository must be trusted. Uncommitted lines have no historical blame.
