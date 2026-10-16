@@ -152,7 +152,10 @@ commands, OSC clipboard sequences, or controls from input text.
 
 Options: `--color auto|always|never`, `--width 20..4096` (default 100),
 `--diff-context 0..1000` (default 3), and `--diff-theme <name>`. Long lines are
-clipped with an explicit `…`; increase the width to see more. Directory inputs
+soft-wrapped using Helix's native text layout. Inline output wraps at the available
+text width; split output wraps each side independently and pads the shorter side
+to keep the next logical source lines aligned. Continuation rows retain syntax,
+line and word-diff colors, with blank line-number gutters. Directory inputs
 are compared recursively in sorted order. Symlinks are reported without
 following them; binary files, empty-file additions/removals, executable-bit
 changes and missing final newlines are reported explicitly. Input files are never written.

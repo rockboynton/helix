@@ -137,6 +137,7 @@ pub struct FileRenderProfile {
     pub render: Duration,
 }
 
+#[derive(Clone, Copy)]
 struct SourceLine<'a> {
     doc: &'a Document,
     index: usize,
@@ -431,44 +432,28 @@ impl Renderer {
                     index += 1;
                 }
             }
-            let widths = if self.layout == Layout::Inline {
-                [self.width, 0]
-            } else {
-                [(self.width - 3) / 2, self.width - 3 - (self.width - 3) / 2]
-            };
             for row in 0..groups[0].len().max(groups[1].len()) {
-                let mut buffer = Buffer::empty(Rect::new(0, 0, self.width, 1));
-                for side in 0..2 {
-                    if let Some(line) = groups[side].get(row) {
-                        let x = if side == 0 { 0 } else { widths[0] + 3 };
-                        self.line(
-                            &mut buffer,
-                            Rect::new(x, 0, widths[side], 1),
-                            SourceLine {
-                                doc: &model.sources[line.source],
-                                words: &model.source_words[line.source],
-                                index: line.line,
-                                numbers: if self.layout == Layout::Inline {
-                                    line.numbers
-                                } else {
-                                    [line.numbers[side], None]
-                                },
-                                removed: line.removed,
-                                change: line.removed.map(|removed| {
-                                    if removed {
-                                        DiffChange::Removed
-                                    } else {
-                                        DiffChange::Added
-                                    }
-                                }),
-                            },
-                        );
-                    }
-                }
-                if self.layout == Layout::SideBySide {
-                    buffer.set_string(widths[0] + 1, 0, "│", self.theme.get("ui.window"));
-                }
-                emit(&buffer, self.color, output)?;
+                let sources = [0, 1].map(|side| {
+                    groups[side].get(row).map(|line| SourceLine {
+                        doc: &model.sources[line.source],
+                        words: &model.source_words[line.source],
+                        index: line.line,
+                        numbers: if self.layout == Layout::Inline {
+                            line.numbers
+                        } else {
+                            [line.numbers[side], None]
+                        },
+                        removed: line.removed,
+                        change: line.removed.map(|removed| {
+                            if removed {
+                                DiffChange::Removed
+                            } else {
+                                DiffChange::Added
+                            }
+                        }),
+                    })
+                });
+                self.emit_sources(sources, output)?;
             }
         }
         Ok(())
@@ -655,30 +640,20 @@ impl Renderer {
         rows: Range<usize>,
         output: &mut impl Write,
     ) -> Result<()> {
-        let widths = [(self.width - 3) / 2, self.width - 3 - (self.width - 3) / 2];
         for row in rows {
-            let mut buffer = Buffer::empty(Rect::new(0, 0, self.width, 1));
-            for side in 0..2 {
+            let sources = [0, 1].map(|side| {
                 let line = line_at(&layout.sides[side].rows, row)
                     .filter(|&line| line < real_lines(docs[side].text()));
-                let x = if side == 0 { 0 } else { widths[0] + 3 };
-                if let Some(line) = line {
-                    self.line(
-                        &mut buffer,
-                        Rect::new(x, 0, widths[side], 1),
-                        SourceLine {
-                            doc: docs[side],
-                            words: &layout.sides[side].words,
-                            index: line,
-                            numbers: [Some(line + 1), None],
-                            removed: layout.sides[side].is_changed(line).then_some(side == 0),
-                            change: layout.sides[side].gutter_at(line, true),
-                        },
-                    );
-                }
-            }
-            buffer.set_string(widths[0] + 1, 0, "│", self.theme.get("ui.window"));
-            emit(&buffer, self.color, output)?;
+                line.map(|line| SourceLine {
+                    doc: docs[side],
+                    words: &layout.sides[side].words,
+                    index: line,
+                    numbers: [Some(line + 1), None],
+                    removed: layout.sides[side].is_changed(line).then_some(side == 0),
+                    change: layout.sides[side].gutter_at(line, true),
+                })
+            });
+            self.emit_sources(sources, output)?;
         }
         Ok(())
     }
@@ -719,53 +694,134 @@ impl Renderer {
                     for line in range.start as usize
                         ..(range.end as usize).min(real_lines(docs[side].text()))
                     {
-                        let mut buffer = Buffer::empty(Rect::new(0, 0, self.width, 1));
-                        let area = buffer.area;
                         let mut numbers = [None; 2];
                         numbers[side] = Some(line + 1);
-                        self.line(
-                            &mut buffer,
-                            area,
-                            SourceLine {
-                                doc: docs[side],
-                                words: &layout.sides[side].words,
-                                index: line,
-                                numbers,
-                                removed: Some(side == 0),
-                                change: Some(if hunk.is_pure_insertion() {
-                                    DiffChange::Added
-                                } else if hunk.is_pure_removal() {
-                                    DiffChange::Removed
-                                } else {
-                                    DiffChange::Modified
+                        self.emit_sources(
+                            [
+                                Some(SourceLine {
+                                    doc: docs[side],
+                                    words: &layout.sides[side].words,
+                                    index: line,
+                                    numbers,
+                                    removed: Some(side == 0),
+                                    change: Some(if hunk.is_pure_insertion() {
+                                        DiffChange::Added
+                                    } else if hunk.is_pure_removal() {
+                                        DiffChange::Removed
+                                    } else {
+                                        DiffChange::Modified
+                                    }),
                                 }),
-                            },
-                        );
-                        emit(&buffer, self.color, output)?;
+                                None,
+                            ],
+                            output,
+                        )?;
                     }
                 }
             } else if let Some(line) = lines[1] {
-                let mut buffer = Buffer::empty(Rect::new(0, 0, self.width, 1));
-                let area = buffer.area;
-                self.line(
-                    &mut buffer,
-                    area,
-                    SourceLine {
-                        doc: docs[1],
-                        words: &[],
-                        index: line,
-                        numbers: lines.map(|line| line.map(|line| line + 1)),
-                        removed: None,
-                        change: None,
-                    },
-                );
-                emit(&buffer, self.color, output)?;
+                self.emit_sources(
+                    [
+                        Some(SourceLine {
+                            doc: docs[1],
+                            words: &[],
+                            index: line,
+                            numbers: lines.map(|line| line.map(|line| line + 1)),
+                            removed: None,
+                            change: None,
+                        }),
+                        None,
+                    ],
+                    output,
+                )?;
             }
         }
         Ok(())
     }
 
-    fn line(&self, buffer: &mut Buffer, area: Rect, source: SourceLine<'_>) {
+    fn number(&self, numbers: [Option<usize>; 2]) -> String {
+        let numbers =
+            numbers.map(|number| number.map(|number| number.to_string()).unwrap_or_default());
+        match self.layout {
+            Layout::SideBySide => format!("{:>4} ", numbers[0]),
+            Layout::Inline => format!("{:>4} {:>4} ", numbers[0], numbers[1]),
+        }
+    }
+
+    fn line_format(
+        &self,
+        source: SourceLine<'_>,
+        width: u16,
+    ) -> (u16, helix_core::doc_formatter::TextFormat) {
+        // Even narrow split panes need space for a double-width grapheme.
+        let prefix = (self.number(source.numbers).len() as u16 + 2).min(width.saturating_sub(2));
+        let mut format = source.doc.text_format(width - prefix, Some(&self.theme));
+        format.soft_wrap = true;
+        // Flow output uses blank continuation gutters, not inserted source text.
+        format.wrap_indicator = "".into();
+        (prefix, format)
+    }
+
+    fn emit_sources(
+        &self,
+        sources: [Option<SourceLine<'_>>; 2],
+        output: &mut impl Write,
+    ) -> Result<()> {
+        let widths = if self.layout == Layout::Inline {
+            [self.width, 0]
+        } else {
+            [(self.width - 3) / 2, self.width - 3 - (self.width - 3) / 2]
+        };
+        let mut heights = [0; 2];
+        for side in 0..2 {
+            if let Some(source) = sources[side] {
+                let (_, format) = self.line_format(source, widths[side]);
+                let text = source.doc.text().slice(..);
+                let anchor = text.line_to_char(source.index);
+                let end = helix_core::line_ending::line_end_char_index(&text, source.index);
+                heights[side] = helix_core::visual_offset_from_block(
+                    text,
+                    anchor,
+                    end,
+                    &format,
+                    &TextAnnotations::default(),
+                )
+                .0
+                .row + 1;
+                anyhow::ensure!(
+                    heights[side] <= u16::MAX as usize,
+                    "single source line exceeds 65535 wrapped flow rows"
+                );
+            }
+        }
+        let height = heights[0].max(heights[1]);
+        // Bound temporary cell storage even for very long logical lines.
+        for offset in (0..height).step_by(128) {
+            let chunk = (height - offset).min(128) as u16;
+            let mut buffer = Buffer::empty(Rect::new(0, 0, self.width, chunk));
+            for side in 0..2 {
+                if let Some(source) = sources[side].filter(|_| offset < heights[side]) {
+                    let x = if side == 0 { 0 } else { widths[0] + 3 };
+                    let area = Rect::new(
+                        x,
+                        0,
+                        widths[side],
+                        chunk.min((heights[side] - offset) as u16),
+                    );
+                    self.line(&mut buffer, area, source, offset);
+                }
+            }
+            if self.layout == Layout::SideBySide {
+                for y in 0..chunk {
+                    buffer.set_string(widths[0] + 1, y, "│", self.theme.get("ui.window"));
+                }
+            }
+            emit(&buffer, self.color, output)?;
+        }
+        Ok(())
+    }
+
+    fn line(&self, buffer: &mut Buffer, area: Rect, source: SourceLine<'_>, offset: usize) {
+        let (prefix, format) = self.line_format(source, area.width);
         let SourceLine {
             doc,
             index: line,
@@ -774,21 +830,19 @@ impl Renderer {
             change,
             words,
         } = source;
-        let numbers =
-            numbers.map(|number| number.map(|number| number.to_string()).unwrap_or_default());
-        let number = match self.layout {
-            Layout::SideBySide => format!("{:>4} ", numbers[0]),
-            Layout::Inline => format!("{:>4} {:>4} ", numbers[0], numbers[1]),
+        let number = if offset == 0 {
+            self.number(numbers)
+        } else {
+            String::new()
         };
-        let prefix = (number.len() as u16 + 2).min(area.width);
         buffer.set_stringn(
             area.x,
             0,
             &number,
-            prefix as usize,
+            prefix.saturating_sub(2) as usize,
             self.theme.get("ui.linenr"),
         );
-        if let Some(change) = change {
+        if let Some(change) = change.filter(|_| offset == 0) {
             let (icon, scope) = match change {
                 DiffChange::Added => (&self.icons.diff.added, "diff.plus.gutter"),
                 DiffChange::Removed => (&self.icons.diff.deleted, "diff.minus.gutter"),
@@ -822,14 +876,13 @@ impl Renderer {
                 renderer.set_line_background(Some(bg), pos.visual_line)
             });
         }
-        let mut format = doc.text_format(viewport.width, Some(&self.theme));
-        format.soft_wrap = false;
         render_document(
             buffer,
             viewport,
             doc,
             ViewPosition {
                 anchor,
+                vertical_offset: offset,
                 ..ViewPosition::default()
             },
             &TextAnnotations::default(),
@@ -839,33 +892,6 @@ impl Renderer {
             decorations,
             Some(format),
         );
-        // Flow text has no horizontal viewport to scroll. Mark clipped source
-        // explicitly rather than silently presenting a truncated line as complete.
-        let end = helix_core::line_ending::line_end_char_index(&doc.text().slice(..), line);
-        let mut format = doc.text_format(viewport.width, None);
-        format.soft_wrap = false;
-        let column = helix_core::visual_offset_from_block(
-            doc.text().slice(..),
-            anchor,
-            end,
-            &format,
-            &TextAnnotations::default(),
-        )
-        .0
-        .col;
-        if column > viewport.width as usize {
-            let last = viewport.right() - 1;
-            if last > viewport.x && buffer[(last - 1, 0)].width() > 1 {
-                buffer[(last - 1, 0)].set_symbol(" ");
-            }
-            buffer.set_stringn(
-                viewport.right() - 1,
-                0,
-                "…",
-                1,
-                self.theme.get("ui.virtual.wrap"),
-            );
-        }
     }
 }
 
@@ -949,39 +975,41 @@ fn color_code(color: Color, bg: bool) -> String {
 }
 
 fn emit(buffer: &Buffer, color: bool, output: &mut impl Write) -> Result<()> {
-    let mut previous = None;
-    let mut x = 0;
-    while x < buffer.area.width {
-        let cell = &buffer[(x, 0)];
-        let style = (cell.fg, cell.bg, cell.modifier);
-        if color && previous != Some(style) {
-            write!(
-                output,
-                "\x1b[0;{};{}",
-                color_code(cell.fg, false),
-                color_code(cell.bg, true)
-            )?;
-            for (flag, code) in [
-                (Modifier::BOLD, 1),
-                (Modifier::DIM, 2),
-                (Modifier::ITALIC, 3),
-                (Modifier::REVERSED, 7),
-                (Modifier::CROSSED_OUT, 9),
-            ] {
-                if cell.modifier.contains(flag) {
-                    write!(output, ";{code}")?;
+    for y in 0..buffer.area.height {
+        let mut previous = None;
+        let mut x = 0;
+        while x < buffer.area.width {
+            let cell = &buffer[(x, y)];
+            let style = (cell.fg, cell.bg, cell.modifier);
+            if color && previous != Some(style) {
+                write!(
+                    output,
+                    "\x1b[0;{};{}",
+                    color_code(cell.fg, false),
+                    color_code(cell.bg, true)
+                )?;
+                for (flag, code) in [
+                    (Modifier::BOLD, 1),
+                    (Modifier::DIM, 2),
+                    (Modifier::ITALIC, 3),
+                    (Modifier::REVERSED, 7),
+                    (Modifier::CROSSED_OUT, 9),
+                ] {
+                    if cell.modifier.contains(flag) {
+                        write!(output, ";{code}")?;
+                    }
                 }
+                write!(output, "m")?;
+                previous = Some(style);
             }
-            write!(output, "m")?;
-            previous = Some(style);
+            write!(output, "{}", visible(cell.symbol.as_str()))?;
+            x += cell.width().max(1) as u16;
         }
-        write!(output, "{}", visible(cell.symbol.as_str()))?;
-        x += cell.width().max(1) as u16;
+        if color {
+            write!(output, "\x1b[0m")?;
+        }
+        writeln!(output)?;
     }
-    if color {
-        write!(output, "\x1b[0m")?;
-    }
-    writeln!(output)?;
     Ok(())
 }
 
@@ -1244,7 +1272,7 @@ mod tests {
     }
 
     #[test]
-    fn context_is_bounded_and_wide_or_long_lines_have_explicit_clipping() {
+    fn context_is_bounded_and_wide_lines_wrap_without_losing_source() {
         let before = (0..50)
             .map(|line| format!("line{line:02}\n"))
             .collect::<String>();
@@ -1258,12 +1286,100 @@ mod tests {
             Layout::SideBySide,
             false,
         );
-        assert!(output.contains('…'));
+        assert!(!output.contains('…'));
+        assert_eq!(output.matches('界').count(), 100);
         for line in output
             .lines()
             .filter(|line| !line.starts_with("diff ") && !line.starts_with("@@"))
         {
             assert!(line.width() <= 100, "{line}");
+        }
+    }
+
+    #[test]
+    fn wrapped_rows_preserve_graphemes_gutters_and_split_alignment_across_chunks() {
+        for layout in [Layout::Inline, Layout::SideBySide] {
+            let output = render_pair(
+                "short old\nfollowing_context_line\n",
+                &format!(
+                    "{}{}\nfollowing_context_line\n",
+                    "界".repeat(6000),
+                    "e\u{301}".repeat(30)
+                ),
+                layout,
+                false,
+            );
+            assert_eq!(output.matches('界').count(), 6000);
+            assert_eq!(output.matches("e\u{301}").count(), 30);
+            assert!(output.contains("following_context_line"));
+            let body = output
+                .lines()
+                .filter(|line| !line.starts_with("diff ") && !line.starts_with("@@"));
+            for row in body {
+                assert!(row.width() <= 100, "{row}");
+                if layout == Layout::SideBySide {
+                    let (left, _) = row.split_once('│').unwrap();
+                    assert_eq!(left.width(), 49);
+                    if row.contains('界') && !row.contains("short old") {
+                        assert!(left.trim().is_empty(), "short side must be padded: {row}");
+                    }
+                }
+            }
+            // A logical line number appears only on its first visual row.
+            let gutter = if layout == Layout::Inline { 12 } else { 7 };
+            let numbered = output
+                .lines()
+                .filter(|line| line.contains('界') && line.chars().take(gutter).any(|c| c == '1'))
+                .count();
+            assert_eq!(numbered, 1);
+        }
+    }
+
+    #[test]
+    fn narrow_flow_and_patch_views_wrap_wide_text_and_keep_continuation_colors() {
+        for layout in [Layout::Inline, Layout::SideBySide] {
+            let mut renderer = renderer(layout, false);
+            renderer.width = 20;
+            let patch = crate::diff_patch::parse(&format!(
+                "--- a/x.rs\n+++ b/x.rs\n@@ -1 +1 @@\n-old\n+{}\n",
+                "界".repeat(40)
+            ))
+            .unwrap();
+            let mut output = Vec::new();
+            renderer.patch(&patch, &mut output).unwrap();
+            let output = String::from_utf8(output).unwrap();
+            assert_eq!(output.matches('界').count(), 40, "{output}");
+
+            renderer.width = 100;
+            renderer.color = true;
+            let doc = renderer
+                .document(
+                    format!("fn {}() {{}}\n", "x".repeat(300)).as_bytes(),
+                    Path::new("x.rs"),
+                )
+                .unwrap();
+            let word = 3..303;
+            let words = std::slice::from_ref(&word);
+            let source = SourceLine {
+                doc: &doc,
+                index: 0,
+                numbers: [Some(1), None],
+                removed: Some(false),
+                change: Some(DiffChange::Added),
+                words,
+            };
+            let mut output = Vec::new();
+            renderer
+                .emit_sources([Some(source), None], &mut output)
+                .unwrap();
+            let output = String::from_utf8(output).unwrap();
+            assert_eq!(output.matches('x').count(), 300);
+            for row in output.lines().filter(|line| line.contains('x')) {
+                assert!(
+                    row.contains("48;2;24;72;32"),
+                    "word background lost on continuation: {row:?}"
+                );
+            }
         }
     }
 
