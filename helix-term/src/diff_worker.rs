@@ -1,5 +1,6 @@
 //! Private Unix worker transport for sequential, read-only flow rendering.
 //! No terminal acquisition, public listener, persistent config snapshots or API tokens.
+mod immutable;
 use std::{
     collections::BTreeSet,
     ffi::OsStr,
@@ -28,7 +29,7 @@ use crate::{
     diff_render::{ColorMode, Layout, RenderSession},
 };
 
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const MAX_REQUEST: usize = 64 * 1024;
 const MAX_OUTPUT: usize = 64 * 1024 * 1024;
 const OUTPUT: u8 = 0;
@@ -41,7 +42,6 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 enum Request {
     Render {
         version: u32,
-        fingerprint: String,
         paths: [PathBuf; 2],
         width: u16,
         context: usize,
@@ -52,11 +52,11 @@ enum Request {
     Stop,
 }
 
-struct Scope {
+pub(crate) struct Scope {
     root: PathBuf,
-    base: String,
+    pub(crate) base: String,
     slot: String,
-    fingerprint: String,
+    pub(crate) fingerprint: String,
 }
 
 fn uid() -> u32 {
@@ -118,12 +118,20 @@ fn private_root() -> Result<PathBuf> {
     Ok(root)
 }
 
+fn skip_child(parent: &Path, name: &OsStr) -> bool {
+    [".git", ".jj", "target", "node_modules", ".cache"]
+        .iter()
+        .any(|skip| name == OsStr::new(skip))
+        || (parent.file_name() == Some(OsStr::new("grammars")) && name == "sources")
+        || (parent.file_name() == Some(OsStr::new("cogs")) && name == "helix")
+}
+
 /// Directory mtimes are not dependencies: listing the files detects additions,
 /// while ignoring generated Steel stubs must not invalidate every startup.
 fn stamp_tree(
     path: &Path,
     hash: &mut Sha256,
-    visited: &mut BTreeSet<PathBuf>,
+    visited: &mut BTreeSet<(u64, u64)>,
     remaining: &mut usize,
 ) -> Result<()> {
     ensure!(
@@ -136,19 +144,38 @@ fn stamp_tree(
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
     };
-    if link.file_type().is_symlink() {
+    let is_symlink = link.file_type().is_symlink();
+    let meta = if is_symlink {
         hash_path(hash, path);
         metadata(hash, &link);
         hash_path(hash, &fs::read_link(path)?);
-    }
-    let meta = match fs::metadata(path) {
-        Ok(meta) => meta,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error.into()),
+        match fs::metadata(path) {
+            Ok(meta) => meta,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        }
+    } else {
+        link.clone()
     };
     if meta.is_dir() {
-        let canonical = fs::canonicalize(path)?;
-        if !visited.insert(canonical) {
+        if visited.contains(&(meta.dev(), meta.ino())) {
+            return Ok(());
+        }
+        if let Some(snapshot) = immutable::get(path, &meta, *remaining, is_symlink)? {
+            ensure!(snapshot.nodes <= *remaining, "too many worker dependencies");
+            *remaining -= snapshot.nodes;
+            hash_field(hash, b"immutable-nix-tree-v1");
+            hash_path(hash, path);
+            hash_field(hash, &snapshot.digest);
+            visited.extend(snapshot.directories);
+            for dependency in snapshot.outside {
+                stamp_tree(&dependency, hash, visited, remaining)?;
+            }
+            return Ok(());
+        }
+        // Directory identity detects symlink cycles/aliases without resolving
+        // every ancestor of every runtime query directory again.
+        if !visited.insert((meta.dev(), meta.ino())) {
             return Ok(());
         }
         let mut children = fs::read_dir(path)?
@@ -157,17 +184,7 @@ fn stamp_tree(
         children.sort();
         for child in children {
             let name = child.file_name().unwrap();
-            if [".git", ".jj", "target", "node_modules", ".cache"]
-                .iter()
-                .any(|skip| name == OsStr::new(skip))
-            {
-                continue;
-            }
-            if path.file_name() == Some(OsStr::new("grammars")) && name == "sources" {
-                continue;
-            }
-            // These are generated from this executable, not imported by the VM.
-            if path.file_name() == Some(OsStr::new("cogs")) && name == "helix" {
+            if skip_child(path, name) {
                 continue;
             }
             stamp_tree(&child, hash, visited, remaining)?;
@@ -176,14 +193,14 @@ fn stamp_tree(
         hash_path(hash, path);
         metadata(hash, &link);
         metadata(hash, &meta);
-        if link.file_type().is_symlink() {
+        if is_symlink {
             hash_path(hash, &fs::read_link(path)?);
         }
     }
     Ok(())
 }
 
-fn fingerprint() -> Result<String> {
+pub(crate) fn fingerprint() -> Result<String> {
     let mut hash = Sha256::new();
     let workspace = helix_loader::find_workspace().0;
     hash_path(&mut hash, &workspace);
@@ -227,7 +244,16 @@ fn fingerprint() -> Result<String> {
 }
 
 impl Scope {
-    fn capture(width: u16) -> Result<Self> {
+    pub(crate) fn capture(width: u16) -> Result<Self> {
+        let mut scope = Self::identity(width)?;
+        scope.fingerprint = fingerprint()?;
+        Ok(scope)
+    }
+
+    /// Clients only need the private socket identity. The server validates its
+    /// complete configuration fingerprint before every render, so scanning the
+    /// same dependencies in the client adds latency without improving freshness.
+    fn identity(width: u16) -> Result<Self> {
         let root = private_root()?;
         let mut hash = Sha256::new();
         hash.update(VERSION.to_le_bytes());
@@ -246,6 +272,14 @@ impl Scope {
                 "OLDPWD",
                 "HELIX_DIFF_WORKER",
                 "HELIX_DIFF_WORKER_TRACE",
+                "HELIX_DIFF_CACHE",
+                "HELIX_DIFF_CACHE_TRACE",
+                "HELIX_DIFF_HIGHLIGHT_CACHE",
+                "HELIX_DIFF_RENDER_THREADS",
+                "HELIX_DIFF_INCREMENTAL_PARSE",
+                "HELIX_DIFF_SYNTAX_RANGES",
+                "HELIX_DIFF_SYNTAX_CACHE",
+                "HELIX_DIFF_IMMUTABLE_CACHE",
             ]
             .iter()
             .any(|skip| name == OsStr::new(skip))
@@ -271,7 +305,7 @@ impl Scope {
             root,
             base,
             slot,
-            fingerprint: fingerprint()?,
+            fingerprint: String::new(),
         })
     }
     fn socket(&self) -> PathBuf {
@@ -474,10 +508,45 @@ fn reply(stream: &mut UnixStream, status: u8, bytes: &[u8]) -> io::Result<()> {
 
 /// Return false only before writing any output, so fallback cannot duplicate a diff.
 pub fn try_render(args: &Args, output: &mut impl Write, is_terminal: bool) -> Result<bool> {
-    if args.patch
-        || !args.render_diff
-        || std::env::var_os("HELIX_DIFF_WORKER").is_some_and(|value| value == "0")
-    {
+    let enabled = std::env::var_os("HELIX_DIFF_WORKER").is_some_and(|value| value == "1");
+    try_render_enabled(args, output, is_terminal, enabled)
+}
+
+/// Explicit initialization with unrelated synthetic sources, never project data.
+/// The worker remains opt-in for ordinary renders; no environment is mutated.
+pub fn warm(args: &Args) -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut warm = Args {
+        render_diff: true,
+        diff_width: Some(args.diff_width.unwrap_or(100)),
+        diff_color: Some(ColorMode::Always),
+        ..Args::default()
+    };
+    for (side, name) in ["left", "right"].into_iter().enumerate() {
+        let path = root.path().join(name);
+        fs::create_dir(&path)?;
+        fs::write(path.join(".neohelix-warm.rs"), format!(
+            "/// ```rust\n/// let x = {side};\n/// ```\nfn main() {{ println!(\"warm {side}\"); }}\n"))?;
+        fs::write(
+            path.join(".neohelix-warm.md"),
+            format!("# Warm {side}\n\n```rust\nlet x = {side};\n```\n"),
+        )?;
+        warm.files.insert(fs::canonicalize(path)?, Vec::new());
+    }
+    ensure!(
+        try_render_enabled(&warm, &mut io::sink(), false, true)?,
+        "could not initialize the retained renderer"
+    );
+    Ok(())
+}
+
+fn try_render_enabled(
+    args: &Args,
+    output: &mut impl Write,
+    is_terminal: bool,
+    enabled: bool,
+) -> Result<bool> {
+    if args.patch || !args.render_diff || !enabled {
         return Ok(false);
     }
     let paths: Vec<_> = args.files.keys().cloned().collect();
@@ -487,11 +556,10 @@ pub fn try_render(args: &Args, output: &mut impl Write, is_terminal: bool) -> Re
     let width = args.diff_width.unwrap_or(100);
     for _ in 0..3 {
         let exchange = || -> Result<(u8, Vec<u8>)> {
-            let scope = Scope::capture(width)?;
+            let scope = Scope::identity(width)?;
             let mut stream = open_worker(&scope, width)?;
             let request = Request::Render {
                 version: VERSION,
-                fingerprint: scope.fingerprint,
                 paths: [left.clone(), right.clone()],
                 width,
                 context: args.diff_context.unwrap_or(3),
@@ -697,7 +765,6 @@ pub fn serve(args: &Args) -> Result<()> {
         }
         let Request::Render {
             version,
-            fingerprint: requested,
             paths,
             width,
             context,
@@ -731,10 +798,6 @@ pub fn serve(args: &Args) -> Result<()> {
         if current != scope.fingerprint {
             let _ = reply(&mut stream, STALE, &[]);
             return Ok(());
-        }
-        if requested != current {
-            let _ = reply(&mut stream, STALE, &[]);
-            continue;
         }
         let mut request_args = Args {
             render_diff: true,
@@ -802,7 +865,7 @@ pub fn serve(args: &Args) -> Result<()> {
 }
 
 pub fn stop() -> Result<()> {
-    let scope = Scope::capture(100)?;
+    let scope = Scope::identity(100)?;
     for entry in fs::read_dir(&scope.root)? {
         let path = entry?.path();
         if path.extension() != Some(OsStr::new("sock"))
@@ -877,6 +940,10 @@ mod tests {
         let linked = stamp()?;
         fs::write(target.path().join("external.scm"), "new outside")?;
         assert_ne!(linked, stamp()?);
+        std::os::unix::fs::symlink(root.path(), target.path().join("cycle"))?;
+        let cyclic = stamp()?;
+        fs::write(target.path().join("external.scm"), "changed through cycle")?;
+        assert_ne!(cyclic, stamp()?);
         Ok(())
     }
 

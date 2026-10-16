@@ -8,7 +8,7 @@ use anyhow::{anyhow, Result};
 use helix_core::{hashmap, syntax::Highlight};
 use helix_loader::merge_toml_values;
 use log::warn;
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::sync::LazyLock;
 use toml::{map::Map, Value};
 
@@ -405,6 +405,19 @@ fn default_rainbow() -> Vec<Style> {
     ]
 }
 impl Theme {
+    /// Effective style data, preserving capture indices without reparsing a theme.
+    pub fn snapshot(&self) -> ThemeSnapshot {
+        ThemeSnapshot {
+            name: self.name.clone(),
+            rainbow_length: self.rainbow_length,
+            styles: self
+                .scopes
+                .iter()
+                .cloned()
+                .zip(self.highlights.iter().copied())
+                .collect(),
+        }
+    }
     /// To allow `Highlight` to represent arbitrary RGB colors without turning it into an enum,
     /// we interpret the last 256^3 numbers as RGB.
     const RGB_START: u32 = (u32::MAX << (8 + 8 + 8)) - 1 - (u32::MAX - Highlight::MAX);
@@ -458,6 +471,8 @@ impl Theme {
                 }
             }
         } else {
+            self.scope_index
+                .insert(scope.clone(), Highlight::new(self.scopes.len() as u32));
             self.scopes.push(scope);
             self.highlights.push(style);
         }
@@ -537,6 +552,45 @@ impl Theme {
             ..Default::default()
         };
         (theme, load_errors)
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ThemeSnapshot {
+    name: String,
+    rainbow_length: usize,
+    styles: Vec<(String, Style)>,
+}
+
+impl ThemeSnapshot {
+    pub fn restore(self) -> Result<Theme> {
+        anyhow::ensure!(self.styles.len() <= 16384, "too many cached theme scopes");
+        let mut styles = HashMap::new();
+        let mut scopes = Vec::new();
+        let mut highlights = Vec::new();
+        let mut scope_index = HashMap::new();
+        let rainbow_length = self.rainbow_length;
+        anyhow::ensure!(
+            rainbow_length <= self.styles.len(),
+            "invalid cached rainbow count"
+        );
+        for (name, style) in self.styles {
+            anyhow::ensure!(
+                styles.insert(name.clone(), style).is_none(),
+                "duplicate cached theme scope"
+            );
+            scope_index.insert(name.clone(), Highlight::new(scopes.len() as u32));
+            scopes.push(name);
+            highlights.push(style);
+        }
+        Ok(Theme {
+            name: self.name,
+            styles,
+            scopes,
+            highlights,
+            scope_index,
+            rainbow_length,
+        })
     }
 }
 
@@ -703,6 +757,59 @@ impl TryFrom<Value> for ThemePalette {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_snapshot_preserves_ordered_scopes_and_complete_styles() {
+        let mut theme = Theme::default();
+        theme.name = "native-profile-test".into();
+        let style = Style {
+            fg: Some(Color::Rgb(10, 20, 30)),
+            bg: Some(Color::Indexed(17)),
+            underline_color: Some(Color::Blue),
+            underline_style: Some(UnderlineStyle::Curl),
+            add_modifier: Modifier::BOLD | Modifier::ITALIC,
+            sub_modifier: Modifier::DIM,
+        };
+        theme.set("keyword".into(), style);
+        theme.set(
+            "keyword.function".into(),
+            Style::default().fg(Color::Yellow),
+        );
+        let encoded = serde_json::to_vec(&theme.snapshot()).unwrap();
+        let snapshot: ThemeSnapshot = serde_json::from_slice(&encoded).unwrap();
+        let restored = snapshot.restore().unwrap();
+        assert_eq!(restored.name, theme.name);
+        assert_eq!(restored.rainbow_length, theme.rainbow_length);
+        assert_eq!(restored.scopes(), theme.scopes());
+        for scope in theme.scopes() {
+            let index = theme.find_highlight_exact(scope).unwrap();
+            assert_eq!(restored.find_highlight_exact(scope), Some(index));
+            assert_eq!(restored.highlight(index), theme.highlight(index));
+        }
+        assert_eq!(restored.get("keyword"), style);
+        assert_eq!(restored.get("keyword.control"), style);
+    }
+
+    #[test]
+    fn native_snapshot_rejects_duplicate_scopes_and_invalid_rainbow_count() {
+        assert!(ThemeSnapshot {
+            name: "invalid".into(),
+            rainbow_length: 0,
+            styles: vec![
+                ("a".into(), Style::default()),
+                ("a".into(), Style::default())
+            ],
+        }
+        .restore()
+        .is_err());
+        assert!(ThemeSnapshot {
+            name: "invalid".into(),
+            rainbow_length: 1,
+            styles: vec![],
+        }
+        .restore()
+        .is_err());
+    }
 
     #[test]
     fn test_parse_style_string() {

@@ -1,5 +1,10 @@
 //! Read-only, flow-text frontend for standalone use and external diff hosts.
 //! It emits text/SGR only: no terminal acquisition, cursor motion or alternate screen.
+#[cfg(unix)]
+mod cache;
+mod pair_parse;
+mod parallel;
+mod syntax_cache;
 use std::{
     cell::RefCell,
     collections::{hash_map::DefaultHasher, BTreeSet, VecDeque},
@@ -8,17 +13,18 @@ use std::{
     ops::Range,
     path::{Path, PathBuf},
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
 use arc_swap::ArcSwap;
 use helix_core::{syntax, text_annotations::TextAnnotations, Rope};
+use helix_stdx::rope::RopeSliceExt;
 use helix_view::{
     diff_session::{DiffChange, DiffLayout},
     document::{from_reader, DocumentAccess},
-    graphics::{Color, Modifier, Rect},
+    graphics::{Color, Modifier, Rect, Style},
     theme,
     view::ViewPosition,
     Document, Theme,
@@ -29,7 +35,7 @@ use crate::{
     args::Args,
     config::Config,
     ui::{
-        document::{render_document, LinePos, TextRenderer},
+        document::{render_document, LinePos, SyntaxHighlights, TextRenderer},
         editor::EditorView,
         text_decorations::{self, DecorationManager},
     },
@@ -61,13 +67,32 @@ struct Renderer {
     color: bool,
     profile: Option<RefCell<Vec<FileRenderProfile>>>,
     documents: Rc<RefCell<DocumentCache>>,
+    syntax_cache: Arc<Mutex<syntax_cache::SyntaxCache>>,
+    #[cfg(unix)]
+    highlights: Option<cache::Highlights>,
+}
+
+struct FlowDocument {
+    document: Document,
+    events: Option<Vec<(usize, Style)>>,
+    highlight_theme: Option<String>,
+    highlight_coverage: Option<Vec<Range<usize>>>,
+    #[cfg(unix)]
+    highlight_store: RefCell<Option<String>>,
+}
+
+impl std::ops::Deref for FlowDocument {
+    type Target = Document;
+    fn deref(&self) -> &Document {
+        &self.document
+    }
 }
 
 struct CachedDocument {
     digest: u64,
     language: Option<String>,
     bytes: Vec<u8>,
-    document: Rc<Document>,
+    document: Rc<FlowDocument>,
 }
 
 /// Bounds retained source bytes and entry count; syntax trees add memory on top.
@@ -92,7 +117,12 @@ impl Default for DocumentCache {
 }
 
 impl DocumentCache {
-    fn get(&mut self, digest: u64, language: Option<&str>, bytes: &[u8]) -> Option<Rc<Document>> {
+    fn get(
+        &mut self,
+        digest: u64,
+        language: Option<&str>,
+        bytes: &[u8],
+    ) -> Option<Rc<FlowDocument>> {
         let index = self.entries.iter().position(|entry| {
             entry.digest == digest && entry.language.as_deref() == language && entry.bytes == bytes
         })?;
@@ -102,10 +132,12 @@ impl DocumentCache {
         Some(document)
     }
 
-    fn insert(&mut self, digest: u64, bytes: &[u8], document: Rc<Document>) {
+    fn insert(&mut self, digest: u64, bytes: &[u8], document: Rc<FlowDocument>) {
         if self.max_entries == 0
             || bytes.len() > self.max_bytes
-            || (document.language_config().is_some() && document.syntax().is_none())
+            || (document.language_config().is_some()
+                && document.syntax().is_none()
+                && document.events.is_none())
         {
             return;
         }
@@ -132,7 +164,10 @@ pub struct FileRenderProfile {
     pub document: Duration,
     pub prepare: Duration,
     pub syntax: Duration,
+    pub parse: Duration,
+    pub highlight: Duration,
     pub cache_hits: usize,
+    pub syntax_reuses: usize,
     pub diff: Duration,
     pub render: Duration,
 }
@@ -140,6 +175,7 @@ pub struct FileRenderProfile {
 #[derive(Clone, Copy)]
 struct SourceLine<'a> {
     doc: &'a Document,
+    events: Option<&'a [(usize, Style)]>,
     index: usize,
     numbers: [Option<usize>; 2],
     removed: Option<bool>,
@@ -165,6 +201,9 @@ pub struct RenderSession {
     loader: Arc<ArcSwap<syntax::Loader>>,
     config: Arc<ArcSwap<helix_view::editor::Config>>,
     documents: Rc<RefCell<DocumentCache>>,
+    syntax_cache: Arc<Mutex<syntax_cache::SyntaxCache>>,
+    #[cfg(unix)]
+    highlights: Option<cache::Highlights>,
 }
 
 impl RenderSession {
@@ -177,6 +216,10 @@ impl RenderSession {
             max_bytes,
             ..Default::default()
         };
+        *self.syntax_cache.lock().unwrap() = syntax_cache::SyntaxCache::with_limits(
+            max_entries.min(64),
+            max_bytes.min(8 * 1024 * 1024),
+        );
     }
 
     /// Number of retained documents and retained source bytes (not total RAM).
@@ -186,6 +229,37 @@ impl RenderSession {
     }
 
     pub fn new(args: &Args) -> Result<Self> {
+        #[cfg(unix)]
+        let _ = tree_house_bindings::query_cache::configure(None);
+        #[cfg(unix)]
+        let cache = match cache::Context::capture(args) {
+            Ok(cache) => Some(cache),
+            Err(error) => {
+                cache::trace(format!("cache unavailable: {error:#}"));
+                None
+            }
+        };
+        #[cfg(unix)]
+        if let Some(cache) = &cache {
+            match cache.load() {
+                Ok(Some(session)) => return Ok(session),
+                Ok(None) => (),
+                Err(error) => cache::trace(format!("profile rejected: {error:#}")),
+            }
+        }
+        #[allow(unused_mut)]
+        let mut session = Self::uncached(args)?;
+        #[cfg(unix)]
+        if let Some(cache) = cache {
+            if let Err(error) = cache.store(&session) {
+                cache::trace(format!("profile not stored: {error:#}"));
+            }
+            session.highlights = Some(cache.highlights());
+        }
+        Ok(session)
+    }
+
+    fn uncached(args: &Args) -> Result<Self> {
         let config = Config::load_default().map_err(|error| anyhow::anyhow!("{error}"))?;
         let mut dirs = vec![helix_loader::config_dir()];
         dirs.extend(helix_loader::runtime_dirs().iter().cloned());
@@ -253,6 +327,9 @@ impl RenderSession {
             loader,
             config: Arc::new(ArcSwap::from_pointee(config.load().editor.clone())),
             documents: Rc::default(),
+            syntax_cache: Arc::default(),
+            #[cfg(unix)]
+            highlights: None,
         })
     }
 
@@ -262,8 +339,17 @@ impl RenderSession {
         output: &mut impl Write,
         stdout_is_terminal: bool,
     ) -> Result<()> {
-        self.render_inner(args, output, stdout_is_terminal, false)
-            .map(|_| ())
+        let result = self
+            .render_inner(args, output, stdout_is_terminal, false)
+            .map(|_| ());
+        #[cfg(unix)]
+        {
+            let (constructed, hits) = tree_house_bindings::query_cache::statistics();
+            cache::trace(format!(
+                "query-analysis hits={hits} constructed={constructed}"
+            ));
+        }
+        result
     }
 
     /// Instrument changed text files without altering the rendered bytes.
@@ -291,7 +377,23 @@ impl RenderSession {
             icons.set_diagnostic_icons_base_style(&theme);
             icons.set_symbolkind_icons_base_style(&theme);
         }
-        self.loader.load().set_scopes(theme.scopes().to_vec());
+        // A retained loader already has these mappings. Reconfigure only when
+        // scope ordering changes, not on every request with the same theme.
+        let loader = self.loader.load();
+        if loader.scopes().as_slice() != theme.scopes() {
+            loader.set_scopes(theme.scopes().to_vec());
+            // Local-definition analysis depends on recognized scope names, not
+            // just source/language. Rebuild it if a request changes those names.
+            self.syntax_cache.lock().unwrap().clear();
+            let mut documents = self.documents.borrow_mut();
+            documents.entries.clear();
+            documents.bytes = 0;
+        }
+        #[cfg(unix)]
+        let highlights = self
+            .highlights
+            .as_ref()
+            .and_then(|cache| cache.for_theme(&theme));
         let renderer = Renderer {
             theme,
             icons,
@@ -307,6 +409,9 @@ impl RenderSession {
             },
             profile: profile.then(RefCell::default),
             documents: self.documents.clone(),
+            syntax_cache: self.syntax_cache.clone(),
+            #[cfg(unix)]
+            highlights,
         };
         if args.patch {
             anyhow::ensure!(!profile, "profiling requires file or directory inputs");
@@ -321,12 +426,7 @@ impl RenderSession {
             let mut files = BTreeSet::new();
             collect_files(left, left, &mut files)?;
             collect_files(right, right, &mut files)?;
-            for file in files {
-                // Worker writers use flush as a cancellation checkpoint. Ordinary
-                // buffered writers also get a natural per-file flush boundary.
-                output.flush()?;
-                renderer.pair(&left.join(&file), &right.join(&file), &file, output)?;
-            }
+            renderer.pairs(left, right, files.into_iter().collect(), output)?;
         } else {
             anyhow::ensure!(
                 !left.is_dir() && !right.is_dir(),
@@ -436,6 +536,7 @@ impl Renderer {
                 let sources = [0, 1].map(|side| {
                     groups[side].get(row).map(|line| SourceLine {
                         doc: &model.sources[line.source],
+                        events: None,
                         words: &model.source_words[line.source],
                         index: line.line,
                         numbers: if self.layout == Layout::Inline {
@@ -458,16 +559,43 @@ impl Renderer {
         }
         Ok(())
     }
-    fn document(&self, bytes: &[u8], path: &Path) -> Result<Rc<Document>> {
-        self.document_profiled(bytes, path, None)
+    #[cfg(test)]
+    fn document(&self, bytes: &[u8], path: &Path) -> Result<Rc<FlowDocument>> {
+        self.document_profiled(bytes, path, None, None)
     }
 
+    #[cfg(test)]
     fn document_profiled(
         &self,
         bytes: &[u8],
         path: &Path,
+        coverage: Option<&[Range<usize>]>,
+        profile: Option<&mut FileRenderProfile>,
+    ) -> Result<Rc<FlowDocument>> {
+        self.document_from(bytes, path, coverage, None, profile)
+    }
+
+    #[cfg(test)]
+    fn document_from(
+        &self,
+        bytes: &[u8],
+        path: &Path,
+        coverage: Option<&[Range<usize>]>,
+        before: Option<&FlowDocument>,
+        profile: Option<&mut FileRenderProfile>,
+    ) -> Result<Rc<FlowDocument>> {
+        self.document_from_key(bytes, path, coverage, before, profile, path)
+    }
+
+    fn document_from_key(
+        &self,
+        bytes: &[u8],
+        path: &Path,
+        coverage: Option<&[Range<usize>]>,
+        before: Option<&FlowDocument>,
         mut profile: Option<&mut FileRenderProfile>,
-    ) -> Result<Rc<Document>> {
+        syntax_key: &Path,
+    ) -> Result<Rc<FlowDocument>> {
         let mut started = profile.as_ref().map(|_| Instant::now());
         let (text, encoding, bom) = from_reader(&mut &*bytes, None)?;
         let mut doc = Document::from(
@@ -486,25 +614,246 @@ impl Renderer {
         let language = doc.detect_language_config(&self.loader.load());
         let mut hasher = DefaultHasher::new();
         bytes.hash(&mut hasher);
+        coverage.hash(&mut hasher);
         let digest = hasher.finish();
-        if let Some(cached) = self.documents.borrow_mut().get(
-            digest,
-            language
-                .as_ref()
-                .map(|language| language.language_id.as_str()),
-            bytes,
-        ) {
+        // Partial style snapshots must never be reused for a different set of
+        // displayed hunks, even when their underlying source is identical.
+        let cache_language = language.as_ref().map(|language| {
+            let mut key = language.language_id.clone();
+            if let Some(coverage) = coverage {
+                key.push_str(&format!("@{coverage:?}"));
+            }
+            key
+        });
+        #[cfg(unix)]
+        let highlight_theme = self
+            .highlights
+            .as_ref()
+            .map(|cache| cache.identity().to_owned());
+        #[cfg(not(unix))]
+        let highlight_theme: Option<String> = None;
+        if let Some(cached) = self
+            .documents
+            .borrow_mut()
+            .get(
+                digest,
+                language
+                    .as_ref()
+                    .map(|language| language.language_id.as_str()),
+                bytes,
+            )
+            .filter(|cached| {
+                cached.highlight_theme == highlight_theme
+                    && cached.highlight_coverage.as_deref() == coverage
+            })
+        {
             if let (Some(profile), Some(started)) = (profile, started) {
                 profile.syntax += started.elapsed();
                 profile.cache_hits += 1;
             }
             return Ok(cached);
         }
-        doc.set_language(language, &self.loader.load());
+        #[cfg(unix)]
+        let events = self
+            .highlights
+            .as_ref()
+            .filter(|cache| cache.accepts(bytes))
+            .and_then(|cache| {
+                cache.load(cache_language.as_deref()?, bytes, doc.text().len_chars())
+            });
+        #[cfg(not(unix))]
+        let events = None;
+        #[cfg(unix)]
+        let mut highlight_store = None;
+        let events = if events.is_some() {
+            doc.language = language;
+            events
+        } else {
+            let loader = self.loader.load();
+            let reuse = !["HELIX_DIFF_CACHE", "HELIX_DIFF_SYNTAX_CACHE"]
+                .iter()
+                .any(|name| std::env::var_os(name).is_some_and(|value| value == "0"));
+            let syntax_ranges = coverage
+                .filter(|_| {
+                    !std::env::var_os("HELIX_DIFF_SYNTAX_RANGES").is_some_and(|value| value == "0")
+                })
+                .map(|ranges| {
+                    ranges
+                        .iter()
+                        .map(|range| range.start as u32..range.end as u32)
+                        .collect::<Vec<_>>()
+                });
+            // Reuse an immutable session tree or the current baseline through
+            // Tree-sitter's copy-on-write update. Both keep complete source
+            // context; the baseline path also works on a first-ever request.
+            let incremental = (!std::env::var_os("HELIX_DIFF_INCREMENTAL_PARSE")
+                .is_some_and(|value| value == "0"))
+            .then(|| {
+                let cached = reuse
+                    .then(|| {
+                        self.syntax_cache.lock().unwrap().get(
+                            syntax_key,
+                            &language.as_ref()?.language_id,
+                            doc.text(),
+                        )
+                    })
+                    .flatten();
+                // Exact retained contents beat updating the current before
+                // tree. Otherwise prefer that baseline over an older version.
+                if cached
+                    .as_ref()
+                    .is_some_and(|cached| cached.source == *doc.text())
+                {
+                    return cached;
+                }
+                before
+                    .filter(|before| {
+                        before.language.as_ref().map(|language| language.language())
+                            == language.as_ref().map(|language| language.language())
+                    })
+                    .and_then(|before| {
+                        Some(syntax_cache::CachedSyntax {
+                            source: before.text().clone(),
+                            syntax: before.syntax()?.clone(),
+                            coverage: before.highlight_coverage.as_ref().map(|ranges| {
+                                ranges
+                                    .iter()
+                                    .map(|range| range.start as u32..range.end as u32)
+                                    .collect()
+                            }),
+                        })
+                    })
+                    .or(cached)
+            })
+            .flatten()
+            .and_then(|mut cached| {
+                if cached.source == *doc.text()
+                    && (cached.coverage.is_none() || cached.coverage == syntax_ranges)
+                {
+                    return Some(cached.syntax);
+                }
+                let changes = helix_core::diff::compare_ropes(&cached.source, doc.text());
+                let result = if let Some(ranges) = &syntax_ranges {
+                    cached.syntax.update_for_ranges(
+                        cached.source.slice(..),
+                        doc.text().slice(..),
+                        changes.changes(),
+                        &loader,
+                        ranges,
+                    )
+                } else {
+                    cached.syntax.update(
+                        cached.source.slice(..),
+                        doc.text().slice(..),
+                        changes.changes(),
+                        &loader,
+                    )
+                };
+                result.ok()?;
+                Some(cached.syntax)
+            });
+            if let Some(syntax) = incremental {
+                if let Some(profile) = profile.as_deref_mut() {
+                    profile.syntax_reuses += 1;
+                }
+                doc.language = language;
+                doc.syntax = Some(syntax);
+            } else {
+                if let (Some(ranges), Some(config)) = (&syntax_ranges, &language) {
+                    doc.syntax = syntax::Syntax::new_for_ranges(
+                        doc.text().slice(..),
+                        config.language(),
+                        &loader,
+                        ranges,
+                    )
+                    .ok();
+                    doc.language = language;
+                    // Preserve the normal error/fallback behavior if the
+                    // selective path cannot build a valid forest.
+                    if doc.syntax.is_none() {
+                        doc.set_language(doc.language.clone(), &loader);
+                    }
+                } else {
+                    doc.set_language(language, &loader);
+                }
+            }
+            if reuse {
+                if let (Some(config), Some(syntax)) = (&doc.language, doc.syntax()) {
+                    self.syntax_cache.lock().unwrap().insert(
+                        syntax_key,
+                        &config.language_id,
+                        doc.text(),
+                        syntax,
+                        syntax_ranges.as_deref(),
+                    );
+                }
+            }
+            if let (Some(profile), Some(started)) = (&mut profile, &mut started) {
+                let elapsed = started.elapsed();
+                profile.parse += elapsed;
+                profile.syntax += elapsed;
+                *started = Instant::now();
+            }
+            #[cfg(unix)]
+            let events = self
+                .highlights
+                .as_ref()
+                .filter(|cache| cache.accepts(bytes))
+                .and_then(|_cache| {
+                    let syntax = doc.syntax()?;
+                    let text = doc.text().slice(..);
+                    let loader = self.loader.load();
+                    let mut events: Vec<(usize, Style)> = Vec::new();
+                    let full = 0..text.len_bytes();
+                    for range in coverage.unwrap_or(std::slice::from_ref(&full)) {
+                        let mut highlighter =
+                            syntax.highlighter(text, &loader, range.start as u32..range.end as u32);
+                        let mut style = Style::default();
+                        events.push((text.byte_to_char(range.start), style));
+                        while (highlighter.next_event_offset() as usize) < range.end {
+                            let offset =
+                                (highlighter.next_event_offset() as usize).max(range.start);
+                            let offset = text.byte_to_char(text.ceil_char_boundary(offset));
+                            let (event, highlights) = highlighter.advance();
+                            let base = match event {
+                                syntax::HighlightEvent::Refresh => Style::default(),
+                                syntax::HighlightEvent::Push => style,
+                            };
+                            style = highlights.fold(base, |style, highlight| {
+                                style.patch(self.theme.highlight(highlight))
+                            });
+                            if events
+                                .last()
+                                .is_some_and(|(previous, _)| *previous == offset)
+                            {
+                                events.last_mut().unwrap().1 = style;
+                            } else if events.last().is_none_or(|(_, previous)| *previous != style) {
+                                events.push((offset, style));
+                            }
+                        }
+                    }
+                    // Rendering consumes these same events. Disk serialization
+                    // and eviction are deferred until output has been emitted.
+                    highlight_store = cache_language.clone();
+                    Some(events)
+                });
+            #[cfg(not(unix))]
+            let events = None;
+            events
+        };
         if let (Some(profile), Some(started)) = (profile, started) {
-            profile.syntax += started.elapsed();
+            let elapsed = started.elapsed();
+            profile.syntax += elapsed;
+            profile.highlight += elapsed;
         }
-        let doc = Rc::new(doc);
+        let doc = Rc::new(FlowDocument {
+            document: doc,
+            events,
+            highlight_theme,
+            highlight_coverage: coverage.map(<[_]>::to_vec),
+            #[cfg(unix)]
+            highlight_store: RefCell::new(highlight_store),
+        });
         self.documents
             .borrow_mut()
             .insert(digest, bytes, doc.clone());
@@ -565,27 +914,56 @@ impl Renderer {
         if let Some(started) = started.as_mut() {
             *started = Instant::now();
         }
-        let mut document = |bytes: &[u8], path: &Path| {
-            if self.profile.is_some() {
-                self.document_profiled(bytes, path, Some(&mut profile))
-            } else {
-                self.document(bytes, path)
+        // Determine visible hunks before collecting styles. Parsing still sees
+        // complete source (including injection/local context), but a first view
+        // must not highlight thousands of undisplayed lines just to fill a cache.
+        let texts = [
+            from_reader(&mut before.bytes.as_slice(), None)?.0,
+            from_reader(&mut after.bytes.as_slice(), None)?.0,
+        ];
+        let layout = DiffLayout::compute(&texts, [0, 0]);
+        let ranges = context_ranges(&layout, &texts, self.context);
+        let coverage = [0, 1].map(|side| highlight_coverage(&layout, &texts[side], side, &ranges));
+        if let Some(started) = started.as_mut() {
+            profile.diff = started.elapsed();
+            *started = Instant::now();
+        }
+        let prefetched = self.prefetch_pair_syntax(
+            [&before.bytes, &after.bytes],
+            [left, right],
+            &texts,
+            &coverage,
+            name,
+        );
+        if prefetched {
+            if let Some(started) = started.as_mut() {
+                let elapsed = started.elapsed();
+                profile.parse += elapsed;
+                profile.syntax += elapsed;
             }
-        };
-        let before_doc = document(&before.bytes, left)?;
+        }
+        let before_doc = self.document_from_key(
+            &before.bytes,
+            left,
+            Some(&coverage[0]),
+            None,
+            self.profile.as_ref().map(|_| &mut profile),
+            name,
+        )?;
         output.flush()?;
-        let after_doc = document(&after.bytes, right)?;
+        let after_doc = self.document_from_key(
+            &after.bytes,
+            right,
+            Some(&coverage[1]),
+            Some(&before_doc),
+            self.profile.as_ref().map(|_| &mut profile),
+            name,
+        )?;
         output.flush()?;
         let owned_docs = [before_doc, after_doc];
         let docs = owned_docs.each_ref().map(|doc| doc.as_ref());
         if let Some(started) = started.as_mut() {
             profile.document = started.elapsed();
-            *started = Instant::now();
-        }
-        let texts = docs.each_ref().map(|doc| doc.text().clone());
-        let layout = DiffLayout::compute(&texts, [0, 0]);
-        if let Some(started) = started.as_mut() {
-            profile.diff = started.elapsed();
             *started = Instant::now();
         }
         if layout.hunks.is_empty() {
@@ -604,7 +982,7 @@ impl Renderer {
             )?;
             return Ok(());
         }
-        for range in context_ranges(&layout, &texts, self.context) {
+        for range in ranges {
             writeln!(
                 output,
                 "@@ aligned rows {}..{} @@",
@@ -630,12 +1008,27 @@ impl Renderer {
             profile.path = name.to_owned();
             profiles.borrow_mut().push(profile);
         }
+        // In streaming hosts the first visible output must not wait for cache
+        // serialization or filesystem writes. Capturing hosts still wait for
+        // exit, so collection above is restricted to the actual displayed hunks.
+        output.flush()?;
+        #[cfg(unix)]
+        if let Some(cache) = &self.highlights {
+            for (doc, input) in owned_docs.iter().zip([&before, &after]) {
+                if let (Some(language), Some(events)) = (
+                    doc.highlight_store.borrow_mut().take(),
+                    doc.events.as_deref(),
+                ) {
+                    cache.store(&language, &input.bytes, doc.text().len_chars(), events);
+                }
+            }
+        }
         Ok(())
     }
 
     fn side_by_side(
         &self,
-        docs: &[&Document; 2],
+        docs: &[&FlowDocument; 2],
         layout: &DiffLayout,
         rows: Range<usize>,
         output: &mut impl Write,
@@ -646,6 +1039,7 @@ impl Renderer {
                     .filter(|&line| line < real_lines(docs[side].text()));
                 line.map(|line| SourceLine {
                     doc: docs[side],
+                    events: docs[side].events.as_deref(),
                     words: &layout.sides[side].words,
                     index: line,
                     numbers: [Some(line + 1), None],
@@ -660,7 +1054,7 @@ impl Renderer {
 
     fn inline(
         &self,
-        docs: &[&Document; 2],
+        docs: &[&FlowDocument; 2],
         layout: &DiffLayout,
         rows: Range<usize>,
         output: &mut impl Write,
@@ -700,6 +1094,7 @@ impl Renderer {
                             [
                                 Some(SourceLine {
                                     doc: docs[side],
+                                    events: docs[side].events.as_deref(),
                                     words: &layout.sides[side].words,
                                     index: line,
                                     numbers,
@@ -723,6 +1118,7 @@ impl Renderer {
                     [
                         Some(SourceLine {
                             doc: docs[1],
+                            events: docs[1].events.as_deref(),
                             words: &[],
                             index: line,
                             numbers: lines.map(|line| line.map(|line| line + 1)),
@@ -824,6 +1220,7 @@ impl Renderer {
         let (prefix, format) = self.line_format(source, area.width);
         let SourceLine {
             doc,
+            events,
             index: line,
             numbers,
             removed,
@@ -864,7 +1261,11 @@ impl Renderer {
         }
         let loader = self.loader.load();
         let anchor = doc.text().line_to_char(line);
-        let highlighter = EditorView::doc_syntax_highlighter(doc, anchor, 1_u16, &loader);
+        let highlighter = if let Some(events) = events {
+            SyntaxHighlights::Cached { events, anchor }
+        } else {
+            EditorView::doc_syntax_highlighter(doc, anchor, 1_u16, &loader).into()
+        };
         let mut decorations = DecorationManager::default();
         if let Some(removed) = removed {
             let bg = text_decorations::diff::background(&self.theme, removed);
@@ -929,18 +1330,54 @@ fn context_ranges(layout: &DiffLayout, texts: &[Rope; 2], context: usize) -> Vec
     ranges
 }
 
+/// Byte ranges for every source line emitted by either layout. Alignment gaps
+/// have no source bytes; merging adjacent ranges avoids duplicate boundary events.
+fn highlight_coverage(
+    layout: &DiffLayout,
+    text: &Rope,
+    side: usize,
+    rows: &[Range<usize>],
+) -> Vec<Range<usize>> {
+    let mut result: Vec<Range<usize>> = Vec::new();
+    for range in rows {
+        let first = layout.sides[side]
+            .rows
+            .partition_point(|row| *row < range.start);
+        let end = layout.sides[side]
+            .rows
+            .partition_point(|row| *row < range.end);
+        if first >= end {
+            continue;
+        }
+        let bytes = text.line_to_byte(first)..text.line_to_byte(end.min(text.len_lines()));
+        if bytes.is_empty() {
+            continue;
+        }
+        if let Some(last) = result.last_mut().filter(|last| last.end >= bytes.start) {
+            last.end = last.end.max(bytes.end);
+        } else {
+            result.push(bytes);
+        }
+    }
+    result
+}
+
 fn visible(text: &str) -> String {
-    text.chars()
-        .map(|c| {
-            if c.is_control() {
-                char::from_u32(0x2400 + c as u32)
-                    .filter(|_| c as u32 <= 31)
-                    .unwrap_or('�')
-            } else {
-                c
-            }
-        })
-        .collect()
+    let mut output = String::with_capacity(text.len());
+    push_visible(&mut output, text);
+    output
+}
+
+fn push_visible(output: &mut String, text: &str) {
+    output.extend(text.chars().map(|c| {
+        if c.is_control() {
+            char::from_u32(0x2400 + c as u32)
+                .filter(|_| c as u32 <= 31)
+                .unwrap_or('�')
+        } else {
+            c
+        }
+    }));
 }
 
 fn color_code(color: Color, bg: bool) -> String {
@@ -975,7 +1412,12 @@ fn color_code(color: Color, bg: bool) -> String {
 }
 
 fn emit(buffer: &Buffer, color: bool, output: &mut impl Write) -> Result<()> {
+    use std::fmt::Write as _;
+    // Format in reusable row storage, not one allocation and tiny write for
+    // every terminal cell (including all right-padding spaces).
+    let mut row = String::with_capacity(buffer.area.width as usize * 4);
     for y in 0..buffer.area.height {
+        row.clear();
         let mut previous = None;
         let mut x = 0;
         while x < buffer.area.width {
@@ -983,7 +1425,7 @@ fn emit(buffer: &Buffer, color: bool, output: &mut impl Write) -> Result<()> {
             let style = (cell.fg, cell.bg, cell.modifier);
             if color && previous != Some(style) {
                 write!(
-                    output,
+                    row,
                     "\x1b[0;{};{}",
                     color_code(cell.fg, false),
                     color_code(cell.bg, true)
@@ -996,19 +1438,20 @@ fn emit(buffer: &Buffer, color: bool, output: &mut impl Write) -> Result<()> {
                     (Modifier::CROSSED_OUT, 9),
                 ] {
                     if cell.modifier.contains(flag) {
-                        write!(output, ";{code}")?;
+                        write!(row, ";{code}")?;
                     }
                 }
-                write!(output, "m")?;
+                row.push('m');
                 previous = Some(style);
             }
-            write!(output, "{}", visible(cell.symbol.as_str()))?;
+            push_visible(&mut row, cell.symbol.as_str());
             x += cell.width().max(1) as u16;
         }
         if color {
-            write!(output, "\x1b[0m")?;
+            row.push_str("\x1b[0m");
         }
-        writeln!(output)?;
+        row.push('\n');
+        output.write_all(row.as_bytes())?;
     }
     Ok(())
 }
@@ -1017,6 +1460,48 @@ fn emit(buffer: &Buffer, color: bool, output: &mut impl Write) -> Result<()> {
 mod tests {
     use super::*;
     use helix_core::unicode::width::UnicodeWidthStr;
+
+    #[test]
+    fn flow_emission_batches_each_row_without_changing_ansi_or_unicode_bytes() -> Result<()> {
+        #[derive(Default)]
+        struct Writer {
+            bytes: Vec<u8>,
+            writes: usize,
+        }
+        impl std::io::Write for Writer {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.writes += 1;
+                self.bytes.extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut buffer = Buffer::empty(Rect::new(0, 0, 5, 2));
+        buffer.set_string(
+            0,
+            0,
+            "界é",
+            Style::default()
+                .fg(Color::Indexed(2))
+                .bg(Color::Rgb(1, 2, 3))
+                .add_modifier(Modifier::BOLD | Modifier::ITALIC),
+        );
+        buffer[(0, 1)].set_symbol("\x1b");
+        buffer[(1, 1)].set_symbol("\t");
+        buffer[(2, 1)].set_symbol("\x7f");
+        for (color, expected) in [
+            (false, "界é  \n␛␉�  \n"),
+            (true, "\x1b[0;38;5;2;48;2;1;2;3;1;3m界é\x1b[0;39;49m  \x1b[0m\n\x1b[0;39;49m␛␉�  \x1b[0m\n"),
+        ] {
+            let mut output = Writer::default();
+            emit(&buffer, color, &mut output)?;
+            assert_eq!(output.bytes, expected.as_bytes());
+            assert_eq!(output.writes, 2);
+        }
+        Ok(())
+    }
 
     #[test]
     fn parsed_cache_uses_contents_and_language_not_snapshot_path() -> Result<()> {
@@ -1078,6 +1563,308 @@ mod tests {
     }
 
     #[test]
+    fn displayed_highlight_ranges_preserve_context_and_cache_coverage() -> Result<()> {
+        let renderer = renderer(Layout::Inline, true);
+        let before = Rope::from_str("α\nb\nc\nd\ne\nf\ng\nh\ni\nj\n");
+        let after = Rope::from_str("α\nadded\nb\nc\nd\ne\nf\ng\nh\nchanged\nj\n");
+        let layout = DiffLayout::compute(&[before.clone(), after.clone()], [0, 0]);
+        let rows = context_ranges(&layout, &[before.clone(), after.clone()], 1);
+        assert_eq!(rows.len(), 2);
+        for (side, text) in [&before, &after].into_iter().enumerate() {
+            let ranges = highlight_coverage(&layout, text, side, &rows);
+            assert_eq!(ranges.len(), 2);
+            assert_eq!(ranges[0].start, 0);
+            assert!(ranges[0].end < ranges[1].start);
+            for line in 0..real_lines(text) {
+                let visible = rows
+                    .iter()
+                    .any(|rows| rows.contains(&layout.sides[side].row(line)));
+                assert_eq!(
+                    visible,
+                    ranges
+                        .iter()
+                        .any(|range| range.contains(&text.line_to_byte(line)))
+                );
+            }
+        }
+        let source = b"fn one() {}\nfn two() {}\n";
+        let first = 0..12;
+        let second = 12..24;
+        let a = renderer.document_profiled(
+            source,
+            Path::new("a.rs"),
+            Some(std::slice::from_ref(&first)),
+            None,
+        )?;
+        let b = renderer.document_profiled(
+            source,
+            Path::new("a.rs"),
+            Some(std::slice::from_ref(&second)),
+            None,
+        )?;
+        assert!(
+            !Rc::ptr_eq(&a, &b),
+            "different coverage must not reuse partial styles"
+        );
+        let repeated = renderer.document_profiled(
+            source,
+            Path::new("b.rs"),
+            Some(std::slice::from_ref(&first)),
+            None,
+        )?;
+        assert!(Rc::ptr_eq(&a, &repeated));
+        Ok(())
+    }
+
+    #[test]
+    fn incremental_comparison_matches_fresh_highlighting_and_does_not_edit_baseline() -> Result<()>
+    {
+        let renderer = renderer(Layout::Inline, true);
+        renderer.documents.borrow_mut().max_entries = 0;
+        let cases = [
+            (
+                "sample.rs",
+                "/// docs\nfn old() { let x = \"界\"; println!(\"{x}\"); }\n",
+                "/// edited docs\nfn new() { let x = \"é\"; println!(\"{x}\"); }\n",
+            ),
+            (
+                "sample.md",
+                "# Old\n```rust\nfn old() {}\n```\n",
+                "# New\n```rust\n// injected\nfn new() {}\n```\n",
+            ),
+            (
+                "sample.scm",
+                "(define (old x) (list x \"old\"))\n",
+                "(define (new y) (list y \"new\"))\n",
+            ),
+            (
+                "sample.nix",
+                "{ lib }: { name = \"old\"; }\n",
+                "{ lib }: { name = \"new\"; }\n",
+            ),
+        ];
+        let events = |doc: &Document| {
+            let loader = renderer.loader.load();
+            let mut highlighter = doc.syntax().expect("test grammar").highlighter(
+                doc.text().slice(..),
+                &loader,
+                0..doc.text().len_bytes() as u32,
+            );
+            let mut result = Vec::new();
+            let mut style = Style::default();
+            while highlighter.next_event_offset() != u32::MAX {
+                let offset = highlighter.next_event_offset();
+                let (event, highlights) = highlighter.advance();
+                let base = match event {
+                    syntax::HighlightEvent::Refresh => Style::default(),
+                    syntax::HighlightEvent::Push => style,
+                };
+                style = highlights.fold(base, |style, highlight| {
+                    style.patch(renderer.theme.highlight(highlight))
+                });
+                result.push((offset, style));
+            }
+            result
+        };
+        for (name, before, after) in cases {
+            let before = renderer.document(before.as_bytes(), Path::new(name))?;
+            let unchanged = events(&before);
+            let incremental = renderer.document_from(
+                after.as_bytes(),
+                Path::new(name),
+                None,
+                Some(&before),
+                None,
+            )?;
+            let fresh = renderer.document(after.as_bytes(), Path::new(name))?;
+            assert_eq!(events(&incremental), events(&fresh), "{name}");
+            assert_eq!(events(&before), unchanged, "baseline tree changed: {name}");
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn retained_syntax_updates_across_snapshots_coverage_and_edits() -> Result<()> {
+        let renderer = renderer(Layout::Inline, true);
+        renderer.documents.borrow_mut().max_entries = 0;
+        let sources = [
+            ("fn one() { let x = vec![1, 2]; }\nfn two() { println!(\"old\"); }\n", "vec!"),
+            ("fn one() { let x = vec![1, 2]; }\nfn two() { println!(\"old\"); }\n", "println!"),
+            ("/* new context */\nfn one() { let x = vec![1, 3]; }\nfn two() { println!(\"新\"); }\n", "println!"),
+            ("fn one() { let x = vec![1, 2]; }\nfn two() { println!(\"old\"); }\n", "vec!"),
+        ];
+        let loader = renderer.loader.load();
+        for (index, (source, needle)) in sources.into_iter().enumerate() {
+            let offset = source.find(needle).unwrap();
+            let range = offset..offset + needle.len();
+            let mut profile = FileRenderProfile::default();
+            let doc = renderer.document_from_key(
+                source.as_bytes(),
+                Path::new(&format!("/snapshot-{index}/src/lib.rs")),
+                Some(std::slice::from_ref(&range)),
+                None,
+                Some(&mut profile),
+                Path::new("src/lib.rs"),
+            )?;
+            assert_eq!(profile.syntax_reuses, usize::from(index != 0));
+            let full = syntax::Syntax::new(
+                doc.text().slice(..),
+                doc.language.as_ref().unwrap().language(),
+                &loader,
+            )
+            .unwrap();
+            let events = |syntax: &syntax::Syntax| {
+                let mut highlighter = syntax.highlighter(
+                    doc.text().slice(..),
+                    &loader,
+                    range.start as u32..range.end as u32,
+                );
+                let mut events = Vec::new();
+                while highlighter.next_event_offset() < range.end as u32 {
+                    let offset = highlighter.next_event_offset();
+                    let (event, highlights) = highlighter.advance();
+                    events.push((offset, event, highlights.collect::<Vec<_>>()));
+                }
+                events
+            };
+            assert_eq!(
+                events(doc.syntax().unwrap()),
+                events(&full),
+                "request {index}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn range_forests_keep_outside_context_and_match_full_highlights() -> Result<()> {
+        let renderer = renderer(Layout::Inline, true);
+        let loader = renderer.loader.load();
+        let cases = [
+            ("rs", "/* opener outside hunk\nunchanged\nfn misleading() {}\nunchanged\n*/\nfn real() {}\n", "fn misleading"),
+            ("rs", "fn main() { let x = r###\"outside opener\nfn misleading() {}\nclosing\"###; }\n", "fn misleading"),
+            ("rs", "/// ```rust\n/// let outside = 1;\n/// println!(\"{outside}\");\n/// ```\nfn documented() {}\n", "println!"),
+            ("rs", "fn main() { let x = vec![\n /* context */\n 1 + 2,\n]; }\n", "1 + 2"),
+            ("md", "# Header\n\n```rust\nlet outside = 1;\nprintln!(\"{outside}\");\n```\n\n[ref]: https://example.com\n", "println!"),
+            ("scm", "(define outside 42)\n(define (foo x)\n  (let ([bar x])\n    (+ outside bar)))\n", "+ outside"),
+            ("html", "<html><script>\nlet outside = 42;\nfunction f() { return outside; }\n</script><style>body { color: red; }</style></html>\n", "return outside"),
+        ];
+        let styles = |syntax: &syntax::Syntax, text: &Rope, range: Range<u32>| {
+            let mut highlighter = syntax.highlighter(text.slice(..), &loader, range.clone());
+            let mut style = Style::default();
+            let mut events = Vec::new();
+            while highlighter.next_event_offset() < range.end {
+                let offset = highlighter.next_event_offset();
+                let (event, highlights) = highlighter.advance();
+                let base = match event {
+                    syntax::HighlightEvent::Refresh => Style::default(),
+                    syntax::HighlightEvent::Push => style,
+                };
+                style = highlights.fold(base, |style, highlight| {
+                    style.patch(renderer.theme.highlight(highlight))
+                });
+                events.push((offset, style));
+            }
+            (range.start..range.end)
+                .map(|position| {
+                    events
+                        .iter()
+                        .rev()
+                        .find(|(offset, _)| *offset <= position)
+                        .map_or(Style::default(), |(_, style)| *style)
+                })
+                .collect::<Vec<_>>()
+        };
+        for (extension, source, needle) in cases {
+            let language = loader
+                .language_for_filename(Path::new(&format!("test.{extension}")))
+                .expect("test language");
+            let text = Rope::from_str(source);
+            let start = source.find(needle).unwrap() as u32;
+            let range = start..start + needle.len() as u32;
+            let full = syntax::Syntax::new(text.slice(..), language, &loader).unwrap();
+            let ranged = syntax::Syntax::new_for_ranges(
+                text.slice(..),
+                language,
+                &loader,
+                std::slice::from_ref(&range),
+            )
+            .unwrap();
+            assert_eq!(
+                styles(&ranged, &text, range.clone()),
+                styles(&full, &text, range.clone()),
+                "{extension}: {needle}"
+            );
+            let after = Rope::from_str(&format!("\n{source}"));
+            let changes = helix_core::diff::compare_ropes(&text, &after);
+            let after_range = range.start + 1..range.end + 1;
+            let mut updated = ranged.clone();
+            updated
+                .update_for_ranges(
+                    text.slice(..),
+                    after.slice(..),
+                    changes.changes(),
+                    &loader,
+                    std::slice::from_ref(&after_range),
+                )
+                .unwrap();
+            let fresh = syntax::Syntax::new(after.slice(..), language, &loader).unwrap();
+            assert_eq!(
+                styles(&updated, &after, after_range.clone()),
+                styles(&fresh, &after, after_range),
+                "incremental {extension}: {needle}"
+            );
+        }
+        let text =
+            Rope::from_str("fn unrelated() { let x = vec![1, 2]; }\nfn target() { let y = 3; }\n");
+        let language = loader.language_for_name("rust").unwrap();
+        let full = syntax::Syntax::new(text.slice(..), language, &loader).unwrap();
+        let range = 40..text.len_bytes() as u32;
+        let ranged = syntax::Syntax::new_for_ranges(
+            text.slice(..),
+            language,
+            &loader,
+            std::slice::from_ref(&range),
+        )
+        .unwrap();
+        assert!(
+            full.layers_for_byte_range(29, 29).count() > 1,
+            "fixture must contain an injection"
+        );
+        assert_eq!(
+            ranged.layers_for_byte_range(29, 29).count(),
+            1,
+            "unrelated injection must not be retained"
+        );
+        // Coverage can move without any source edits. Previously pruned
+        // injections must be discovered again, then removed when no longer used.
+        let mut ranged = ranged;
+        let changes = helix_core::diff::compare_ropes(&text, &text);
+        for range in [29..30, 40..text.len_bytes() as u32, 29..30] {
+            ranged
+                .update_for_ranges(
+                    text.slice(..),
+                    text.slice(..),
+                    changes.changes(),
+                    &loader,
+                    std::slice::from_ref(&range),
+                )
+                .unwrap();
+            assert_eq!(
+                styles(&ranged, &text, range.clone()),
+                styles(&full, &text, range.clone()),
+                "coverage-only update: {range:?}"
+            );
+            assert_eq!(
+                ranged.layers_for_byte_range(29, 29).count() > 1,
+                range.start == 29,
+                "coverage-only update must discover/prune injections"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn session_rereads_files_and_keeps_request_options_independent() -> Result<()> {
         let root = tempfile::tempdir()?;
         let left = root.path().join("left.rs");
@@ -1092,6 +1879,9 @@ mod tests {
             loader: initial.loader,
             config: initial.config,
             documents: Rc::default(),
+            syntax_cache: Arc::default(),
+            #[cfg(unix)]
+            highlights: None,
         };
         let mut args = Args {
             diff_layout: Some(Layout::Inline),
@@ -1155,6 +1945,9 @@ mod tests {
             color,
             profile: None,
             documents: Rc::default(),
+            syntax_cache: Arc::default(),
+            #[cfg(unix)]
+            highlights: None,
         }
     }
 
@@ -1362,6 +2155,7 @@ mod tests {
             let words = std::slice::from_ref(&word);
             let source = SourceLine {
                 doc: &doc,
+                events: None,
                 index: 0,
                 numbers: [Some(1), None],
                 removed: Some(false),

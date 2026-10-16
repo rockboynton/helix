@@ -278,7 +278,7 @@ impl Rect {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Color {
     Reset,
     Black,
@@ -448,7 +448,7 @@ impl Color {
         }
     }
 }
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnderlineStyle {
     Reset,
     Line,
@@ -609,14 +609,28 @@ impl FromStr for Modifier {
 ///     buffer[(0, 0)].style(),
 /// );
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Style {
     pub fg: Option<Color>,
     pub bg: Option<Color>,
     pub underline_color: Option<Color>,
     pub underline_style: Option<UnderlineStyle>,
+    #[serde(with = "modifier_bits")]
     pub add_modifier: Modifier,
+    #[serde(with = "modifier_bits")]
     pub sub_modifier: Modifier,
+}
+
+mod modifier_bits {
+    use super::Modifier;
+    use serde::{Deserialize, Deserializer, Serializer};
+    pub fn serialize<S: Serializer>(value: &Modifier, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_u16(value.bits())
+    }
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Modifier, D::Error> {
+        Modifier::from_bits(u16::deserialize(deserializer)?)
+            .ok_or_else(|| serde::de::Error::custom("unknown style modifier bits"))
+    }
 }
 
 impl Default for Style {

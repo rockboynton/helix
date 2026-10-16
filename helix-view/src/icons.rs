@@ -1,6 +1,6 @@
 use helix_loader::merge_toml_values;
 use log::warn;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock as Lazy;
 use std::{path::PathBuf, str};
@@ -16,7 +16,7 @@ pub static BLANK_ICON: Icon = Icon {
 
 /// The style of an icon can either be defined by the TOML file, or by the theme.
 /// We need to remember that in order to reload the icons colors when the theme changes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum IconStyle {
     Custom(Style),
     Default(Style),

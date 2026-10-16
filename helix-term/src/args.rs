@@ -20,6 +20,7 @@ pub struct Args {
     pub review: bool,
     pub render_diff: bool,
     pub diff_worker_stop: bool,
+    pub diff_worker_warm: bool,
     pub internal_diff_worker: bool,
     pub patch: bool,
     pub diff_layout: Option<crate::diff_render::Layout>,
@@ -74,6 +75,7 @@ impl Args {
                 "--review" => args.review = true,
                 "--render-diff" => args.render_diff = true,
                 "--diff-worker-stop" => args.diff_worker_stop = true,
+                "--diff-worker-warm" => args.diff_worker_warm = true,
                 "--internal-diff-worker" => args.internal_diff_worker = true,
                 "--patch" => args.patch = true,
                 "--diff-layout" => {
@@ -249,7 +251,7 @@ impl Args {
                     && args.working_directory.is_none(),
                 "--render-diff requires two file/directory paths or patch input, without editor or pager flags"
             );
-        } else if !args.internal_diff_worker {
+        } else if !args.internal_diff_worker && !args.diff_worker_warm {
             anyhow::ensure!(
                 (args.diff_layout.is_none() || args.diff || args.patch || args.review)
                     && args.diff_width.is_none()
@@ -258,6 +260,14 @@ impl Args {
                     && args.diff_color.is_none(),
                 "diff layout requires --diff/--patch/--render-diff; width/context/theme/color require --render-diff"
             );
+        }
+        if args.diff_worker_warm {
+            anyhow::ensure!(args.files.is_empty() && !args.render_diff && !args.diff
+                && !args.patch && !args.pager && !args.review && !args.stdin && !args.load_tutor
+                && !args.diff_worker_stop && !args.internal_diff_worker && args.split.is_none()
+                && args.working_directory.is_none() && args.diff_layout.is_none()
+                && args.diff_context.is_none() && args.diff_theme.is_none() && args.diff_color.is_none(),
+                "--diff-worker-warm accepts only width, config and log options, without editor/diff inputs");
         }
         if args.language.is_some() && !args.pager {
             anyhow::bail!("--language is currently supported with --pager only");
@@ -309,6 +319,21 @@ mod pager_tests {
 
     fn parse(args: &[&str]) -> anyhow::Result<Args> {
         Args::parse_from(args.iter().map(|arg| (*arg).to_owned()))
+    }
+
+    #[test]
+    fn worker_warmup_is_explicit_and_does_not_take_editor_inputs() {
+        let args = parse(&["hx", "--diff-worker-warm", "--width", "160"]).unwrap();
+        assert!(args.diff_worker_warm);
+        assert_eq!(args.diff_width, Some(160));
+        for flags in [
+            vec!["hx", "--diff-worker-warm", "file.rs"],
+            vec!["hx", "--diff-worker-warm", "--diff-worker-stop"],
+            vec!["hx", "--diff-worker-warm", "--pager"],
+            vec!["hx", "--diff-worker-warm", "--diff-layout", "inline"],
+        ] {
+            assert!(parse(&flags).is_err());
+        }
     }
 
     #[test]

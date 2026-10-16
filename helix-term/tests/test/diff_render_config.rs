@@ -49,6 +49,7 @@ fn flow_diff_uses_steel_theme_and_languages_without_terminal_output() -> anyhow:
         let mut command = Command::new(env!("CARGO_BIN_EXE_hx"));
         command
             .env("HELIX_DIFF_WORKER", "0")
+            .env("HELIX_DIFF_CACHE", "0")
             .current_dir(root.path())
             .env("XDG_CONFIG_HOME", root.path().join("config"))
             .env("XDG_CACHE_HOME", root.path().join("cache"))

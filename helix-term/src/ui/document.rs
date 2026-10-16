@@ -29,14 +29,29 @@ pub struct LinePos {
     pub is_last_visual_line: bool,
 }
 
+/// Syntax from a live tree or a validated, read-only sequence of character/style events.
+pub enum SyntaxHighlights<'a> {
+    Tree(Option<Highlighter<'a>>),
+    Cached {
+        events: &'a [(usize, Style)],
+        anchor: usize,
+    },
+}
+
+impl<'a> From<Option<Highlighter<'a>>> for SyntaxHighlights<'a> {
+    fn from(value: Option<Highlighter<'a>>) -> Self {
+        Self::Tree(value)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-pub fn render_document(
+pub fn render_document<'h>(
     surface: &mut Surface,
     viewport: Rect,
     doc: &Document,
     offset: ViewPosition,
     doc_annotations: &TextAnnotations,
-    syntax_highlighter: Option<Highlighter<'_>>,
+    syntax_highlighter: impl Into<SyntaxHighlights<'h>>,
     overlay_highlights: Vec<syntax::OverlayHighlights>,
     theme: &Theme,
     decorations: DecorationManager,
@@ -64,13 +79,13 @@ pub fn render_document(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn render_text(
+pub fn render_text<'h>(
     renderer: &mut TextRenderer,
     text: RopeSlice<'_>,
     anchor: usize,
     text_fmt: &TextFormat,
     text_annotations: &TextAnnotations,
-    syntax_highlighter: Option<Highlighter<'_>>,
+    syntax_highlighter: impl Into<SyntaxHighlights<'h>>,
     overlay_highlights: Vec<syntax::OverlayHighlights>,
     theme: &Theme,
     mut decorations: DecorationManager,
@@ -87,7 +102,7 @@ pub fn render_text(
     let mut formatter =
         DocumentFormatter::new_at_prev_checkpoint(text, text_fmt, text_annotations, anchor);
     let mut syntax_highlighter =
-        SyntaxHighlighter::new(syntax_highlighter, text, theme, renderer.text_style);
+        SyntaxHighlighter::new(syntax_highlighter.into(), text, theme, renderer.text_style);
     let mut overlay_highlighter = OverlayHighlighter::new(overlay_highlights, theme);
 
     let mut last_line_pos = LinePos {
@@ -581,7 +596,8 @@ impl<'a> TextRenderer<'a> {
 }
 
 struct SyntaxHighlighter<'h, 'r, 't> {
-    inner: Option<Highlighter<'h>>,
+    inner: SyntaxHighlights<'h>,
+    cached_index: usize,
     text: RopeSlice<'r>,
     /// The character index of the next highlight event, or `usize::MAX` if the highlighter is
     /// finished.
@@ -593,13 +609,20 @@ struct SyntaxHighlighter<'h, 'r, 't> {
 
 impl<'h, 'r, 't> SyntaxHighlighter<'h, 'r, 't> {
     fn new(
-        inner: Option<Highlighter<'h>>,
+        inner: SyntaxHighlights<'h>,
         text: RopeSlice<'r>,
         theme: &'t Theme,
         text_style: Style,
     ) -> Self {
+        let cached_index = match &inner {
+            SyntaxHighlights::Cached { events, anchor } => events
+                .partition_point(|(offset, _)| offset < anchor)
+                .saturating_sub(1),
+            SyntaxHighlights::Tree(_) => 0,
+        };
         let mut highlighter = Self {
             inner,
+            cached_index,
             text,
             pos: 0,
             theme,
@@ -611,8 +634,16 @@ impl<'h, 'r, 't> SyntaxHighlighter<'h, 'r, 't> {
     }
 
     fn update_pos(&mut self) {
-        self.pos = self
-            .inner
+        if let SyntaxHighlights::Cached { events, .. } = &self.inner {
+            self.pos = events
+                .get(self.cached_index)
+                .map_or(usize::MAX, |(pos, _)| *pos);
+            return;
+        }
+        let SyntaxHighlights::Tree(inner) = &self.inner else {
+            unreachable!()
+        };
+        self.pos = inner
             .as_ref()
             .and_then(|highlighter| {
                 let next_byte_idx = highlighter.next_event_offset();
@@ -627,7 +658,15 @@ impl<'h, 'r, 't> SyntaxHighlighter<'h, 'r, 't> {
     }
 
     fn advance(&mut self) {
-        let Some(highlighter) = self.inner.as_mut() else {
+        if let SyntaxHighlights::Cached { events, .. } = &self.inner {
+            if let Some((_, style)) = events.get(self.cached_index) {
+                self.style = self.text_style.patch(*style);
+                self.cached_index += 1;
+            }
+            self.update_pos();
+            return;
+        }
+        let SyntaxHighlights::Tree(Some(highlighter)) = &mut self.inner else {
             return;
         };
 

@@ -12,6 +12,33 @@ use helix_term::{
 async fn main() -> Result<()> {
     helix_loader::initialize_config_file(None);
     helix_loader::initialize_log_file(None);
+    if let Ok(names) = std::env::var("DIFF_BENCH_SYNTAX_STARTUP") {
+        let start = Instant::now();
+        let loader = helix_core::config::default_lang_loader();
+        println!(
+            "language_loader_ms={:.2}",
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+        for name in names.split(',') {
+            let language = loader.language_for_name(name).expect("known language");
+            let config = loader.language(language).config();
+            let start = Instant::now();
+            let grammar =
+                helix_loader::grammar::get_language(config.grammar.as_deref().unwrap_or(name))?;
+            let grammar_ms = start.elapsed().as_secs_f64() * 1000.0;
+            ensure!(grammar.is_some(), "grammar missing: {name}");
+            let start = Instant::now();
+            for query in ["highlights.scm", "injections.scm", "locals.scm"] {
+                helix_core::syntax::read_query(name, query);
+            }
+            let read_ms = start.elapsed().as_secs_f64() * 1000.0;
+            let start = Instant::now();
+            let syntax = helix_core::syntax::LanguageData::compile_syntax_config(config, &loader)?;
+            ensure!(syntax.is_some(), "syntax configuration missing: {name}");
+            println!("syntax_startup language={name} grammar_ms={grammar_ms:.2} query_read_ms={read_ms:.2} compile_config_ms={:.2}", start.elapsed().as_secs_f64() * 1000.0);
+        }
+        return Ok(());
+    }
     let mut argv = std::env::args().skip(1);
     let left = PathBuf::from(argv.next().expect("LEFT path"));
     let right = PathBuf::from(argv.next().expect("RIGHT path"));
@@ -54,7 +81,13 @@ async fn main() -> Result<()> {
     }
     let start = Instant::now();
     let mut expected = Vec::new();
-    session.render(&args, &mut expected, false)?;
+    if std::env::var_os("DIFF_BENCH_PROFILE").is_some() {
+        for file in session.render_profiled(&args, &mut expected, false)? {
+            println!("first_profile_ms read={:.2} prepare={:.2} syntax={:.2} parse={:.2} highlight={:.2} diff={:.2} render={:.2} file={}", file.read.as_secs_f64()*1000.0, file.prepare.as_secs_f64()*1000.0, file.syntax.as_secs_f64()*1000.0, file.parse.as_secs_f64()*1000.0, file.highlight.as_secs_f64()*1000.0, file.diff.as_secs_f64()*1000.0, file.render.as_secs_f64()*1000.0, file.path.display());
+        }
+    } else {
+        session.render(&args, &mut expected, false)?;
+    }
     let first_ms = start.elapsed().as_secs_f64() * 1000.0;
     let mut times = Vec::with_capacity(iterations);
     let profile = std::env::var_os("DIFF_BENCH_PROFILE").is_some();
@@ -138,17 +171,23 @@ fn sequence(
         let start = Instant::now();
         let profile = session.render_profiled(&args, &mut output, false)?;
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        if std::env::var_os("DIFF_BENCH_PROFILE").is_some() {
+            for file in &profile {
+                println!("request_file={index} parse_ms={:.2} highlight_ms={:.2} render_ms={:.2} syntax_reuses={} file={}", file.parse.as_secs_f64()*1000.0, file.highlight.as_secs_f64()*1000.0, file.render.as_secs_f64()*1000.0, file.syntax_reuses, file.path.display());
+            }
+        }
         ensure!(
             output == expected,
             "request {index} differs from CLI output"
         );
         let hits: usize = profile.iter().map(|file| file.cache_hits).sum();
+        let syntax_reuses: usize = profile.iter().map(|file| file.syntax_reuses).sum();
         let syntax_ms: f64 = profile
             .iter()
             .map(|file| file.syntax.as_secs_f64() * 1000.0)
             .sum();
         let (entries, source_bytes) = session.document_cache_usage();
-        println!("request={index} elapsed_ms={elapsed_ms:.2} files={} cache_hits={hits} syntax_ms={syntax_ms:.2} cached_entries={entries} cached_source_bytes={source_bytes} output_matches_CLI=true", profile.len());
+        println!("request={index} elapsed_ms={elapsed_ms:.2} files={} cache_hits={hits} syntax_reuses={syntax_reuses} syntax_ms={syntax_ms:.2} cached_entries={entries} cached_source_bytes={source_bytes} output_matches_CLI=true", profile.len());
     }
     Ok(())
 }

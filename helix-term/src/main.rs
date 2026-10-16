@@ -53,6 +53,7 @@ FLAGS:
     --review                       Review Git/JJ working changes or two directories
     --render-diff                  Render two files/directories as read-only flow text
     --diff-worker-stop             Stop this context's retained diff renderers
+    --diff-worker-warm             Initialize this context's renderer (--width supported)
     --patch                        View a Git/jj patch from stdin or one patch file
     --diff-layout <layout>         View/render inline or side-by-side (default)
     --width <columns>              Render width (default 100)
@@ -93,7 +94,7 @@ FLAGS:
         std::process::exit(0);
     }
 
-    if args.internal_diff_worker || args.diff_worker_stop {
+    if args.internal_diff_worker || args.diff_worker_stop || args.diff_worker_warm {
         anyhow::ensure!(
             args.files.is_empty()
                 && !args.patch
@@ -107,6 +108,8 @@ FLAGS:
         #[cfg(unix)]
         if args.internal_diff_worker {
             helix_term::diff_worker::serve(&args)?;
+        } else if args.diff_worker_warm {
+            helix_term::diff_worker::warm(&args)?;
         } else {
             helix_term::diff_worker::stop()?;
         }
