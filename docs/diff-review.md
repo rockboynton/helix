@@ -9,7 +9,11 @@ hx --review --pager                 # strictly read-only
 git diff --color=never | hx --patch # multi-file input gets the same sidebar
 ```
 
-The expandable Changes sidebar selects a file from the changeset. Split review
+The Changes sidebar starts with all changed-file directories expanded, so nested
+changes are visible immediately. You can collapse folders normally; refreshes
+retain those choices and expand newly introduced changed-file directories.
+`:diff-off` restores your prior filesystem sidebar state.
+The expandable sidebar selects a file from the changeset. Split review
 opens a read-only baseline beside the live working document: edit, undo, search,
 use Tree-sitter highlighting and save normally, without launching another editor.
 Nothing is automatically saved, staged or committed. Existing adjacent panes
@@ -30,6 +34,7 @@ opened. See [file comparison](file-diff.md) for rendering and patch format detai
 | Command | Action |
 | --- | --- |
 | `Space v`, `:diff-review [repository]` | Review working-copy changes |
+| `:jj-review [revset]`, `:jjr [revset]` | Select a native JJ revision; `@` is editable, history is read-only |
 | `:diff-review left-directory right-directory` | Compare directory snapshots |
 | `:diff-review-patch file.patch` | Review a patch file |
 | `:diff-file-next`, `:diff-file-prev` | Select the next/previous changed file |
@@ -43,7 +48,8 @@ opened. See [file comparison](file-diff.md) for rendering and patch format detai
 
 While the sidebar is focused: `j`/`k` or arrows select, `h` collapses or selects
 the parent, `l` expands, and Enter opens a file or toggles a directory. `g`/`G`
-select first/last; Tab or Escape returns to the editor. `r` refreshes. In a review,
+select first/last; Tab or Escape returns to the editor. In a JJ review, `r` opens
+the [native revision selector](jj-workspace.md). In a review,
 `n`/`p` select next/previous file and `v` toggles layouts. Mouse selection and
 wheel scrolling are supported. `Space e` still opens Helix's original file picker.
 
@@ -87,8 +93,10 @@ immutable; reopen with new input instead of refreshing it.
 Unchanged context can be folded per file in split and inline layouts; see
 [folding commands and editing behavior](file-diff.md#folding-unchanged-context).
 This is the first multi-file review layer, not yet a complete Hunk/Diffview-style
-VCS interface. A native revision selector, staging, history browsing and a continuous
-multi-file changeset view are not implemented. Input is finite and catalogs retain source snapshots
+VCS interface. A [native JJ revision selector](jj-workspace.md) now drives the
+same sidebar and review panes. A persistent revision graph, history-changing
+operations, staging and a continuous multi-file changeset view are not implemented.
+Input is finite and catalogs retain source snapshots
 in memory; this is not a streaming viewer for arbitrarily large changesets.
 Use [JJ's external diff-tool integration](file-diff.md#interactive-jj-diff-editing-and-jjui-handoff)
 to select revisions/ranges and pass complete files to Helix.

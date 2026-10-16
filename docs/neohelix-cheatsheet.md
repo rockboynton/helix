@@ -25,6 +25,7 @@ deleted baseline rows are virtual and read-only. `--pager` makes file inputs rea
 | Action | Keys / command |
 | --- | --- |
 | Working-copy review | `Space v`, `:diff-review [repo]` |
+| JJ revision selector | `:jj-review [revset]`, `:jjr [revset]`; `r` in a focused JJ review sidebar |
 | Directory review | `:diff-review before-dir after-dir` |
 | File sidebar toggle | `Space E`, `:file-tree-toggle` (preserves state) |
 | Open/focus sidebar | `:file-tree [directory]`, `:ft [directory]` |

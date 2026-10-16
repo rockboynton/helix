@@ -50,6 +50,7 @@ pub struct Review {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Origin {
     Repository(PathBuf),
+    JjRevision { root: PathBuf, commit: String },
     Directories(PathBuf, PathBuf),
     Patch(PathBuf),
 }
@@ -64,6 +65,7 @@ impl Origin {
     fn affected(&self, path: &Path) -> bool {
         match self {
             Self::Repository(root) => path.starts_with(root),
+            Self::JjRevision { .. } => false, // Immutable commit snapshots do not watch the checkout.
             Self::Directories(left, right) => path.starts_with(left) || path.starts_with(right),
             Self::Patch(file) => !file.as_os_str().is_empty() && path == file,
         }
@@ -129,7 +131,7 @@ fn load_impl(
         .filter_map(|doc| doc.path().map(Path::to_path_buf))
         .collect::<Vec<_>>();
     let root = match &origin {
-        Origin::Repository(root) | Origin::Patch(root) => root,
+        Origin::Repository(root) | Origin::Patch(root) | Origin::JjRevision { root, .. } => root,
         Origin::Directories(_, root) => root,
     };
     let trust = editor
@@ -146,6 +148,7 @@ fn load_impl(
         let requested_origin = origin.clone();
         let result = tokio::task::spawn_blocking(move || match origin {
             Origin::Repository(root) => Review::repository_with_edits(root, trust, &extra),
+            Origin::JjRevision { root, commit } => Review::jj_revision(root, commit, trust),
             Origin::Directories(left, right) => Review::directories_with_edits(left, right, &extra),
             Origin::Patch(path) => {
                 let patch = crate::diff_patch::parse(&std::fs::read_to_string(&path)?)?;
@@ -191,16 +194,42 @@ fn load_impl(
                         tree.review.as_mut().unwrap().layout = layout;
                     }
                     if let Some(old_tree) = &view.file_tree {
-                        if old_tree
+                        let same_review = old_tree
                             .review
                             .as_ref()
-                            .is_some_and(|old| old.origin == tree.review.as_ref().unwrap().origin)
-                        {
+                            .is_some_and(|old| old.origin == tree.review.as_ref().unwrap().origin);
+                        // Selecting another revision changes snapshot identity,
+                        // not the user's chosen split/inline review layout.
+                        if !same_review && old_tree.root == tree.root {
+                            if let Some(old) = &old_tree.review {
+                                let new = tree.review.as_mut().unwrap();
+                                new.layout = old.layout;
+                                new.views = old.views.clone();
+                            }
+                        }
+                        if same_review {
                             tree.visible = old_tree.visible;
                         }
-                        if old_tree.root == tree.root {
+                        // A new review starts expanded, independent of a filesystem
+                        // sidebar's collapsed folders. Only refreshes retain the
+                        // review's own expansion choices; diff-off restores browsing.
+                        if same_review && old_tree.root == tree.root {
                             tree.expanded = old_tree.expanded.clone();
-                            expansion = Some(old_tree.expanded.clone());
+                            let old_directories = old_tree
+                                .nodes
+                                .iter()
+                                .filter(|node| node.directory)
+                                .map(|node| &node.path)
+                                .collect::<BTreeSet<_>>();
+                            tree.expanded.extend(
+                                tree.nodes
+                                    .iter()
+                                    .filter(|node| {
+                                        node.directory && !old_directories.contains(&node.path)
+                                    })
+                                    .map(|node| node.path.clone()),
+                            );
+                            expansion = Some(tree.expanded.clone());
                             tree.scroll = old_tree.scroll;
                             tree_selection = old_tree
                                 .nodes
@@ -298,7 +327,9 @@ fn load_impl(
                 }
                 if pending {
                     let paths = match requested_origin {
-                        Origin::Repository(root) => BTreeSet::from([root]),
+                        Origin::Repository(root) | Origin::JjRevision { root, .. } => {
+                            BTreeSet::from([root])
+                        }
                         Origin::Directories(left, right) => BTreeSet::from([left, right]),
                         Origin::Patch(path) => BTreeSet::from([path]),
                     };
@@ -446,6 +477,49 @@ pub fn finish(editor: &mut Editor, compositor: &mut crate::compositor::Composito
 }
 
 impl Review {
+    pub fn jj_revision(root: PathBuf, commit: String, trust: bool) -> Result<(PathBuf, Self)> {
+        anyhow::ensure!(
+            trust,
+            "JJ review requires workspace trust; run :workspace-trust"
+        );
+        let mut registry = helix_vcs::DiffProviderRegistry::default();
+        registry.add(&root, trust);
+        let root = registry
+            .review_root(&root)
+            .context("no JJ workspace found")?;
+        let files = registry.jj_revision_files(&root, &commit)?;
+        let entries = files
+            .into_iter()
+            .map(|file| Entry {
+                name: file.path,
+                before: Arc::new(file.before),
+                // History browsing must never write a snapshot into the live checkout.
+                after: None,
+                snapshot: Arc::new(file.after),
+                status: file.status,
+                documents: [None; 2],
+                inline: None,
+                reload_after: false,
+                counts: None,
+                count_versions: None,
+                message: None,
+                patch: None,
+            })
+            .collect();
+        Ok((
+            root.clone(),
+            Self {
+                entries,
+                active: None,
+                layout: Layout::SideBySide,
+                views: Vec::new(),
+                origin: Origin::JjRevision { root, commit },
+                watch_roots: Vec::new(),
+                positions: HashMap::new(),
+            },
+        ))
+    }
+
     pub fn repository(root: PathBuf, trust: bool) -> Result<(PathBuf, Self)> {
         Self::repository_with_edits(root, trust, &[])
     }
@@ -630,6 +704,7 @@ impl Review {
                 .enumerate()
                 .map(|(index, entry)| (entry.name.clone(), false, Some(index))),
         );
+        tree.expand_all();
         if let Some(entry) = review.entries.first() {
             tree.reveal(&entry.name);
         }

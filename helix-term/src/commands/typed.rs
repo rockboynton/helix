@@ -2242,6 +2242,41 @@ fn file_tree_close(
     Ok(())
 }
 
+fn jj_review(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event != PromptEvent::Validate {
+        return Ok(());
+    }
+    // Review snapshots have no filesystem path, so retain their repository
+    // context when reopening the revision selector from a historical review.
+    let root = doc!(cx.editor)
+        .path()
+        .and_then(|path| path.parent())
+        .map(Path::to_path_buf)
+        .unwrap_or_else(helix_stdx::env::current_working_dir);
+    let revset = if args.is_empty() {
+        crate::jj_review::DEFAULT_REVSET.to_owned()
+    } else {
+        args.iter()
+            .map(|arg| arg.as_ref())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    cx.jobs.callback(async move {
+        Ok(crate::job::Callback::EditorCompositorJobs(Box::new(
+            move |editor, compositor, jobs| {
+                let root = compositor
+                    .find::<crate::ui::EditorView>()
+                    .and_then(|view| view.file_tree.as_ref())
+                    .filter(|tree| tree.review.is_some())
+                    .map(|tree| tree.root.clone())
+                    .unwrap_or(root);
+                crate::jj_review::open(editor, jobs, root, revset);
+            },
+        )))
+    });
+    Ok(())
+}
+
 fn diff_review(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
@@ -4512,6 +4547,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand { name: "file-tree", aliases: &["ft"], doc: "Open or focus an expandable filesystem/review sidebar.", fun: file_tree, completer: CommandCompleter::all(completers::directory), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
     TypableCommand { name: "file-tree-toggle", aliases: &[], doc: "Show/hide the sidebar, retaining its tree, review and watch state.", fun: file_tree_toggle, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "file-tree-close", aliases: &[], doc: "Close the sidebar without closing buffers.", fun: file_tree_close, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "jj-review", aliases: &["jjr"], doc: "Select a JJ revision for native in-process review. Optional revset; @ is editable, history is read-only.", fun: jj_review, completer: CommandCompleter::none(), signature: Signature { positionals: (0, None), ..Signature::DEFAULT } },
     TypableCommand { name: "diff-review", aliases: &["dr"], doc: "Review all Git/JJ working changes, or two directories.", fun: diff_review, completer: CommandCompleter::all(completers::directory), signature: Signature { positionals: (0, Some(2)), ..Signature::DEFAULT } },
     TypableCommand { name: "diff-review-patch", aliases: &["drp"], doc: "Review a multi-file Git/native-JJ patch without opening referenced paths.", fun: diff_review_patch, completer: CommandCompleter::all(completers::filename), signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT } },
     TypableCommand { name: "diff-file-next", aliases: &[], doc: "Review the next changed file.", fun: diff_file_next, completer: CommandCompleter::none(), signature: Signature::DEFAULT },

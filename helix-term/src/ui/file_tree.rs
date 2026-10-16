@@ -168,21 +168,33 @@ impl FileTree {
         self.rebuild_visibility();
     }
 
+    pub fn expand_all(&mut self) {
+        self.expanded.extend(
+            self.nodes
+                .iter()
+                .filter(|node| node.directory)
+                .map(|node| node.path.clone()),
+        );
+        self.rebuild_visibility();
+    }
+
     pub fn render(&mut self, area: Rect, surface: &mut Buffer, editor: &Editor) {
         self.area = area;
         if let Some(review) = &mut self.review {
             review.update_counts(editor);
         }
         surface.clear_with(area, editor.theme.get("ui.background"));
-        let title = if self.review.is_some() {
-            "Changes"
-        } else {
-            "Files"
+        let title = match self.review.as_ref().map(|review| &review.origin) {
+            Some(crate::diff_review::Origin::JjRevision { commit, .. }) => {
+                format!("JJ {} (read-only)", &commit[..12.min(commit.len())])
+            }
+            Some(_) => "Changes".to_owned(),
+            None => "Files".to_owned(),
         };
         surface.set_stringn(
             area.x,
             area.y,
-            title,
+            &title,
             area.width.saturating_sub(1) as usize,
             editor.theme.get("ui.text.focus"),
         );
@@ -315,6 +327,19 @@ impl FileTree {
             .position(|&index| index == self.selected)
             .unwrap_or(0);
         match key.code {
+            KeyCode::Char('r') if self.review.is_some() && self.root.join(".jj").is_dir() => {
+                let root = self.root.clone();
+                return Ok(EventResult::Consumed(Some(Box::new(
+                    move |_compositor, cx| {
+                        crate::jj_review::open(
+                            cx.editor,
+                            cx.jobs,
+                            root,
+                            crate::jj_review::DEFAULT_REVSET.into(),
+                        );
+                    },
+                ))));
+            }
             KeyCode::Char(':') | KeyCode::Char(' ') => {
                 self.focused = false;
                 return Ok(EventResult::Ignored(None));

@@ -75,6 +75,26 @@ pub struct ReviewFile {
     pub status: &'static str,
 }
 
+/// A bounded native JJ log row. Full commit IDs disambiguate divergent changes.
+#[derive(Clone, Debug)]
+pub struct JjRevision {
+    pub commit_id: String,
+    pub change_id: String,
+    pub description: String,
+    pub author: String,
+    pub bookmarks: Vec<String>,
+    pub working_copy: bool,
+    pub parents: Vec<String>,
+}
+
+#[derive(Debug)]
+pub struct RevisionFile {
+    pub path: PathBuf,
+    pub before: Vec<u8>,
+    pub after: Vec<u8>,
+    pub status: &'static str,
+}
+
 /// Contains all active diff providers. Diff providers are compiled in via features. Currently
 /// Git and Jujutsu are supported.
 #[derive(Default, Clone)]
@@ -95,6 +115,28 @@ pub struct DiffProviderRegistry {
 
 /// Diff-related methods
 impl DiffProviderRegistry {
+    /// Read native JJ history without changing operation heads or the checkout.
+    pub fn jj_revisions(
+        &self,
+        path: &Path,
+        expression: &str,
+        limit: usize,
+    ) -> Result<Vec<JjRevision>> {
+        match self.provider_for(path) {
+            #[cfg(feature = "jj")]
+            Some(DiffProvider::JJ(root)) => jj::revisions(root, expression, limit),
+            _ => anyhow::bail!("JJ history requires a trusted JJ workspace"),
+        }
+    }
+
+    pub fn jj_revision_files(&self, path: &Path, commit: &str) -> Result<Vec<RevisionFile>> {
+        match self.provider_for(path) {
+            #[cfg(feature = "jj")]
+            Some(DiffProvider::JJ(root)) => jj::revision_files(root, commit),
+            _ => anyhow::bail!("JJ review requires a trusted JJ workspace"),
+        }
+    }
+
     /// Full working-copy review, including staged Git changes. Read-only:
     /// neither the Git index nor the JJ operation log is updated.
     pub fn review_files(&self, root: &Path) -> Result<Vec<ReviewFile>> {

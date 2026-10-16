@@ -358,7 +358,18 @@ pub(crate) fn get_current_head_name(root: &Path) -> Result<Arc<ArcSwap<Box<str>>
     })
 }
 
-async fn head_name(context: &ContextData) -> Result<String> {
+async fn resolve_revisions(
+    context: &ContextData,
+    expression: &str,
+) -> Result<Vec<jj_lib::backend::CommitId>> {
+    resolve_revisions_bounded(context, expression, usize::MAX).await
+}
+
+async fn resolve_revisions_bounded(
+    context: &ContextData,
+    expression: &str,
+    limit: usize,
+) -> Result<Vec<jj_lib::backend::CommitId>> {
     let settings = context.workspace.settings();
     let mut aliases = RevsetAliasesMap::new();
     for key in settings.config().table_keys("revset-aliases") {
@@ -385,22 +396,33 @@ async fn head_name(context: &ContextData) -> Result<String> {
     };
     let expression = revset::parse(
         &mut revset::RevsetDiagnostics::new(),
-        "@ | (immutable_heads()::@ & bookmarks())",
+        expression,
         &parse_context,
     )?;
     let resolver = SymbolResolver::new(context.repo.as_ref(), extensions.symbol_resolvers());
     let revisions = expression
         .resolve_user_expression(context.repo.as_ref(), &resolver)?
         .evaluate()?;
+    let mut ids = Vec::new();
+    let mut stream = revisions.stream();
+    while ids.len() < limit {
+        let Some(revision) = stream.next().await else {
+            break;
+        };
+        ids.push(revision?);
+    }
+    Ok(ids)
+}
+
+async fn head_name(context: &ContextData) -> Result<String> {
+    let revisions = resolve_revisions(context, "@ | (immutable_heads()::@ & bookmarks())").await?;
     let exact = bookmark_names(context, context.commit.id());
     let id = format!("{:.8}", context.commit.change_id());
     if !exact.is_empty() {
         return Ok(format!("{id} ({})", exact.join(" ")));
     }
     let mut ancestors = Vec::new();
-    let mut stream = revisions.stream();
-    while let Some(revision) = stream.next().await {
-        let revision = revision?;
+    for revision in revisions {
         if &revision != context.commit.id() {
             ancestors.extend(bookmark_names(context, &revision));
         }
@@ -409,6 +431,89 @@ async fn head_name(context: &ContextData) -> Result<String> {
         id
     } else {
         format!("{id} [{}]", ancestors.join(" "))
+    })
+}
+
+pub(crate) fn revisions(
+    root: &Path,
+    expression: &str,
+    limit: usize,
+) -> Result<Vec<crate::JjRevision>> {
+    block_on(async {
+        let context = ContextData::load(root).await?;
+        let ids = resolve_revisions_bounded(&context, expression, limit.min(500)).await?;
+        let mut result = Vec::new();
+        for id in ids {
+            let commit = context.repo.store().get_commit_async(&id).await?;
+            result.push(crate::JjRevision {
+                commit_id: id.hex(),
+                change_id: format!("{:.8}", commit.change_id()),
+                description: commit
+                    .description()
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned(),
+                author: commit.author().name.clone(),
+                bookmarks: bookmark_names(&context, &id),
+                working_copy: id == *context.commit.id(),
+                parents: commit.parent_ids().iter().map(ObjectId::hex).collect(),
+            });
+        }
+        Ok(result)
+    })
+}
+
+pub(crate) fn revision_files(root: &Path, commit: &str) -> Result<Vec<crate::RevisionFile>> {
+    // Accept only full immutable commit IDs, never expressions which could
+    // change meaning between selecting a log row and loading its snapshots.
+    anyhow::ensure!(
+        commit.len() >= 32 && commit.bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "expected a full JJ commit ID"
+    );
+    block_on(async {
+        let mut context = ContextData::load(root).await?;
+        let ids = resolve_revisions_bounded(&context, &format!("commit_id({commit})"), 2).await?;
+        anyhow::ensure!(
+            ids.len() == 1 && ids[0].hex() == commit,
+            "revision is unavailable or ambiguous"
+        );
+        context.commit = context.repo.store().get_commit_async(&ids[0]).await?;
+        let before = context.commit.parent_tree(context.repo.as_ref()).await?;
+        let after = context.commit.tree();
+        let copies = copy_records(&context, &after).await?;
+        let mut stream = before.diff_stream_with_copies(&after, &EverythingMatcher, &copies);
+        let mut files = Vec::new();
+        while let Some(entry) = stream.next().await {
+            let values = entry.values?;
+            if !file_value(&values.before) || !file_value(&values.after) {
+                continue;
+            }
+            let before_path = entry
+                .path
+                .source
+                .as_ref()
+                .map_or(&entry.path.target, |(path, _)| path);
+            let status = if matches!(entry.path.source, Some((_, CopyOperation::Rename))) {
+                "R"
+            } else if values.after.is_absent() {
+                "D"
+            } else if values.before.is_absent() {
+                "A"
+            } else if !values.after.is_resolved() {
+                "!"
+            } else {
+                "M"
+            };
+            files.push(crate::RevisionFile {
+                path: entry.path.target.to_fs_path(Path::new(""))?,
+                before: read_tree_value(&context, &before, before_path).await?,
+                after: read_tree_value(&context, &after, &entry.path.target).await?,
+                status,
+            });
+        }
+        files.sort_by(|a, b| a.path.cmp(&b.path));
+        Ok(files)
     })
 }
 
@@ -632,6 +737,58 @@ mod tests {
     use jj_lib::op_store::{RefTarget, RemoteRef, RemoteRefState};
     use jj_lib::ref_name::{RefName, RemoteName, RemoteRefSymbol, WorkspaceNameBuf};
     use std::cell::RefCell;
+
+    #[test]
+    fn revision_log_and_historical_snapshots_are_bounded_and_leave_checkout_untouched() {
+        for git in [false, true] {
+            let mut fixture = Fixture::new(git);
+            let baseline = fixture.baseline(&[("nested/file.rs", b"fn old() {}\n")]);
+            let tree = fixture.tree(&[(
+                "nested/file.rs",
+                fixture.file("nested/file.rs", b"fn new() {}\n"),
+            )]);
+            let current = fixture.checkout(vec![fixture.current().id().clone()], tree);
+            // Unsnapshotted checkout contents must not leak into a historical commit view.
+            std::fs::write(
+                fixture.root.join("nested/file.rs"),
+                "unsaved working copy\n",
+            )
+            .unwrap();
+            let heads = block_on(fixture.repo.loader().op_heads_store().get_op_heads()).unwrap();
+            let rows = revisions(&fixture.root, "ancestors(@)", 2).unwrap();
+            assert_eq!(rows.len(), 2);
+            assert_eq!(rows[0].commit_id, current.id().hex());
+            assert!(rows[0].working_copy);
+            assert!(!rows[1].working_copy);
+            assert_eq!(rows[0].parents, vec![rows[1].commit_id.clone()]);
+            assert!(revisions(&fixture.root, "all()", 0).unwrap().is_empty());
+            assert!(revisions(&fixture.root, "invalid_function()", 10).is_err());
+            let files = revision_files(&fixture.root, &current.id().hex()).unwrap();
+            assert_eq!(files.len(), 1);
+            assert_eq!(files[0].path, Path::new("nested/file.rs"));
+            assert_eq!(files[0].before, b"fn old() {}\n");
+            assert_eq!(files[0].after, b"fn new() {}\n");
+            let added = revision_files(&fixture.root, &baseline.id().hex()).unwrap();
+            assert_eq!(added[0].status, "A");
+            assert!(added[0].before.is_empty());
+            assert!(revision_files(&fixture.root, "@ | all()").is_err());
+            assert_eq!(
+                std::fs::read(fixture.root.join("nested/file.rs")).unwrap(),
+                b"unsaved working copy\n"
+            );
+            assert_eq!(
+                block_on(fixture.repo.loader().op_heads_store().get_op_heads()).unwrap(),
+                heads
+            );
+            assert_eq!(
+                block_on(ContextData::load(&fixture.root))
+                    .unwrap()
+                    .commit
+                    .id(),
+                current.id()
+            );
+        }
+    }
 
     struct Fixture {
         _directory: tempfile::TempDir,

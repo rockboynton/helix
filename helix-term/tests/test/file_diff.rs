@@ -108,6 +108,16 @@ async fn full_file_blame_toggle_is_view_local_and_scrolls_in_the_gutter() -> any
         "baseline",
     ]);
     let mut app = AppBuilder::new().with_file(&file, None).build()?;
+    use helix_view::graphics::{Color, Style};
+    for (scope, color) in [
+        ("ui.virtual.blame.commit", Color::Rgb(200, 100, 100)),
+        ("ui.virtual.blame.date", Color::Rgb(100, 200, 100)),
+        ("ui.virtual.blame.author", Color::Rgb(100, 100, 200)),
+    ] {
+        app.editor
+            .theme
+            .set(scope.into(), Style::default().fg(color));
+    }
     test_key_sequences(
         &mut app,
         vec![
@@ -125,6 +135,18 @@ async fn full_file_blame_toggle_is_view_local_and_scrolls_in_the_gutter() -> any
                         .map(|x| app.test_surface()[(x, area.y)].symbol.as_str())
                         .collect::<String>();
                     assert!(row.contains("Blame Test"), "{row:?}");
+                    let surface = app.test_surface();
+                    let author_column = row.find("Blame Test").unwrap();
+                    let date_column = row.find(' ').unwrap() + 1;
+                    assert_eq!(surface[(area.x, area.y)].fg, Color::Rgb(200, 100, 100));
+                    assert_eq!(
+                        surface[(area.x + date_column as u16, area.y)].fg,
+                        Color::Rgb(100, 200, 100),
+                    );
+                    assert_eq!(
+                        surface[(area.x + author_column as u16, area.y)].fg,
+                        Color::Rgb(100, 100, 200),
+                    );
                 }),
             ),
             (
@@ -587,9 +609,12 @@ async fn inline_diff_renders_source_syntax_backgrounds_and_gutter() -> anyhow::R
                     );
                     let mut gutter =
                         helix_view::gutter::diff(&app.editor, doc, view, &app.editor.theme, true);
-                    let mut text = String::new();
+                    let mut text = helix_view::gutter::GutterText::default();
                     assert!(gutter(1, false, true, &mut text).is_some());
-                    assert_eq!(text, app.editor.icons.diff.deleted.icon_char.to_string());
+                    assert_eq!(
+                        text.text,
+                        app.editor.icons.diff.deleted.icon_char.to_string()
+                    );
                 }),
             ),
             (Some("q"), None),
@@ -737,11 +762,11 @@ async fn diff_gutter_uses_configured_helix_icons_for_each_hunk_kind() -> anyhow:
                                 &app.editor.theme,
                                 true,
                             );
-                            let mut text = String::new();
+                            let mut text = helix_view::gutter::GutterText::default();
                             assert!(gutter(0, false, true, &mut text).is_none());
-                            assert!(text.is_empty());
+                            assert!(text.text.is_empty());
                             assert!(gutter(1, false, true, &mut text).is_some());
-                            assert_eq!(text, expected.to_string());
+                            assert_eq!(text.text, expected.to_string());
                         }
                     }),
                 ),

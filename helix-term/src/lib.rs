@@ -13,6 +13,7 @@ pub mod diff_review;
 pub mod diff_worker;
 pub mod events;
 pub mod health;
+pub mod jj_review;
 pub mod job;
 pub mod keymap;
 pub mod logging;

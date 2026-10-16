@@ -10,6 +10,181 @@ fn tree(app: &helix_term::application::Application) -> &helix_term::ui::file_tre
         .unwrap()
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn native_jj_revision_selection_reuses_panes_and_keeps_history_read_only(
+) -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().canonicalize()?;
+    let jj = |args: &[&str]| -> anyhow::Result<()> {
+        let result = std::process::Command::new("jj")
+            .args(args)
+            .current_dir(&root)
+            .output()?;
+        anyhow::ensure!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        Ok(())
+    };
+    jj(&["git", "init", "--colocate"])?;
+    let path = root.join("file.rs");
+    std::fs::write(&path, "fn historical() {}\n")?;
+    jj(&["describe", "-m", "historical revision"])?;
+    jj(&["new"])?;
+    std::fs::write(&path, "fn working() {}\n")?;
+    jj(&["describe", "-m", "working revision"])?;
+    let mut app = AppBuilder::new().with_file(&path, None).build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(":jj-review @<ret>"),
+                Some(&|app| {
+                    let surface = app
+                        .test_surface()
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol.as_str())
+                        .collect::<String>();
+                    assert!(surface.contains("working revision"), "{surface}");
+                }),
+            ),
+            (
+                Some("<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.tree.views().count(), 2);
+                    assert!(!current_ref!(app.editor).1.is_read_only());
+                    assert_eq!(current_ref!(app.editor).1.path(), Some(path.as_path()));
+                }),
+            ),
+            (Some("A // unsaved<esc>:diff-layout inline<ret>"), None),
+            (Some(":jj-review @-<ret>"), None),
+            (
+                Some("<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.tree.views().count(), 1);
+                    assert_eq!(tree(app).review.as_ref().unwrap().layout, Layout::Inline);
+                    assert!(matches!(
+                        tree(app).review.as_ref().unwrap().origin,
+                        helix_term::diff_review::Origin::JjRevision { .. }
+                    ));
+                    assert!(current_ref!(app.editor).1.is_read_only());
+                    assert!(current_ref!(app.editor)
+                        .1
+                        .text()
+                        .to_string()
+                        .contains("historical"));
+                    assert!(app
+                        .editor
+                        .documents()
+                        .any(|doc| doc.path() == Some(path.as_path()) && doc.is_modified()));
+                }),
+            ),
+            // Snapshot buffers have no path; the command must reuse sidebar context
+            // rather than accidentally browsing the test runner's own repository.
+            (Some(":jjr @<ret>"), None),
+            (
+                Some("<ret>"),
+                Some(&|app| {
+                    assert_eq!(tree(app).root, root);
+                    assert!(app.editor.inline_diff_session.is_some());
+                    assert!(current_ref!(app.editor)
+                        .1
+                        .text()
+                        .to_string()
+                        .contains("unsaved"));
+                }),
+            ),
+            (Some(":diff-off<ret>:qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    assert_eq!(std::fs::read_to_string(path)?, "fn working() {}\n");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn review_expands_changed_folders_and_restores_collapsed_browsing_tree() -> anyhow::Result<()>
+{
+    use std::path::Path;
+    let left = tempfile::tempdir()?;
+    let right = tempfile::tempdir()?;
+    for name in ["aaa/one.rs", "zzz/deep/two.rs"] {
+        for (root, contents) in [(left.path(), "old\n"), (right.path(), "new\n")] {
+            let path = root.join(name);
+            std::fs::create_dir_all(path.parent().unwrap())?;
+            std::fs::write(path, contents)?;
+        }
+    }
+    let mut app = AppBuilder::new().build()?;
+    let browse = format!(":ft {}<ret>", right.path().display());
+    let review = format!(
+        ":dr {} {}<ret>",
+        left.path().display(),
+        right.path().display()
+    );
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some(&browse),
+                Some(&|app| assert!(tree(app).expanded.is_empty())),
+            ),
+            (
+                Some(&review),
+                Some(&|app| {
+                    let tree = tree(app);
+                    for folder in ["aaa", "zzz", "zzz/deep"] {
+                        assert!(tree.expanded.contains(Path::new(folder)), "{folder}");
+                    }
+                    assert!(tree
+                        .visible()
+                        .iter()
+                        .any(|&i| tree.nodes[i].path == Path::new("zzz/deep/two.rs")));
+                }),
+            ),
+            (Some(":diff-layout inline<ret>"), None),
+            (Some(":ft<ret>"), Some(&|app| assert!(tree(app).focused))),
+            (
+                Some("Ghh<esc>"),
+                Some(&|app| {
+                    assert!(!tree(app).expanded.contains(Path::new("zzz/deep")));
+                    assert!(tree(app).expanded.contains(Path::new("aaa")));
+                    let path = right.path().join("new/deep/three.rs");
+                    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    std::fs::write(path, "new file\n").unwrap();
+                }),
+            ),
+            (
+                Some(":diff-review-refresh<ret>"),
+                Some(&|app| {
+                    let tree = tree(app);
+                    assert!(!tree.expanded.contains(Path::new("zzz/deep")));
+                    assert!(tree.expanded.contains(Path::new("new")));
+                    assert!(tree.expanded.contains(Path::new("new/deep")));
+                    assert!(tree
+                        .visible()
+                        .iter()
+                        .any(|&i| tree.nodes[i].path == Path::new("new/deep/three.rs")));
+                }),
+            ),
+            (
+                Some(":diff-off<ret>"),
+                Some(&|app| {
+                    assert!(tree(app).review.is_none());
+                    assert_eq!(tree(app).root, right.path());
+                    assert!(tree(app).expanded.is_empty());
+                }),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await
+}
+
 #[test]
 fn path_command_aliases_resolve_with_arguments() {
     use helix_term::commands::MappableCommand;
