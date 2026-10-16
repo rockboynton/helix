@@ -9,6 +9,8 @@ pub mod config;
 pub mod diff_patch;
 pub mod diff_render;
 pub mod diff_review;
+#[cfg(unix)]
+pub mod diff_worker;
 pub mod events;
 pub mod health;
 pub mod job;

@@ -52,6 +52,7 @@ FLAGS:
     --diff3                        Compare three files side-by-side: left base right
     --review                       Review Git/JJ working changes or two directories
     --render-diff                  Render two files/directories as read-only flow text
+    --diff-worker-stop             Stop this context's retained diff renderers
     --patch                        View a Git/jj patch from stdin or one patch file
     --diff-layout <layout>         View/render inline or side-by-side (default)
     --width <columns>              Render width (default 100)
@@ -92,7 +93,37 @@ FLAGS:
         std::process::exit(0);
     }
 
+    if args.internal_diff_worker || args.diff_worker_stop {
+        anyhow::ensure!(
+            args.files.is_empty()
+                && !args.patch
+                && !args.render_diff
+                && !args.stdin
+                && !args.pager
+                && !args.diff
+                && !args.review,
+            "diff worker commands do not take editor/diff inputs"
+        );
+        #[cfg(unix)]
+        if args.internal_diff_worker {
+            helix_term::diff_worker::serve(&args)?;
+        } else {
+            helix_term::diff_worker::stop()?;
+        }
+        #[cfg(not(unix))]
+        anyhow::bail!("diff workers are supported on Unix systems only");
+        return Ok(0);
+    }
+
     if args.render_diff || (args.patch && !std::io::IsTerminal::is_terminal(&std::io::stdout())) {
+        #[cfg(unix)]
+        if helix_term::diff_worker::try_render(
+            &args,
+            &mut std::io::stdout().lock(),
+            std::io::IsTerminal::is_terminal(&std::io::stdout()),
+        )? {
+            return Ok(0);
+        }
         helix_term::diff_render::run(
             &args,
             &mut std::io::stdout().lock(),

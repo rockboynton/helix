@@ -209,6 +209,7 @@ For jj/jjui, configure a named external formatter in **jj's** configuration:
 [merge-tools.neohelix]
 program = "hx"
 diff-invocation-mode = "dir"
+diff-do-chdir = false
 diff-args = ["--render-diff", "--color", "always", "--width", "$width", "$left", "$right"]
 diff-expected-exit-codes = [0]
 ```
@@ -219,6 +220,9 @@ for inline output. For checkout testing, use the absolute path to
 `target/release/hx` as `program` and point `HELIX_RUNTIME` at that checkout's
 `runtime` directory; an older installed `hx` will not have this flag.
 This integrates with jjui's **read-only** diff view without a jjui fork.
+`diff-do-chdir = false` preserves the workspace for configuration and worker
+reuse; apply it to a separate inline formatter too. See the
+[worker guide](diff-render-worker.md) for lifecycle and opt-out controls.
 It is a formatter integration, not an embedded editable Helix terminal.
 Your existing jj/jjui/NixOS configuration is not changed automatically.
 If a jjui preview command contains `--config ui.diff-formatter=delta`, that
@@ -245,6 +249,7 @@ diff-instructions = false
 program = "hx"
 diff-args = ["--render-diff", "--color", "always", "--width", "$width", "$left", "$right"]
 diff-invocation-mode = "dir"
+diff-do-chdir = false
 edit-args = ["--review", "--diff-layout", "inline", "$left", "$right"]
 edit-invocation-mode = "dir"
 ```

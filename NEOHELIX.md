@@ -99,6 +99,10 @@ without acquiring a terminal; `--diff-theme` remains an explicit override.
 or inline flow text using the native Tree-sitter renderer; it can be registered
 as a jj external formatter for jjui's built-in diff view. See the
 [file comparison guide](docs/file-diff.md) for usage and current boundaries.
+On Unix, file-based flow rendering automatically reuses a private background
+worker to retain Steel configuration and parsed documents between invocations.
+See the [worker guide](docs/diff-render-worker.md) for lifecycle, invalidation,
+and opt-out controls, and the [performance measurements](docs/diff-render-performance.md).
 
 ### On-demand GitLens
 

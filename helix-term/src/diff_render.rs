@@ -1,11 +1,15 @@
 //! Read-only, flow-text frontend for standalone use and external diff hosts.
 //! It emits text/SGR only: no terminal acquisition, cursor motion or alternate screen.
 use std::{
-    collections::BTreeSet,
+    cell::RefCell,
+    collections::{hash_map::DefaultHasher, BTreeSet, VecDeque},
+    hash::{Hash, Hasher},
     io::Write,
     ops::Range,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
@@ -55,6 +59,82 @@ struct Renderer {
     context: usize,
     layout: Layout,
     color: bool,
+    profile: Option<RefCell<Vec<FileRenderProfile>>>,
+    documents: Rc<RefCell<DocumentCache>>,
+}
+
+struct CachedDocument {
+    digest: u64,
+    language: Option<String>,
+    bytes: Vec<u8>,
+    document: Rc<Document>,
+}
+
+/// Bounds retained source bytes and entry count; syntax trees add memory on top.
+/// Documents are read-only and their old snapshot paths are never used to read
+/// inputs or label output. A content/language key survives jj's temporary paths.
+struct DocumentCache {
+    entries: VecDeque<CachedDocument>,
+    bytes: usize,
+    max_entries: usize,
+    max_bytes: usize,
+}
+
+impl Default for DocumentCache {
+    fn default() -> Self {
+        Self {
+            entries: VecDeque::new(),
+            bytes: 0,
+            max_entries: 64,
+            max_bytes: 16 * 1024 * 1024,
+        }
+    }
+}
+
+impl DocumentCache {
+    fn get(&mut self, digest: u64, language: Option<&str>, bytes: &[u8]) -> Option<Rc<Document>> {
+        let index = self.entries.iter().position(|entry| {
+            entry.digest == digest && entry.language.as_deref() == language && entry.bytes == bytes
+        })?;
+        let entry = self.entries.remove(index).unwrap();
+        let document = entry.document.clone();
+        self.entries.push_back(entry);
+        Some(document)
+    }
+
+    fn insert(&mut self, digest: u64, bytes: &[u8], document: Rc<Document>) {
+        if self.max_entries == 0
+            || bytes.len() > self.max_bytes
+            || (document.language_config().is_some() && document.syntax().is_none())
+        {
+            return;
+        }
+        while self.entries.len() >= self.max_entries || self.bytes + bytes.len() > self.max_bytes {
+            let oldest = self.entries.pop_front().unwrap();
+            self.bytes -= oldest.bytes.len();
+        }
+        self.bytes += bytes.len();
+        self.entries.push_back(CachedDocument {
+            digest,
+            language: document.language_name().map(str::to_owned),
+            bytes: bytes.to_vec(),
+            document,
+        });
+    }
+}
+
+/// Timings for one changed, non-binary file pair. Document time includes decoding
+/// and Tree-sitter parsing; render time includes row formatting and output writes.
+#[derive(Debug, Default)]
+pub struct FileRenderProfile {
+    pub path: PathBuf,
+    pub read: Duration,
+    pub document: Duration,
+    pub prepare: Duration,
+    pub syntax: Duration,
+    pub cache_hits: usize,
+    pub diff: Duration,
+    pub render: Duration,
 }
 
 struct SourceLine<'a> {
@@ -67,108 +147,197 @@ struct SourceLine<'a> {
 }
 
 pub fn run(args: &Args, output: &mut impl Write, stdout_is_terminal: bool) -> Result<()> {
-    let config = Config::load_default().map_err(|error| anyhow::anyhow!("{error}"))?;
-    let mut dirs = vec![helix_loader::config_dir()];
-    dirs.extend(helix_loader::runtime_dirs().iter().cloned());
-    #[allow(unused_mut)]
-    let mut themes = Arc::new(theme::Loader::new(&dirs));
-    let name = config.theme.as_ref().map(|theme| theme.choose(None));
-    #[allow(unused_mut)]
-    let mut theme = match name {
-        Some(name) => themes.load(name)?,
-        None => themes.default_theme(true),
-    };
-    let trust =
-        helix_loader::workspace_trust::WorkspaceTrust::new((&config.editor.workspace_trust).into());
-    let loader = helix_core::config::user_lang_loader(&trust)?;
-    loader.set_scopes(theme.scopes().to_vec());
-    let icons_loader = helix_view::icons::Loader::new(&dirs);
-    let mut icons = match config.icons.as_deref() {
-        Some(name) => icons_loader.load(name, &theme, true)?,
-        None => icons_loader.default(&theme),
-    };
-    let loader = Arc::new(ArcSwap::from_pointee(loader));
-    let config = Arc::new(ArcSwap::from_pointee(config));
-    #[cfg(feature = "steel")]
-    if config.load().editor.enable_steel {
-        use arc_swap::access::Map;
-        let mut headless = (*config.load_full()).clone();
-        headless.editor.file_watcher.enable = false;
-        headless.editor.lsp.enable = false;
-        config.store(Arc::new(headless));
-        let handlers = crate::handlers::setup(config.clone());
-        let mut editor = helix_view::Editor::new(
-            Rect::new(0, 0, args.diff_width.unwrap_or(100), 24),
-            themes.clone(),
-            loader.clone(),
-            Arc::new(Map::new(config.clone(), |config: &Config| &config.editor)),
-            handlers,
-            trust,
-        );
-        editor.pager = true;
-        editor.set_theme(theme)?;
-        editor.set_icons(icons);
-        let mut jobs = crate::job::Jobs::new();
-        let mut cx = crate::commands::Context {
-            register: None,
-            count: None,
-            editor: &mut editor,
-            callback: Vec::new(),
-            on_next_key_callback: None,
-            jobs: &mut jobs,
+    RenderSession::new(args)?.render(args, output, stdout_is_terminal)
+}
+
+/// Configuration and syntax resources shared by sequential flow-render requests.
+///
+/// A session is a snapshot of configuration in the current workspace. Callers must
+/// recreate it when configuration/trust changes, and must not reuse it across
+/// workspaces. Source files are deliberately reread on every request; unchanged
+/// content with the same language reuses a bounded cache of read-only documents. This is not
+/// a concurrent renderer: requests share the language loader's theme scopes.
+pub struct RenderSession {
+    themes: Arc<theme::Loader>,
+    theme: Theme,
+    icons: helix_view::icons::Icons,
+    loader: Arc<ArcSwap<syntax::Loader>>,
+    config: Arc<ArcSwap<helix_view::editor::Config>>,
+    documents: Rc<RefCell<DocumentCache>>,
+}
+
+impl RenderSession {
+    /// Reset retained documents and set bounds on entry count and source bytes.
+    /// Trees and document allocations consume memory beyond the source budget.
+    /// A zero entry count disables document caching.
+    pub fn set_document_cache_limits(&mut self, max_entries: usize, max_bytes: usize) {
+        *self.documents.borrow_mut() = DocumentCache {
+            max_entries,
+            max_bytes,
+            ..Default::default()
         };
-        crate::commands::ScriptingEngine::load_headless_configuration(
-            &mut cx,
-            config.clone(),
-            loader.clone(),
-        )?;
-        themes = editor.theme_loader.clone();
-        theme = editor.theme.clone();
-        icons = editor.icons.clone();
     }
-    // Apply last, including themes dynamically registered by Steel configuration.
-    if let Some(name) = args.diff_theme.as_deref() {
-        theme = themes.load(name)?;
-        loader.load().set_scopes(theme.scopes().to_vec());
-        icons.set_diagnostic_icons_base_style(&theme);
-        icons.set_symbolkind_icons_base_style(&theme);
+
+    /// Number of retained documents and retained source bytes (not total RAM).
+    pub fn document_cache_usage(&self) -> (usize, usize) {
+        let cache = self.documents.borrow();
+        (cache.entries.len(), cache.bytes)
     }
-    let renderer = Renderer {
-        theme,
-        icons,
-        loader,
-        config: Arc::new(ArcSwap::from_pointee(config.load().editor.clone())),
-        width: args.diff_width.unwrap_or(100),
-        context: args.diff_context.unwrap_or(3),
-        layout: args.diff_layout.unwrap_or_default(),
-        color: match args.diff_color.unwrap_or_default() {
-            ColorMode::Always => true,
-            ColorMode::Never => false,
-            ColorMode::Auto => stdout_is_terminal,
-        },
-    };
-    if args.patch {
-        return renderer.patch(&crate::diff_patch::read(args)?, output);
-    }
-    let paths = args.files.keys().collect::<Vec<_>>();
-    let [left, right] = paths.as_slice() else {
-        anyhow::bail!("--render-diff requires two file or directory paths")
-    };
-    if left.is_dir() && right.is_dir() {
-        let mut files = BTreeSet::new();
-        collect_files(left, left, &mut files)?;
-        collect_files(right, right, &mut files)?;
-        for file in files {
-            renderer.pair(&left.join(&file), &right.join(&file), &file, output)?;
-        }
-    } else {
-        anyhow::ensure!(
-            !left.is_dir() && !right.is_dir(),
-            "compare two files or two directories, not a file and directory"
+
+    pub fn new(args: &Args) -> Result<Self> {
+        let config = Config::load_default().map_err(|error| anyhow::anyhow!("{error}"))?;
+        let mut dirs = vec![helix_loader::config_dir()];
+        dirs.extend(helix_loader::runtime_dirs().iter().cloned());
+        #[allow(unused_mut)]
+        let mut themes = Arc::new(theme::Loader::new(&dirs));
+        let name = config.theme.as_ref().map(|theme| theme.choose(None));
+        #[allow(unused_mut)]
+        let mut theme = match name {
+            Some(name) => themes.load(name)?,
+            None => themes.default_theme(true),
+        };
+        let trust = helix_loader::workspace_trust::WorkspaceTrust::new(
+            (&config.editor.workspace_trust).into(),
         );
-        renderer.pair(left, right, right, output)?;
+        let loader = helix_core::config::user_lang_loader(&trust)?;
+        loader.set_scopes(theme.scopes().to_vec());
+        let icons_loader = helix_view::icons::Loader::new(&dirs);
+        let mut icons = match config.icons.as_deref() {
+            Some(name) => icons_loader.load(name, &theme, true)?,
+            None => icons_loader.default(&theme),
+        };
+        let loader = Arc::new(ArcSwap::from_pointee(loader));
+        let config = Arc::new(ArcSwap::from_pointee(config));
+        #[cfg(feature = "steel")]
+        if config.load().editor.enable_steel {
+            use arc_swap::access::Map;
+            let mut headless = (*config.load_full()).clone();
+            headless.editor.file_watcher.enable = false;
+            headless.editor.lsp.enable = false;
+            config.store(Arc::new(headless));
+            let handlers = crate::handlers::setup(config.clone());
+            let mut editor = helix_view::Editor::new(
+                Rect::new(0, 0, args.diff_width.unwrap_or(100), 24),
+                themes.clone(),
+                loader.clone(),
+                Arc::new(Map::new(config.clone(), |config: &Config| &config.editor)),
+                handlers,
+                trust,
+            );
+            editor.pager = true;
+            editor.set_theme(theme)?;
+            editor.set_icons(icons);
+            let mut jobs = crate::job::Jobs::new();
+            let mut cx = crate::commands::Context {
+                register: None,
+                count: None,
+                editor: &mut editor,
+                callback: Vec::new(),
+                on_next_key_callback: None,
+                jobs: &mut jobs,
+            };
+            crate::commands::ScriptingEngine::load_headless_configuration(
+                &mut cx,
+                config.clone(),
+                loader.clone(),
+            )?;
+            themes = editor.theme_loader.clone();
+            theme = editor.theme.clone();
+            icons = editor.icons.clone();
+        }
+        Ok(Self {
+            themes,
+            theme,
+            icons,
+            loader,
+            config: Arc::new(ArcSwap::from_pointee(config.load().editor.clone())),
+            documents: Rc::default(),
+        })
     }
-    Ok(())
+
+    pub fn render(
+        &mut self,
+        args: &Args,
+        output: &mut impl Write,
+        stdout_is_terminal: bool,
+    ) -> Result<()> {
+        self.render_inner(args, output, stdout_is_terminal, false)
+            .map(|_| ())
+    }
+
+    /// Instrument changed text files without altering the rendered bytes.
+    pub fn render_profiled(
+        &mut self,
+        args: &Args,
+        output: &mut impl Write,
+        stdout_is_terminal: bool,
+    ) -> Result<Vec<FileRenderProfile>> {
+        self.render_inner(args, output, stdout_is_terminal, true)
+    }
+
+    fn render_inner(
+        &mut self,
+        args: &Args,
+        output: &mut impl Write,
+        stdout_is_terminal: bool,
+        profile: bool,
+    ) -> Result<Vec<FileRenderProfile>> {
+        let mut theme = self.theme.clone();
+        let mut icons = self.icons.clone();
+        // Apply per request, including themes dynamically registered by Steel.
+        if let Some(name) = args.diff_theme.as_deref() {
+            theme = self.themes.load(name)?;
+            icons.set_diagnostic_icons_base_style(&theme);
+            icons.set_symbolkind_icons_base_style(&theme);
+        }
+        self.loader.load().set_scopes(theme.scopes().to_vec());
+        let renderer = Renderer {
+            theme,
+            icons,
+            loader: self.loader.clone(),
+            config: self.config.clone(),
+            width: args.diff_width.unwrap_or(100),
+            context: args.diff_context.unwrap_or(3),
+            layout: args.diff_layout.unwrap_or_default(),
+            color: match args.diff_color.unwrap_or_default() {
+                ColorMode::Always => true,
+                ColorMode::Never => false,
+                ColorMode::Auto => stdout_is_terminal,
+            },
+            profile: profile.then(RefCell::default),
+            documents: self.documents.clone(),
+        };
+        if args.patch {
+            anyhow::ensure!(!profile, "profiling requires file or directory inputs");
+            renderer.patch(&crate::diff_patch::read(args)?, output)?;
+            return Ok(Vec::new());
+        }
+        let paths = args.files.keys().collect::<Vec<_>>();
+        let [left, right] = paths.as_slice() else {
+            anyhow::bail!("--render-diff requires two file or directory paths")
+        };
+        if left.is_dir() && right.is_dir() {
+            let mut files = BTreeSet::new();
+            collect_files(left, left, &mut files)?;
+            collect_files(right, right, &mut files)?;
+            for file in files {
+                // Worker writers use flush as a cancellation checkpoint. Ordinary
+                // buffered writers also get a natural per-file flush boundary.
+                output.flush()?;
+                renderer.pair(&left.join(&file), &right.join(&file), &file, output)?;
+            }
+        } else {
+            anyhow::ensure!(
+                !left.is_dir() && !right.is_dir(),
+                "compare two files or two directories, not a file and directory"
+            );
+            renderer.pair(left, right, right, output)?;
+        }
+        Ok(renderer
+            .profile
+            .map(RefCell::into_inner)
+            .unwrap_or_default())
+    }
 }
 
 fn collect_files(root: &Path, directory: &Path, files: &mut BTreeSet<PathBuf>) -> Result<()> {
@@ -304,7 +473,17 @@ impl Renderer {
         }
         Ok(())
     }
-    fn document(&self, bytes: &[u8], path: &Path) -> Result<Document> {
+    fn document(&self, bytes: &[u8], path: &Path) -> Result<Rc<Document>> {
+        self.document_profiled(bytes, path, None)
+    }
+
+    fn document_profiled(
+        &self,
+        bytes: &[u8],
+        path: &Path,
+        mut profile: Option<&mut FileRenderProfile>,
+    ) -> Result<Rc<Document>> {
+        let mut started = profile.as_ref().map(|_| Instant::now());
         let (text, encoding, bom) = from_reader(&mut &*bytes, None)?;
         let mut doc = Document::from(
             text,
@@ -315,13 +494,46 @@ impl Renderer {
         doc.access = DocumentAccess::ReadOnly;
         // Path only selects syntax; no Editor::open, providers, LSPs or hooks.
         doc.set_path(Some(path));
-        doc.detect_language(&self.loader.load());
+        if let (Some(profile), Some(started)) = (&mut profile, &mut started) {
+            profile.prepare += started.elapsed();
+            *started = Instant::now();
+        }
+        let language = doc.detect_language_config(&self.loader.load());
+        let mut hasher = DefaultHasher::new();
+        bytes.hash(&mut hasher);
+        let digest = hasher.finish();
+        if let Some(cached) = self.documents.borrow_mut().get(
+            digest,
+            language
+                .as_ref()
+                .map(|language| language.language_id.as_str()),
+            bytes,
+        ) {
+            if let (Some(profile), Some(started)) = (profile, started) {
+                profile.syntax += started.elapsed();
+                profile.cache_hits += 1;
+            }
+            return Ok(cached);
+        }
+        doc.set_language(language, &self.loader.load());
+        if let (Some(profile), Some(started)) = (profile, started) {
+            profile.syntax += started.elapsed();
+        }
+        let doc = Rc::new(doc);
+        self.documents
+            .borrow_mut()
+            .insert(digest, bytes, doc.clone());
         Ok(doc)
     }
 
     fn pair(&self, left: &Path, right: &Path, name: &Path, output: &mut impl Write) -> Result<()> {
+        let mut started = self.profile.as_ref().map(|_| Instant::now());
+        let mut profile = FileRenderProfile::default();
         let before = read_input(left)?;
         let after = read_input(right)?;
+        if let Some(started) = started.as_mut() {
+            profile.read = started.elapsed();
+        }
         anyhow::ensure!(before.exists || after.exists, "neither diff input exists");
         if before == after {
             return Ok(());
@@ -365,12 +577,32 @@ impl Renderer {
             writeln!(output, "Binary files differ")?;
             return Ok(());
         }
-        let docs = [
-            self.document(&before.bytes, left)?,
-            self.document(&after.bytes, right)?,
-        ];
+        if let Some(started) = started.as_mut() {
+            *started = Instant::now();
+        }
+        let mut document = |bytes: &[u8], path: &Path| {
+            if self.profile.is_some() {
+                self.document_profiled(bytes, path, Some(&mut profile))
+            } else {
+                self.document(bytes, path)
+            }
+        };
+        let before_doc = document(&before.bytes, left)?;
+        output.flush()?;
+        let after_doc = document(&after.bytes, right)?;
+        output.flush()?;
+        let owned_docs = [before_doc, after_doc];
+        let docs = owned_docs.each_ref().map(|doc| doc.as_ref());
+        if let Some(started) = started.as_mut() {
+            profile.document = started.elapsed();
+            *started = Instant::now();
+        }
         let texts = docs.each_ref().map(|doc| doc.text().clone());
         let layout = DiffLayout::compute(&texts, [0, 0]);
+        if let Some(started) = started.as_mut() {
+            profile.diff = started.elapsed();
+            *started = Instant::now();
+        }
         if layout.hunks.is_empty() {
             writeln!(
                 output,
@@ -408,12 +640,17 @@ impl Renderer {
                 )?;
             }
         }
+        if let (Some(profiles), Some(started)) = (&self.profile, started) {
+            profile.render = started.elapsed();
+            profile.path = name.to_owned();
+            profiles.borrow_mut().push(profile);
+        }
         Ok(())
     }
 
     fn side_by_side(
         &self,
-        docs: &[Document; 2],
+        docs: &[&Document; 2],
         layout: &DiffLayout,
         rows: Range<usize>,
         output: &mut impl Write,
@@ -430,7 +667,7 @@ impl Renderer {
                         &mut buffer,
                         Rect::new(x, 0, widths[side], 1),
                         SourceLine {
-                            doc: &docs[side],
+                            doc: docs[side],
                             words: &layout.sides[side].words,
                             index: line,
                             numbers: [Some(line + 1), None],
@@ -448,7 +685,7 @@ impl Renderer {
 
     fn inline(
         &self,
-        docs: &[Document; 2],
+        docs: &[&Document; 2],
         layout: &DiffLayout,
         rows: Range<usize>,
         output: &mut impl Write,
@@ -490,7 +727,7 @@ impl Renderer {
                             &mut buffer,
                             area,
                             SourceLine {
-                                doc: &docs[side],
+                                doc: docs[side],
                                 words: &layout.sides[side].words,
                                 index: line,
                                 numbers,
@@ -514,7 +751,7 @@ impl Renderer {
                     &mut buffer,
                     area,
                     SourceLine {
-                        doc: &docs[1],
+                        doc: docs[1],
                         words: &[],
                         index: line,
                         numbers: lines.map(|line| line.map(|line| line + 1)),
@@ -753,6 +990,127 @@ mod tests {
     use super::*;
     use helix_core::unicode::width::UnicodeWidthStr;
 
+    #[test]
+    fn parsed_cache_uses_contents_and_language_not_snapshot_path() -> Result<()> {
+        let renderer = renderer(Layout::Inline, true);
+        let first = renderer.document(b"fn example() {}\n", Path::new("old/snapshot.rs"))?;
+        let relocated = renderer.document(b"fn example() {}\n", Path::new("new/snapshot.rs"))?;
+        assert!(Rc::ptr_eq(&first, &relocated));
+        let plaintext = renderer.document(b"fn example() {}\n", Path::new("snapshot.txt"))?;
+        assert!(!Rc::ptr_eq(&first, &plaintext));
+        assert_eq!(plaintext.language_name(), None);
+        let changed = renderer.document(b"fn changed() {}\n", Path::new("old/snapshot.rs"))?;
+        assert!(!Rc::ptr_eq(&first, &changed));
+        Ok(())
+    }
+
+    #[test]
+    fn parsed_cache_verifies_collisions_and_bounds_lru_source_storage() -> Result<()> {
+        let renderer = renderer(Layout::Inline, false);
+        let a = renderer.document(b"aa", Path::new("a.txt"))?;
+        let b = renderer.document(b"bb", Path::new("b.txt"))?;
+        let c = renderer.document(b"cc", Path::new("c.txt"))?;
+        let mut cache = DocumentCache {
+            max_entries: 2,
+            max_bytes: 4,
+            ..Default::default()
+        };
+        cache.insert(7, b"aa", a);
+        assert!(
+            cache.get(7, None, b"bb").is_none(),
+            "a hash alone is not a valid cache key"
+        );
+        assert!(cache.get(7, Some("rust"), b"aa").is_none());
+        cache.insert(7, b"bb", b);
+        assert!(cache.get(7, None, b"aa").is_some());
+        cache.insert(8, b"cc", c);
+        assert!(
+            cache.get(7, None, b"bb").is_none(),
+            "least recently used entry must be evicted"
+        );
+        assert_eq!(cache.entries.len(), 2);
+        assert_eq!(cache.bytes, 4);
+        cache.max_bytes = 1;
+        cache.insert(
+            9,
+            b"oversized",
+            renderer.document(b"oversized", Path::new("large.txt"))?,
+        );
+        assert!(cache.get(9, None, b"oversized").is_none());
+        // The byte budget must also evict before the entry-count limit is hit.
+        cache.entries.clear();
+        cache.bytes = 0;
+        cache.max_entries = 10;
+        cache.max_bytes = 3;
+        cache.insert(1, b"aa", renderer.document(b"aa", Path::new("a.txt"))?);
+        cache.insert(2, b"bb", renderer.document(b"bb", Path::new("b.txt"))?);
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.bytes, 2);
+        Ok(())
+    }
+
+    #[test]
+    fn session_rereads_files_and_keeps_request_options_independent() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let left = root.path().join("left.rs");
+        let right = root.path().join("right.rs");
+        std::fs::write(&left, "fn before() {}\n")?;
+        std::fs::write(&right, "fn after() {}\n")?;
+        let initial = renderer(Layout::Inline, true);
+        let mut session = RenderSession {
+            themes: Arc::new(theme::Loader::new(helix_loader::runtime_dirs())),
+            theme: initial.theme,
+            icons: initial.icons,
+            loader: initial.loader,
+            config: initial.config,
+            documents: Rc::default(),
+        };
+        let mut args = Args {
+            diff_layout: Some(Layout::Inline),
+            diff_color: Some(ColorMode::Always),
+            ..Args::default()
+        };
+        args.files.insert(left, Vec::new());
+        args.files.insert(right.clone(), Vec::new());
+        let mut first = Vec::new();
+        session.render(&args, &mut first, false)?;
+        args.diff_theme = Some("nonexistent-session-test-theme".into());
+        assert!(session.render(&args, &mut Vec::new(), false).is_err());
+        args.diff_theme = Some("base16_default_dark".into());
+        let mut themed_cached = Vec::new();
+        session.render(&args, &mut themed_cached, false)?;
+        session.set_document_cache_limits(0, 0);
+        let mut themed_fresh = Vec::new();
+        session.render(&args, &mut themed_fresh, false)?;
+        assert_eq!(
+            themed_cached, themed_fresh,
+            "cached syntax must follow a new theme"
+        );
+        assert_eq!(session.document_cache_usage(), (0, 0));
+        session.set_document_cache_limits(64, 16 * 1024 * 1024);
+        args.diff_theme = None;
+        let mut repeated = Vec::new();
+        let profile = session.render_profiled(&args, &mut repeated, false)?;
+        assert_eq!(profile.len(), 1);
+        assert_eq!(profile[0].path, right);
+        assert_eq!(
+            first, repeated,
+            "theme overrides must not leak into later requests"
+        );
+        args.diff_layout = Some(Layout::SideBySide);
+        args.diff_color = Some(ColorMode::Never);
+        args.diff_width = Some(80);
+        std::fs::write(right, "fn changed_again() {}\n")?;
+        let mut changed = Vec::new();
+        session.render(&args, &mut changed, false)?;
+        let changed = String::from_utf8(changed)?;
+        assert!(changed.contains("changed_again"));
+        assert!(changed.contains('│'));
+        assert!(!changed.contains('\x1b'));
+        assert!(!changed.contains("fn after"));
+        Ok(())
+    }
+
     fn renderer(layout: Layout, color: bool) -> Renderer {
         let theme = theme::Loader::new(&[]).default_theme(true);
         let loader = helix_core::config::default_lang_loader();
@@ -767,6 +1125,8 @@ mod tests {
             context: 3,
             layout,
             color,
+            profile: None,
+            documents: Rc::default(),
         }
     }
 

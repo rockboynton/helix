@@ -19,6 +19,8 @@ pub struct Args {
     pub diff_three: bool,
     pub review: bool,
     pub render_diff: bool,
+    pub diff_worker_stop: bool,
+    pub internal_diff_worker: bool,
     pub patch: bool,
     pub diff_layout: Option<crate::diff_render::Layout>,
     pub diff_width: Option<u16>,
@@ -71,6 +73,8 @@ impl Args {
                 "--diff3" => args.diff_three = true,
                 "--review" => args.review = true,
                 "--render-diff" => args.render_diff = true,
+                "--diff-worker-stop" => args.diff_worker_stop = true,
+                "--internal-diff-worker" => args.internal_diff_worker = true,
                 "--patch" => args.patch = true,
                 "--diff-layout" => {
                     args.diff_layout = Some(match argv.next().as_deref() {
@@ -245,7 +249,7 @@ impl Args {
                     && args.working_directory.is_none(),
                 "--render-diff requires two file/directory paths or patch input, without editor or pager flags"
             );
-        } else {
+        } else if !args.internal_diff_worker {
             anyhow::ensure!(
                 (args.diff_layout.is_none() || args.diff || args.patch || args.review)
                     && args.diff_width.is_none()
