@@ -620,7 +620,7 @@ impl FileTypeGlobMatcher {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Syntax {
     inner: tree_house::Syntax,
 }
@@ -628,6 +628,32 @@ pub struct Syntax {
 const PARSE_TIMEOUT: Duration = Duration::from_millis(500); // half a second is pretty generous
 
 impl Syntax {
+    /// Read-only rendering forest: complete outer syntax/scopes, and complete
+    /// injection groups intersecting the requested byte ranges. Do not attach
+    /// this partial forest to an editable document or query outside the ranges.
+    pub fn new_for_ranges(
+        source: RopeSlice,
+        language: Language,
+        loader: &Loader,
+        ranges: &[std::ops::Range<u32>],
+    ) -> Result<Self, Error> {
+        tree_house::Syntax::new_for_ranges(source, language, PARSE_TIMEOUT, loader, ranges)
+            .map(|inner| Self { inner })
+    }
+
+    pub fn update_for_ranges(
+        &mut self,
+        old_source: RopeSlice,
+        source: RopeSlice,
+        changeset: &ChangeSet,
+        loader: &Loader,
+        ranges: &[std::ops::Range<u32>],
+    ) -> Result<(), Error> {
+        let edits = generate_edits(old_source, changeset);
+        self.inner
+            .update_for_ranges(source, PARSE_TIMEOUT, &edits, loader, ranges)
+    }
+
     pub fn new(source: RopeSlice, language: Language, loader: &Loader) -> Result<Self, Error> {
         let inner = tree_house::Syntax::new(source, language, PARSE_TIMEOUT, loader)?;
         Ok(Self { inner })

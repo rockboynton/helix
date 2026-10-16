@@ -74,3 +74,7 @@ repository = "https://github.com/helix-editor/helix"
 homepage = "https://helix-editor.com"
 license = "MPL-2.0"
 rust-version = "1.99.0"
+
+[patch.crates-io]
+tree-house = { path = "vendor/tree-house" }
+tree-house-bindings = { path = "vendor/tree-house-bindings" }

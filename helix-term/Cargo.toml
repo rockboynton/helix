@@ -44,6 +44,8 @@ name = "hx"
 path = "src/main.rs"
 
 [dependencies]
+tempfile.workspace = true
+tree-house-bindings = { version = "0.3.2", features = ["query-cache"] }
 helix-stdx = { path = "../helix-stdx" }
 helix-core = { path = "../helix-core" }
 helix-event = { path = "../helix-event" }

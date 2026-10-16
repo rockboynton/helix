@@ -74,7 +74,7 @@ pub struct LanguageConfiguration {
 
     // content_regex
     #[serde(default, skip_serializing, deserialize_with = "deserialize_regex")]
-    pub injection_regex: Option<rope::Regex>,
+    pub injection_regex: Option<InjectionRegex>,
     // first_line_regex
     //
     #[serde(
@@ -610,12 +610,35 @@ pub struct WordCompletion {
     pub trigger_length: Option<NonZeroU8>,
 }
 
-fn deserialize_regex<'de, D>(deserializer: D) -> Result<Option<rope::Regex>, D::Error>
+/// Retain the pattern alongside its matcher for lossless native config snapshots.
+#[derive(Debug, Clone)]
+pub struct InjectionRegex {
+    pattern: String,
+    regex: rope::Regex,
+}
+
+impl InjectionRegex {
+    pub fn pattern(&self) -> &str {
+        &self.pattern
+    }
+}
+
+impl std::ops::Deref for InjectionRegex {
+    type Target = rope::Regex;
+    fn deref(&self) -> &rope::Regex {
+        &self.regex
+    }
+}
+
+fn deserialize_regex<'de, D>(deserializer: D) -> Result<Option<InjectionRegex>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
     Option::<String>::deserialize(deserializer)?
-        .map(|buf| rope::Regex::new(&buf).map_err(serde::de::Error::custom))
+        .map(|pattern| {
+            let regex = rope::Regex::new(&pattern).map_err(serde::de::Error::custom)?;
+            Ok(InjectionRegex { pattern, regex })
+        })
         .transpose()
 }
 
