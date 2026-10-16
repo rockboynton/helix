@@ -89,6 +89,8 @@ save automatically. `--pager --diff` provides read-only browsing.
 `:fold-open` / `:fold-open-all` expand it. The same view-local infrastructure
 supports manual `:fold-selection` outside comparisons, without changing saved
 text. See [folding behavior and limits](docs/file-diff.md#folding-unchanged-context).
+The flow formatter also loads your Steel theme, icons and language configuration
+without acquiring a terminal; `--diff-theme` remains an explicit override.
 `--render-diff` renders files or snapshot directories as read-only side-by-side
 or inline flow text using the native Tree-sitter renderer; it can be registered
 as a jj external formatter for jjui's built-in diff view. See the

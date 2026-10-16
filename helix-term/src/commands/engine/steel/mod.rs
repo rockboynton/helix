@@ -108,6 +108,9 @@ static IDENTIFIERS_AVAILABLE_AFTER_BOOT: Lazy<Mutex<HashSet<InternedString>>> =
     Lazy::new(|| Mutex::new(HashSet::default()));
 
 static EVENT_READER: OnceCell<EventReader> = OnceCell::new();
+// The flow-text frontend initializes configuration, but never terminal readers,
+// interrupt polling or UI safepoint threads. Set before the lazy engine starts.
+static HEADLESS: AtomicBool = AtomicBool::new(false);
 static SCRIPT_WORKSPACE_TRUST: OnceCell<helix_loader::workspace_trust::WorkspaceTrust> =
     OnceCell::new();
 
@@ -156,6 +159,10 @@ fn setup() -> Engine {
         for identifier in engine.readable_globals(0) {
             guard.insert(identifier);
         }
+    }
+
+    if HEADLESS.load(Ordering::Relaxed) {
+        return configure_engine_impl(engine);
     }
 
     let controller = engine.get_thread_state_controller();
@@ -316,7 +323,12 @@ pub fn try_enter_engine<F, R>(f: F) -> Option<R>
 where
     F: FnOnce(&mut Engine) -> R,
 {
-    let handler = SAFEPOINT_HANDLER.lock().unwrap().clone().unwrap();
+    let Some(handler) = SAFEPOINT_HANDLER.lock().unwrap().clone() else {
+        return GLOBAL_ENGINE
+            .try_lock()
+            .ok()
+            .map(|mut engine| f(&mut engine));
+    };
 
     // If we're currently running a command, we need to try lock against
     // the lock since we don't want to lock up the engine explicitly.
@@ -405,7 +417,9 @@ pub fn with_interrupt_handler<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    let handler = INTERRUPT_HANDLER.lock().unwrap().clone().unwrap();
+    let Some(handler) = INTERRUPT_HANDLER.lock().unwrap().clone() else {
+        return f();
+    };
     handler
         .running
         .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -1665,7 +1679,12 @@ impl super::PluginSystem for SteelScriptingEngine {
         language_configuration: Arc<ArcSwap<syntax::Loader>>,
         event_reader: TerminalEventReaderHandle,
     ) {
-        run_initialization_script(cx, configuration, language_configuration, event_reader);
+        run_initialization_script(
+            cx,
+            configuration,
+            language_configuration,
+            Some(event_reader),
+        );
     }
 
     fn handle_keymap_event(
@@ -3296,17 +3315,36 @@ fn get_doc_for_global(engine: &mut Engine, ident: &str) -> Option<String> {
 
 /// Run the initialization script located at `$helix_config/init.scm`
 /// This runs the script in the global environment, and does _not_ load it as a module directly
+pub(crate) fn load_headless_configuration(
+    cx: &mut Context,
+    configuration: Arc<ArcSwap<Config>>,
+    language_configuration: Arc<ArcSwap<syntax::Loader>>,
+) -> anyhow::Result<()> {
+    HEADLESS.store(true, Ordering::Relaxed);
+    // A config's ordinary Scheme display output must not contaminate the diff
+    // stream consumed by jj/jjui. Errors/log output belongs on stderr.
+    enter_engine(|engine| engine.run("(current-output-port (current-error-port))"))
+        .map_err(|error| anyhow::anyhow!("{error}"))?;
+    run_initialization_script(cx, configuration, language_configuration, None);
+    if let Some((message, Severity::Error)) = &cx.editor.status_msg {
+        anyhow::bail!("Failed to load Steel configuration for diff rendering: {message}");
+    }
+    Ok(())
+}
+
 fn run_initialization_script(
     cx: &mut Context,
     configuration: Arc<ArcSwapAny<Arc<Config>>>,
     language_configuration: Arc<ArcSwap<syntax::Loader>>,
-    event_reader: TerminalEventReaderHandle,
+    event_reader: Option<TerminalEventReaderHandle>,
 ) {
     SCRIPT_WORKSPACE_TRUST
         .set(cx.editor.workspace_trust.clone())
         .ok();
     let now = std::time::Instant::now();
-    install_event_reader(event_reader);
+    if let Some(event_reader) = event_reader {
+        install_event_reader(event_reader);
+    }
 
     // Hack:
     // This might be fussed with, and under re initialization we want

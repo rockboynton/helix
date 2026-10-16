@@ -155,11 +155,17 @@ Options: `--color auto|always|never`, `--width 20..4096` (default 100),
 clipped with an explicit `…`; increase the width to see more. Directory inputs
 are compared recursively in sorted order. Symlinks are reported without
 following them; binary files, empty-file additions/removals, executable-bit
-changes and missing final newlines are reported explicitly. No files are written.
+changes and missing final newlines are reported explicitly. Input files are never written.
 
-The formatter loads built-in/TOML languages and an explicit/default theme; it
-does **not** execute Steel startup scripts or start LSP/VCS/watcher services.
-Use `--diff-theme modified_gruvbox` to match that theme without starting an editor.
+The formatter loads the normal built-in/TOML settings, then user Steel
+configuration followed by trusted project Steel configuration. Themes (including
+dynamic themes), icons and language overrides therefore match the editor.
+`--diff-theme <name>` overrides the configured theme. No terminal is acquired and
+no editor event loop, LSP or file-watching service is started. Ordinary Scheme
+display output goes to stderr, not into the diff stream. Normal Steel cache/module
+initialization and trusted configuration side effects still apply; this is not a
+sandbox for startup scripts. Set `editor.enable-steel = false` in TOML to disable
+Steel configuration just as in the editor.
 
 ## Raw patch input
 

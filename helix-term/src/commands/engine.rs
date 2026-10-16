@@ -90,6 +90,25 @@ impl TerminalEventReaderHandle {
 }
 
 impl ScriptingEngine {
+    /// Apply normal user/trusted-project Steel configuration without a terminal.
+    #[cfg(feature = "steel")]
+    pub(crate) fn load_headless_configuration(
+        cx: &mut Context,
+        configuration: Arc<ArcSwap<Config>>,
+        language_configuration: Arc<ArcSwap<syntax::Loader>>,
+    ) -> anyhow::Result<()> {
+        if configuration.load().editor.enable_steel {
+            PLUGIN_PRECEDENCE
+                .set(vec![
+                    PluginSystemTypes::Steel(steel::SteelScriptingEngine),
+                    PluginSystemTypes::None(NoEngine),
+                ])
+                .ok();
+            steel::load_headless_configuration(cx, configuration, language_configuration)?;
+        }
+        Ok(())
+    }
+
     pub fn initialize() {
         for kind in DEFAULT_PLUGIN_PRECEDENCE {
             manual_dispatch!(kind, initialize())

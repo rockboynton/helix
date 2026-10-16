@@ -70,12 +70,11 @@ pub fn run(args: &Args, output: &mut impl Write, stdout_is_terminal: bool) -> Re
     let config = Config::load_default().map_err(|error| anyhow::anyhow!("{error}"))?;
     let mut dirs = vec![helix_loader::config_dir()];
     dirs.extend(helix_loader::runtime_dirs().iter().cloned());
-    let themes = theme::Loader::new(&dirs);
-    let name = args
-        .diff_theme
-        .as_deref()
-        .or_else(|| config.theme.as_ref().map(|theme| theme.choose(None)));
-    let theme = match name {
+    #[allow(unused_mut)]
+    let mut themes = Arc::new(theme::Loader::new(&dirs));
+    let name = config.theme.as_ref().map(|theme| theme.choose(None));
+    #[allow(unused_mut)]
+    let mut theme = match name {
         Some(name) => themes.load(name)?,
         None => themes.default_theme(true),
     };
@@ -84,15 +83,61 @@ pub fn run(args: &Args, output: &mut impl Write, stdout_is_terminal: bool) -> Re
     let loader = helix_core::config::user_lang_loader(&trust)?;
     loader.set_scopes(theme.scopes().to_vec());
     let icons_loader = helix_view::icons::Loader::new(&dirs);
-    let icons = match config.icons.as_deref() {
+    let mut icons = match config.icons.as_deref() {
         Some(name) => icons_loader.load(name, &theme, true)?,
         None => icons_loader.default(&theme),
     };
+    let loader = Arc::new(ArcSwap::from_pointee(loader));
+    let config = Arc::new(ArcSwap::from_pointee(config));
+    #[cfg(feature = "steel")]
+    if config.load().editor.enable_steel {
+        use arc_swap::access::Map;
+        let mut headless = (*config.load_full()).clone();
+        headless.editor.file_watcher.enable = false;
+        headless.editor.lsp.enable = false;
+        config.store(Arc::new(headless));
+        let handlers = crate::handlers::setup(config.clone());
+        let mut editor = helix_view::Editor::new(
+            Rect::new(0, 0, args.diff_width.unwrap_or(100), 24),
+            themes.clone(),
+            loader.clone(),
+            Arc::new(Map::new(config.clone(), |config: &Config| &config.editor)),
+            handlers,
+            trust,
+        );
+        editor.pager = true;
+        editor.set_theme(theme)?;
+        editor.set_icons(icons);
+        let mut jobs = crate::job::Jobs::new();
+        let mut cx = crate::commands::Context {
+            register: None,
+            count: None,
+            editor: &mut editor,
+            callback: Vec::new(),
+            on_next_key_callback: None,
+            jobs: &mut jobs,
+        };
+        crate::commands::ScriptingEngine::load_headless_configuration(
+            &mut cx,
+            config.clone(),
+            loader.clone(),
+        )?;
+        themes = editor.theme_loader.clone();
+        theme = editor.theme.clone();
+        icons = editor.icons.clone();
+    }
+    // Apply last, including themes dynamically registered by Steel configuration.
+    if let Some(name) = args.diff_theme.as_deref() {
+        theme = themes.load(name)?;
+        loader.load().set_scopes(theme.scopes().to_vec());
+        icons.set_diagnostic_icons_base_style(&theme);
+        icons.set_symbolkind_icons_base_style(&theme);
+    }
     let renderer = Renderer {
         theme,
         icons,
-        loader: Arc::new(ArcSwap::from_pointee(loader)),
-        config: Arc::new(ArcSwap::from_pointee(config.editor)),
+        loader,
+        config: Arc::new(ArcSwap::from_pointee(config.load().editor.clone())),
         width: args.diff_width.unwrap_or(100),
         context: args.diff_context.unwrap_or(3),
         layout: args.diff_layout.unwrap_or_default(),

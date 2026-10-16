@@ -18,6 +18,8 @@ mod test {
     mod auto_pairs;
     mod command_line;
     mod commands;
+    #[cfg(feature = "steel")]
+    mod diff_render_config;
     mod diff_review;
     mod file_diff;
     mod file_watching;
