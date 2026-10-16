@@ -32,6 +32,8 @@ background execution, or reusable UI primitives.
 
 ## Feature inventory
 
+Current priorities and queued work are tracked in the [development queue](docs/roadmap.md).
+
 The stack is based on [upstream Helix](https://github.com/helix-editor/helix).
 Its original integration base was
 `ba40e547426b0f9896c8bdc699a4ab11f2b37dbc`, fetched on October 11, 2026.
@@ -81,6 +83,12 @@ sidebar and directly editable working files. Two-directory and multi-file patch
 reviews support split and editable inline layouts. `Space E` opens the same
 reusable tree for ordinary filesystem browsing. See the
 [changeset review guide](docs/diff-review.md) for commands and boundaries.
+
+`:jj-review [revset]` opens a native JJ revision picker driving that same review
+workspace: the current working revision is editable, historical snapshots are
+read-only. No JJ subprocess or separate renderer worker is needed. See the
+[native JJ workspace guide](docs/jj-workspace.md) for usage and the remaining
+persistent-graph/history-operation work.
 
 `hx --diff before.rs after.rs` compares two editable files using their normal
 Tree-sitter syntax highlighting, diff backgrounds/gutters, virtual alignment
