@@ -2442,6 +2442,27 @@ fn diff_fold(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> an
     Ok(())
 }
 
+fn fold_close(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        cx.editor.fold_syntax(false, false)?;
+    }
+    Ok(())
+}
+
+fn fold_toggle(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        cx.editor.fold_syntax(false, true)?;
+    }
+    Ok(())
+}
+
+fn fold_all(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        cx.editor.fold_syntax(true, false)?;
+    }
+    Ok(())
+}
+
 fn fold_selection(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event == PromptEvent::Validate {
         cx.editor.fold_selection()?;
@@ -4470,6 +4491,9 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand { name: "diff-off", aliases: &[], doc: "Keep the working file in the left pane, close comparison panes and restore the sidebar; retain all buffers.", fun: diff_off, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-fold", aliases: &[], doc: "Collapse unchanged diff context, keeping N lines at each edge (default 3).", fun: diff_fold, completer: CommandCompleter::none(), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
     TypableCommand { name: "fold-selection", aliases: &[], doc: "Fold selected lines in the focused non-diff view.", fun: fold_selection, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "fold-close", aliases: &[], doc: "Close the innermost open syntax fold at the cursor.", fun: fold_close, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "fold-toggle", aliases: &[], doc: "Toggle the syntax fold at the cursor.", fun: fold_toggle, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "fold-all", aliases: &[], doc: "Close all syntax folds, retaining nested fold state.", fun: fold_all, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "fold-open", aliases: &[], doc: "Open the fold at the cursor, including its paired diff folds.", fun: fold_open, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "fold-open-all", aliases: &[], doc: "Open all folds in the focused view or comparison.", fun: fold_open_all, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-next", aliases: &[], doc: "Jump to the next change in the paired diff.", fun: diff_next, completer: CommandCompleter::none(), signature: Signature::DEFAULT },

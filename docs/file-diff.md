@@ -78,9 +78,9 @@ Outside diff mode, select lines and run `:fold-selection` to use the same
 view-local folding mechanism; `:fold-open` and `:fold-open-all` also work there.
 Fold commands do not modify text, and save writes the complete file. Selections,
 operators and clipboard actions still address real text, including hidden lines
-when a selection spans a fold. This is line-folding infrastructure, not automatic
-Tree-sitter/LSP fold discovery or a nested-fold hierarchy yet. No default keys
-are taken over; the commands can be bound in TOML or Steel like other commands.
+when a selection spans a fold. Normal views also support nested Tree-sitter
+[code folding](folding.md). No default keys are taken over; the commands can be
+bound in TOML or Steel like other commands.
 
 One comparison session (two or three panes) is supported per editor. Closing a
 compared pane or switching its buffer ends the comparison. Comparison panes temporarily disable soft-wrap

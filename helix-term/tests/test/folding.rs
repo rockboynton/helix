@@ -6,6 +6,97 @@ fn contents() -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn syntax_folds_toggle_nest_reveal_and_invalidate_without_changing_text() -> anyhow::Result<()>
+{
+    use std::io::Write;
+    let text = "fn outer() {\n    if true {\n        first();\n        second();\n    }\n    last();\n}\nfn next() {}\n";
+    let mut file = tempfile::Builder::new().suffix(".rs").tempfile()?;
+    file.write_all(text.as_bytes())?;
+    let mut app = AppBuilder::new().with_file(file.path(), None).build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("gg:fold-all<ret>"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert_eq!(
+                        view.folds.ranges,
+                        vec![doc.text().line_to_char(1)..doc.text().line_to_char(7)]
+                    );
+                    assert_eq!(doc.text().to_string(), text);
+                }),
+            ),
+            (
+                Some(":fold-open<ret>"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert_eq!(
+                        view.folds.ranges,
+                        vec![doc.text().line_to_char(2)..doc.text().line_to_char(5)]
+                    );
+                }),
+            ),
+            // Search into the nested body reveals it, not just its parent.
+            (
+                Some("/second<ret>"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert!(view.folds.ranges.is_empty());
+                    assert_eq!(doc.cursor_line(view.id), 3);
+                }),
+            ),
+            (
+                Some(":fold-close<ret>"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert_eq!(view.folds.ranges.len(), 1);
+                    assert_eq!(doc.cursor_line(view.id), 1);
+                }),
+            ),
+            // Header toggling works without entering the summary row.
+            (
+                Some(":fold-toggle<ret>"),
+                Some(&|app| assert!(current_ref!(app.editor).0.folds.ranges.is_empty())),
+            ),
+            (
+                Some("gg:fold-all<ret>4gg"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert!(view.folds.ranges.is_empty());
+                    assert_eq!(doc.cursor_line(view.id), 3);
+                }),
+            ),
+            (
+                Some("gg:fold-all<ret>j"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert_eq!(doc.cursor_line(view.id), 1);
+                }),
+            ),
+            (
+                Some("j"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert_eq!(doc.cursor_line(view.id), 7);
+                }),
+            ),
+            (
+                Some("iX<esc>"),
+                Some(&|app| assert!(current_ref!(app.editor).0.folds.ranges.is_empty())),
+            ),
+            (
+                Some("u:w<ret>"),
+                Some(&|_app| assert_eq!(std::fs::read_to_string(file.path()).unwrap(), text)),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn read_only_inline_folding_preserves_the_presentation_and_source_documents(
 ) -> anyhow::Result<()> {
     let before = contents();
@@ -41,6 +132,55 @@ async fn read_only_inline_folding_preserves_the_presentation_and_source_document
         true,
     )
     .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn syntax_folds_are_view_local_and_reject_diff_pane_misalignment() -> anyhow::Result<()> {
+    use std::io::Write;
+    let text = "fn example() {\n    one();\n    two();\n}\n";
+    let mut file = tempfile::Builder::new().suffix(".rs").tempfile()?;
+    file.write_all(text.as_bytes())?;
+    let mut app = AppBuilder::new().with_file(file.path(), None).build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("<C-w>v:fold-all<ret>"),
+                Some(&|app| {
+                    assert_eq!(app.editor.tree.views().count(), 2);
+                    assert_eq!(
+                        app.editor
+                            .tree
+                            .views()
+                            .filter(|(view, _)| !view.folds.ranges.is_empty())
+                            .count(),
+                        1
+                    );
+                }),
+            ),
+            (
+                Some("<C-w>w"),
+                Some(&|app| assert!(current_ref!(app.editor).0.folds.ranges.is_empty())),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+
+    let other = temp_file_with_contents(text)?;
+    let mut app = AppBuilder::new()
+        .with_file(file.path(), None)
+        .with_file(other.path(), None)
+        .with_diff()
+        .build()?;
+    assert!(app
+        .editor
+        .fold_syntax(true, false)
+        .unwrap_err()
+        .to_string()
+        .contains("preserve pane alignment"));
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

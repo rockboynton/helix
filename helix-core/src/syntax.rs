@@ -42,6 +42,7 @@ pub struct LanguageData {
     syntax: OnceLock<Option<SyntaxConfig>>,
     indent_query: OnceLock<Option<IndentQuery>>,
     textobject_query: OnceLock<Option<TextObjectQuery>>,
+    fold_query: OnceLock<Option<Query>>,
     tag_query: OnceLock<Option<TagQuery>>,
     rainbow_query: OnceLock<Option<RainbowQuery>>,
 }
@@ -53,6 +54,7 @@ impl Clone for LanguageData {
             syntax: OnceLock::new(),
             indent_query: OnceLock::new(),
             textobject_query: OnceLock::new(),
+            fold_query: OnceLock::new(),
             tag_query: OnceLock::new(),
             rainbow_query: OnceLock::new(),
         }
@@ -66,6 +68,7 @@ impl LanguageData {
             syntax: OnceLock::new(),
             indent_query: OnceLock::new(),
             textobject_query: OnceLock::new(),
+            fold_query: OnceLock::new(),
             tag_query: OnceLock::new(),
             rainbow_query: OnceLock::new(),
         }
@@ -174,6 +177,37 @@ impl LanguageData {
                     .flatten()
             })
             .as_ref()
+    }
+
+    fn fold_query(&self, loader: &Loader) -> Option<&Query> {
+        self.fold_query
+            .get_or_init(|| {
+                let grammar = self.syntax_config(loader)?.grammar;
+                Self::compile_fold_query(grammar, &self.config)
+                    .map_err(|err| log::error!("{err}"))
+                    .ok()
+                    .flatten()
+            })
+            .as_ref()
+    }
+
+    /// Compile folds.scm for runtime loading and `xtask query-check`.
+    pub fn compile_fold_query(
+        grammar: Grammar,
+        config: &LanguageConfiguration,
+    ) -> Result<Option<Query>> {
+        let text = read_query(&config.language_id, "folds.scm");
+        if text.is_empty() {
+            return Ok(None);
+        }
+        Query::new(grammar, &text, |_, _| Ok(()))
+            .with_context(|| {
+                format!(
+                    "Failed to compile folds.scm queries for '{}'",
+                    config.language_id
+                )
+            })
+            .map(Some)
     }
 
     /// Compiles the tags.scm query for a language.
@@ -488,6 +522,10 @@ impl Loader {
         self.language(lang).textobject_query(self)
     }
 
+    pub fn fold_query(&self, lang: Language) -> Option<&Query> {
+        self.language(lang).fold_query(self)
+    }
+
     pub fn tag_query(&self, lang: Language) -> Option<&TagQuery> {
         self.language(lang).tag_query(self)
     }
@@ -683,6 +721,52 @@ impl Syntax {
         Range: RangeBounds<u32>,
     {
         QueryIter::new(&self.inner, source, loader, range)
+    }
+
+    /// Complete-line folds from @fold captures, including injected languages.
+    /// Keep the capture's first line visible as a heading. Ignore one-line
+    /// bodies and exclude a final line when the node ends at column zero.
+    pub fn fold_ranges(
+        &self,
+        source: RopeSlice<'_>,
+        loader: &Loader,
+    ) -> Vec<std::ops::Range<usize>> {
+        let mut iter = self.query_iter::<_, (), _>(source, |lang| loader.fold_query(lang), ..);
+        let mut ranges = Vec::new();
+        while let Some(event) = iter.next() {
+            let QueryIterEvent::Match(mat) = event else {
+                continue;
+            };
+            let query = loader.fold_query(iter.current_language()).unwrap();
+            if Some(mat.capture) != query.get_capture("fold") {
+                continue;
+            }
+            let bytes = mat.node.byte_range();
+            let first = source.byte_to_line(bytes.start as usize);
+            let end_byte = bytes.end as usize;
+            let last = source.byte_to_line(end_byte);
+            let end = (last + usize::from(end_byte > source.line_to_byte(last)))
+                .min(source.len_lines() - 1);
+            if end > first + 2 {
+                ranges.push(source.line_to_char(first + 1)..source.line_to_char(end));
+            }
+        }
+        ranges.sort_unstable_by_key(|range| (range.start, std::cmp::Reverse(range.end)));
+        ranges.dedup();
+        // Crossing captures cannot be represented as a fold hierarchy. Keep
+        // the enclosing/earlier capture, but allow strictly nested regions.
+        let mut ends = Vec::new();
+        ranges.retain(|range| {
+            while ends.last().is_some_and(|&end| end <= range.start) {
+                ends.pop();
+            }
+            if ends.last().is_some_and(|&end| range.end > end) {
+                return false;
+            }
+            ends.push(range.end);
+            true
+        });
+        ranges
     }
 
     pub fn tags<'a>(
@@ -1276,6 +1360,55 @@ mod test {
     use crate::{Rope, Transaction};
 
     static LOADER: LazyLock<Loader> = LazyLock::new(crate::config::default_lang_loader);
+
+    #[test]
+    fn fold_queries_compile_for_supported_languages() {
+        for name in [
+            "rust",
+            "python",
+            "javascript",
+            "typescript",
+            "tsx",
+            "json",
+            "scheme",
+            "nix",
+        ] {
+            let lang = LOADER.language_for_name(name).unwrap();
+            assert!(
+                LOADER.fold_query(lang).is_some(),
+                "missing or invalid {name} folds.scm"
+            );
+        }
+    }
+
+    #[test]
+    fn syntax_folds_preserve_headers_and_nested_unicode_crlf_ranges() {
+        let source = Rope::from_str("fn café() {\r\n    if true {\r\n        one();\r\n        two();\r\n    }\r\n}\r\nfn short() {}\r\n");
+        let lang = LOADER.language_for_name("rust").unwrap();
+        let syntax = Syntax::new(source.slice(..), lang, &LOADER).unwrap();
+        let ranges = syntax.fold_ranges(source.slice(..), &LOADER);
+        assert_eq!(
+            ranges,
+            vec![
+                source.line_to_char(1)..source.line_to_char(6),
+                source.line_to_char(2)..source.line_to_char(5)
+            ]
+        );
+        assert!(ranges
+            .iter()
+            .all(|range| source.char(range.end - 1) == '\n'));
+    }
+
+    #[test]
+    fn syntax_folds_keep_python_definition_header_and_handle_no_final_newline() {
+        let source = Rope::from_str("def example():\n    first()\n    second()\n    third()");
+        let lang = LOADER.language_for_name("python").unwrap();
+        let syntax = Syntax::new(source.slice(..), lang, &LOADER).unwrap();
+        assert_eq!(
+            syntax.fold_ranges(source.slice(..), &LOADER),
+            vec![source.line_to_char(1)..source.line_to_char(3)]
+        );
+    }
 
     #[test]
     fn test_textobject_queries() {

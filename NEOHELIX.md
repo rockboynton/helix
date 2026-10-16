@@ -88,7 +88,9 @@ save automatically. `--pager --diff` provides read-only browsing.
 `:diff-fold [N]` collapses unchanged context in split, three-way and inline views;
 `:fold-open` / `:fold-open-all` expand it. The same view-local infrastructure
 supports manual `:fold-selection` outside comparisons, without changing saved
-text. See [folding behavior and limits](docs/file-diff.md#folding-unchanged-context).
+text. Normal views support nested Tree-sitter code folding with `:fold-close`,
+`:fold-toggle` and `:fold-all`; see [code folding](docs/folding.md) and
+[diff folding behavior and limits](docs/file-diff.md#folding-unchanged-context).
 The flow formatter also loads your Steel theme, icons and language configuration
 without acquiring a terminal; `--diff-theme` remains an explicit override.
 `--render-diff` renders files or snapshot directories as read-only side-by-side
