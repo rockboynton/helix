@@ -12,7 +12,36 @@ fn count_digits(n: usize) -> usize {
     (usize::checked_ilog10(n).unwrap_or(0) + 1) as usize
 }
 
-pub type GutterFn<'doc> = Box<dyn FnMut(usize, bool, bool, &mut String) -> Option<Style> + 'doc>;
+/// Reused gutter output, with optional per-field styles (byte ranges into `text`).
+#[derive(Default)]
+pub struct GutterText {
+    pub text: String,
+    pub spans: Vec<(std::ops::Range<usize>, Style)>,
+}
+
+impl GutterText {
+    pub fn clear(&mut self) {
+        self.text.clear();
+        self.spans.clear();
+    }
+
+    fn push_styled(&mut self, value: &str, style: Style) {
+        let start = self.text.len();
+        self.text
+            .extend(value.chars().filter(|ch| !ch.is_control()));
+        self.spans.push((start..self.text.len(), style));
+    }
+}
+
+impl std::fmt::Write for GutterText {
+    fn write_str(&mut self, value: &str) -> std::fmt::Result {
+        self.text.push_str(value);
+        Ok(())
+    }
+}
+
+pub type GutterFn<'doc> =
+    Box<dyn FnMut(usize, bool, bool, &mut GutterText) -> Option<Style> + 'doc>;
 pub type Gutter =
     for<'doc> fn(&'doc Editor, &'doc Document, &View, &Theme, bool, usize) -> GutterFn<'doc>;
 
@@ -57,19 +86,46 @@ impl GutterType {
 
 fn blame<'doc>(doc: &'doc Document, theme: &Theme) -> GutterFn<'doc> {
     let style = theme
-        .try_get("ui.virtual.blame")
+        .try_get_exact("ui.virtual.blame")
         .unwrap_or_else(|| theme.get("ui.virtual.inline-blame"));
+    let field_style = |field, fallback| {
+        style.patch(
+            theme
+                .try_get_exact(field)
+                .unwrap_or_else(|| theme.get(fallback)),
+        )
+    };
+    let commit_style = field_style("ui.virtual.blame.commit", "constant");
+    let date_style = field_style("ui.virtual.blame.date", "comment");
+    let author_style = field_style("ui.virtual.blame.author", "variable.parameter");
+    let uncommitted_style = field_style("ui.virtual.blame.uncommitted", "warning");
     Box::new(move |line, _, first, out| {
         if !first {
             return None;
         }
-        let label = match doc.line_blame(line as u32, "{commit} {date} {author}") {
-            Ok(label) => label,
-            Err(crate::document::LineBlameError::NotCommittedYet) => "Uncommitted".into(),
-            Err(crate::document::LineBlameError::NotReadyYet) => "…".into(),
-            Err(crate::document::LineBlameError::NoFileBlame(_, _)) => "Blame unavailable".into(),
-        };
-        out.extend(label.chars().filter(|ch| !ch.is_control()));
+        // Hashes and machine-formatted dates cannot contain NULs. splitn keeps
+        // the author as one field; push_styled strips controls before display.
+        match doc.line_blame(line as u32, "{commit}\0{date}\0{author}") {
+            Ok(label) => {
+                for (part, field_style) in
+                    label
+                        .splitn(3, '\0')
+                        .zip([commit_style, date_style, author_style])
+                {
+                    if !out.text.is_empty() {
+                        out.text.push(' ');
+                    }
+                    out.push_styled(part, field_style);
+                }
+            }
+            Err(crate::document::LineBlameError::NotCommittedYet) => {
+                out.push_styled("Uncommitted", uncommitted_style);
+            }
+            Err(crate::document::LineBlameError::NotReadyYet) => out.text.push('…'),
+            Err(crate::document::LineBlameError::NoFileBlame(_, _)) => {
+                out.text.push_str("Blame unavailable");
+            }
+        }
         Some(style)
     })
 }
@@ -88,7 +144,7 @@ pub fn diagnostic<'doc>(
     let diagnostics = &doc.diagnostics;
 
     Box::new(
-        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut GutterText| {
             if !first_visual_line {
                 return None;
             }
@@ -178,7 +234,7 @@ pub fn diff<'doc>(
         let mut hunk = hunks.nth_hunk(hunk_i);
         let icons = &editor.icons;
         Box::new(
-            move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+            move |line: usize, _selected: bool, first_visual_line: bool, out: &mut GutterText| {
                 // truncating the line is fine here because we don't compute diffs
                 // for files with more lines than i32::MAX anyways
                 // we need to special case removals here
@@ -265,7 +321,7 @@ pub fn line_numbers<'doc>(
     let mode = editor.mode;
 
     Box::new(
-        move |line: usize, selected: bool, first_visual_line: bool, out: &mut String| {
+        move |line: usize, selected: bool, first_visual_line: bool, out: &mut GutterText| {
             if line == last_line_in_view && !draw_last {
                 write!(out, "{:>1$}", '~', width).unwrap();
                 Some(linenr)
@@ -326,7 +382,7 @@ pub fn padding<'doc>(
     _theme: &Theme,
     _is_focused: bool,
 ) -> GutterFn<'doc> {
-    Box::new(|_line: usize, _selected: bool, _first_visual_line: bool, _out: &mut String| None)
+    Box::new(|_line: usize, _selected: bool, _first_visual_line: bool, _out: &mut GutterText| None)
 }
 
 pub fn breakpoints<'doc>(
@@ -348,7 +404,7 @@ pub fn breakpoints<'doc>(
     };
 
     Box::new(
-        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut GutterText| {
             if !first_visual_line {
                 return None;
             }
@@ -397,7 +453,7 @@ fn execution_pause_indicator<'doc>(
         doc.path().is_some() && frame_source_path.unwrap_or(None) == doc.path();
 
     Box::new(
-        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut GutterText| {
             if !first_visual_line
                 || !is_focused
                 || line != frame_line?
@@ -446,7 +502,7 @@ pub fn code_action_hint<'doc>(
         .char_to_line(doc.selection(view.id).primary().cursor(text));
 
     Box::new(
-        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut String| {
+        move |line: usize, _selected: bool, first_visual_line: bool, out: &mut GutterText| {
             (is_focused && show_hint && current_line == line && first_visual_line).then(|| {
                 write!(out, "⋮").unwrap();
                 style
@@ -466,6 +522,20 @@ mod tests {
     use crate::DocumentId;
     use arc_swap::ArcSwap;
     use helix_core::{syntax, Rope};
+
+    #[test]
+    fn styled_gutter_fields_use_safe_byte_ranges_and_reset_between_rows() {
+        let mut output = GutterText::default();
+        let style = Style::default();
+        output.push_styled("ab\x1b\n", style);
+        output.push_styled("測試 e\u{301}", style);
+        assert_eq!(output.text, "ab測試 e\u{301}");
+        assert_eq!(&output.text[output.spans[0].0.clone()], "ab");
+        assert_eq!(&output.text[output.spans[1].0.clone()], "測試 e\u{301}");
+        output.clear();
+        assert!(output.text.is_empty());
+        assert!(output.spans.is_empty());
+    }
 
     #[test]
     fn test_default_gutter_widths() {

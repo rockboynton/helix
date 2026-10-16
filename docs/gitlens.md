@@ -153,8 +153,12 @@ This is a native core command, not the Steel popup plugin. It reuses the full-fi
 blame worker/cache; no repository or network requests are started by rendering.
 It requires a saved path and workspace trust. Inserted/uncommitted lines are
 marked `Uncommitted`. Toggle on again to request a fresh snapshot; reloaded files
-also refresh visible annotations. The annotation theme scope is `ui.virtual.blame`
-with `ui.virtual.inline-blame` as fallback. No shortcut is installed by importing
+also refresh visible annotations. The base theme scope is `ui.virtual.blame`
+with `ui.virtual.inline-blame` as fallback. Individual fields use
+`ui.virtual.blame.commit`, `.date`, `.author`, and `.uncommitted`; if absent,
+they use your theme's `constant`, `comment`, `variable.parameter`, and `warning`
+colors respectively. This applies in both Git and colocated JJ repositories.
+No shortcut is installed by importing
 the plugin; bind `:blame-toggle` in your keymap (the author's config uses `' g b`).
 The existing on-demand popup shortcut remains separate.
 

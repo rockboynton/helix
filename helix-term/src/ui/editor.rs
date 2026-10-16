@@ -961,7 +961,10 @@ impl EditorView {
             let mut gutter = gutter_type.style(editor, doc, view, theme, is_focused);
             let width = gutter_type.width(view, doc);
             // avoid lots of small allocations by reusing a text buffer for each line
-            let mut text = String::with_capacity(width);
+            let mut text = helix_view::gutter::GutterText {
+                text: String::with_capacity(width),
+                ..Default::default()
+            };
             let cursors = cursors.clone();
             let gutter_decoration = move |renderer: &mut TextRenderer, pos: LinePos| {
                 // TODO handle softwrap in gutters
@@ -979,7 +982,21 @@ impl EditorView {
                 if let Some(style) =
                     gutter(pos.doc_line, selected, pos.first_visual_line, &mut text)
                 {
-                    renderer.set_stringn(x, y, &text, width, gutter_style.patch(style));
+                    let base = gutter_style.patch(style);
+                    renderer.set_stringn(x, y, &text.text, width, base);
+                    for (range, field_style) in &text.spans {
+                        let column = text.text[..range.start].width();
+                        if column >= width {
+                            break;
+                        }
+                        renderer.set_stringn(
+                            x + column as u16,
+                            y,
+                            &text.text[range.clone()],
+                            width - column,
+                            base.patch(*field_style),
+                        );
+                    }
                 } else {
                     renderer.set_style(
                         Rect {
