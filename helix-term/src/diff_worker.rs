@@ -316,10 +316,19 @@ fn connect(path: &Path) -> Result<UnixStream> {
         "unsafe worker socket"
     );
     let stream = UnixStream::connect(path)?;
-    check_peer(&stream)?;
-    stream.set_read_timeout(Some(TIMEOUT))?;
-    stream.set_write_timeout(Some(TIMEOUT))?;
+    configure_peer(&stream, TIMEOUT)?;
     Ok(stream)
+}
+
+fn configure_peer(stream: &UnixStream, read_timeout: Duration) -> Result<()> {
+    check_peer(stream)?;
+    // Darwin/BSD accept() can inherit O_NONBLOCK from our listener. Framed
+    // protocol reads/writes require blocking sockets with bounded timeouts;
+    // otherwise an ordinary fragmented request is mistaken for a disconnect.
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(read_timeout))?;
+    stream.set_write_timeout(Some(TIMEOUT))?;
+    Ok(())
 }
 
 fn check_peer(stream: &UnixStream) -> Result<()> {
@@ -675,11 +684,9 @@ pub fn serve(args: &Args) -> Result<()> {
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => continue,
             Err(error) => return Err(error.into()),
         };
-        if check_peer(&stream).is_err() {
+        if configure_peer(&stream, Duration::from_secs(5)).is_err() {
             continue;
         }
-        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-        stream.set_write_timeout(Some(TIMEOUT))?;
         let request = match read_request(&mut stream) {
             Ok(request) => request,
             Err(_) => continue,
@@ -823,6 +830,29 @@ pub fn stop() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inherited_nonblocking_mode_is_cleared_before_fragmented_protocol_reads() -> Result<()> {
+        let (mut client, mut server) = UnixStream::pair()?;
+        // Emulate Darwin's inherited flag even when the test runs on Linux.
+        server.set_nonblocking(true)?;
+        configure_peer(&server, Duration::from_secs(2))?;
+        let writer = std::thread::spawn(move || -> Result<()> {
+            let request = serde_json::to_vec(&Request::Stop)?;
+            let size = (request.len() as u32).to_le_bytes();
+            std::thread::sleep(Duration::from_millis(30));
+            client.write_all(&size[..1])?;
+            std::thread::sleep(Duration::from_millis(30));
+            client.write_all(&size[1..])?;
+            for byte in request {
+                client.write_all(&[byte])?;
+            }
+            Ok(())
+        });
+        assert!(matches!(read_request(&mut server)?, Request::Stop));
+        writer.join().unwrap()?;
+        Ok(())
+    }
 
     #[test]
     fn dependency_stamp_changes_on_edit_add_remove_and_symlink_target() -> Result<()> {
