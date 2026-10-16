@@ -2189,14 +2189,33 @@ fn file_tree(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> an
                         .find::<ui::EditorView>()
                         .and_then(|view| view.file_tree.as_mut())
                     {
+                        tree.visible = true;
                         tree.focused = true;
                         return;
                     }
+                }
+                if let Some(view) = compositor.find::<ui::EditorView>() {
+                    view.file_tree_pending_visible = Some(true);
                 }
                 crate::diff_review::load_tree(editor, jobs, root);
             },
         )))
     });
+    Ok(())
+}
+
+fn file_tree_toggle(
+    cx: &mut compositor::Context,
+    _: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        cx.jobs.callback(async {
+            Ok(job::Callback::EditorCompositorJobs(Box::new(
+                crate::diff_review::toggle_tree,
+            )))
+        });
+    }
     Ok(())
 }
 
@@ -2215,6 +2234,7 @@ fn file_tree_close(
                 editor.file_watcher.set_review_roots(Vec::new());
                 if let Some(view) = compositor.find::<ui::EditorView>() {
                     view.file_tree = None;
+                    view.file_tree_pending_visible = None;
                 }
             },
         )))
@@ -2459,6 +2479,17 @@ fn fold_toggle(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> any
 fn fold_all(cx: &mut compositor::Context, _: Args, event: PromptEvent) -> anyhow::Result<()> {
     if event == PromptEvent::Validate {
         cx.editor.fold_syntax(true, false)?;
+    }
+    Ok(())
+}
+
+fn fold_toggle_all(
+    cx: &mut compositor::Context,
+    _: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    if event == PromptEvent::Validate {
+        cx.editor.fold_syntax(true, true)?;
     }
     Ok(())
 }
@@ -4474,19 +4505,20 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
         },
     },
     TypableCommand {
-        name: "diff-split", aliases: &["diff"], doc: "Compare current file with another, two files, or left/base/right files in reusable aligned columns.", fun: diff_split,
+        name: "diff-split", aliases: &["diff", "ds"], doc: "Compare current file with another, two files, or left/base/right files in reusable aligned columns.", fun: diff_split,
         completer: CommandCompleter::all(completers::filename),
         signature: Signature { positionals: (1, Some(3)), ..Signature::DEFAULT },
     },
-    TypableCommand { name: "file-tree", aliases: &[], doc: "Open or focus an expandable filesystem/review sidebar.", fun: file_tree, completer: CommandCompleter::all(completers::directory), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
+    TypableCommand { name: "file-tree", aliases: &["ft"], doc: "Open or focus an expandable filesystem/review sidebar.", fun: file_tree, completer: CommandCompleter::all(completers::directory), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
+    TypableCommand { name: "file-tree-toggle", aliases: &[], doc: "Show/hide the sidebar, retaining its tree, review and watch state.", fun: file_tree_toggle, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "file-tree-close", aliases: &[], doc: "Close the sidebar without closing buffers.", fun: file_tree_close, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
-    TypableCommand { name: "diff-review", aliases: &[], doc: "Review all Git/JJ working changes, or two directories.", fun: diff_review, completer: CommandCompleter::all(completers::directory), signature: Signature { positionals: (0, Some(2)), ..Signature::DEFAULT } },
-    TypableCommand { name: "diff-review-patch", aliases: &[], doc: "Review a multi-file Git/native-JJ patch without opening referenced paths.", fun: diff_review_patch, completer: CommandCompleter::all(completers::filename), signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT } },
+    TypableCommand { name: "diff-review", aliases: &["dr"], doc: "Review all Git/JJ working changes, or two directories.", fun: diff_review, completer: CommandCompleter::all(completers::directory), signature: Signature { positionals: (0, Some(2)), ..Signature::DEFAULT } },
+    TypableCommand { name: "diff-review-patch", aliases: &["drp"], doc: "Review a multi-file Git/native-JJ patch without opening referenced paths.", fun: diff_review_patch, completer: CommandCompleter::all(completers::filename), signature: Signature { positionals: (1, Some(1)), ..Signature::DEFAULT } },
     TypableCommand { name: "diff-file-next", aliases: &[], doc: "Review the next changed file.", fun: diff_file_next, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-file-prev", aliases: &[], doc: "Review the previous changed file.", fun: diff_file_prev, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-layout", aliases: &[], doc: "Switch/toggle review layout: inline or side-by-side.", fun: diff_layout, completer: CommandCompleter::none(), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
     TypableCommand { name: "diff-review-refresh", aliases: &[], doc: "Refresh the changeset while preserving open edits.", fun: diff_review_refresh, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
-    TypableCommand { name: "diff-three", aliases: &["diff3"], doc: "Compare left, base, right files in three aligned editable columns.", fun: diff_three, completer: CommandCompleter::all(completers::filename), signature: Signature { positionals: (3, Some(3)), ..Signature::DEFAULT } },
+    TypableCommand { name: "diff-three", aliases: &["diff3", "d3"], doc: "Compare left, base, right files in three aligned editable columns.", fun: diff_three, completer: CommandCompleter::all(completers::filename), signature: Signature { positionals: (3, Some(3)), ..Signature::DEFAULT } },
     TypableCommand { name: "blame-toggle", aliases: &[], doc: "Toggle full-file blame annotations in the focused view's left gutter.", fun: blame_toggle, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-off", aliases: &[], doc: "Keep the working file in the left pane, close comparison panes and restore the sidebar; retain all buffers.", fun: diff_off, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-fold", aliases: &[], doc: "Collapse unchanged diff context, keeping N lines at each edge (default 3).", fun: diff_fold, completer: CommandCompleter::none(), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
@@ -4494,6 +4526,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     TypableCommand { name: "fold-close", aliases: &[], doc: "Close the innermost open syntax fold at the cursor.", fun: fold_close, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "fold-toggle", aliases: &[], doc: "Toggle the syntax fold at the cursor.", fun: fold_toggle, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "fold-all", aliases: &[], doc: "Close all syntax folds, retaining nested fold state.", fun: fold_all, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "fold-toggle-all", aliases: &[], doc: "Toggle all syntax folds, leaving unrelated manual folds alone.", fun: fold_toggle_all, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "fold-open", aliases: &[], doc: "Open the fold at the cursor, including its paired diff folds.", fun: fold_open, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "fold-open-all", aliases: &[], doc: "Open all folds in the focused view or comparison.", fun: fold_open_all, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "diff-next", aliases: &[], doc: "Jump to the next change in the paired diff.", fun: diff_next, completer: CommandCompleter::none(), signature: Signature::DEFAULT },

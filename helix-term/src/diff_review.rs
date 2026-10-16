@@ -191,6 +191,13 @@ fn load_impl(
                         tree.review.as_mut().unwrap().layout = layout;
                     }
                     if let Some(old_tree) = &view.file_tree {
+                        if old_tree
+                            .review
+                            .as_ref()
+                            .is_some_and(|old| old.origin == tree.review.as_ref().unwrap().origin)
+                        {
+                            tree.visible = old_tree.visible;
+                        }
                         if old_tree.root == tree.root {
                             tree.expanded = old_tree.expanded.clone();
                             expansion = Some(old_tree.expanded.clone());
@@ -286,6 +293,7 @@ fn load_impl(
                     {
                         view.review_previous_tree = view.file_tree.take();
                     }
+                    view.file_tree_pending_visible = None;
                     view.file_tree = Some(tree);
                 }
                 if pending {
@@ -301,29 +309,70 @@ fn load_impl(
     });
 }
 
+/// Hiding a panel preserves its review, navigation state and watchers.
+pub fn toggle_tree(
+    editor: &mut Editor,
+    compositor: &mut crate::compositor::Compositor,
+    jobs: &mut crate::job::Jobs,
+) {
+    let Some(view) = compositor.find::<crate::ui::EditorView>() else {
+        return;
+    };
+    if let Some(tree) = &mut view.file_tree {
+        tree.visible = !tree.visible;
+        tree.focused = tree.visible;
+        if let Some(visible) = &mut view.file_tree_pending_visible {
+            *visible = tree.visible;
+        }
+    } else if let Some(visible) = &mut view.file_tree_pending_visible {
+        *visible = !*visible;
+    } else {
+        view.file_tree_pending_visible = Some(true);
+        load_tree(editor, jobs, helix_loader::find_workspace().0);
+    }
+}
+
 pub fn load_tree(editor: &mut Editor, jobs: &mut crate::job::Jobs, root: PathBuf) {
     editor.file_watcher.set_review_roots(Vec::new());
     editor.navigation_generation += 1;
     let generation = editor.navigation_generation;
     let config = editor.config().file_picker.clone();
     jobs.callback(async move {
-        let mut tree = tokio::task::spawn_blocking(move || FileTree::scan(root, config)).await??;
+        let result = tokio::task::spawn_blocking(move || FileTree::scan(root, config))
+            .await
+            .map_err(anyhow::Error::from)
+            .and_then(|tree| tree);
         Ok(crate::job::Callback::EditorCompositor(Box::new(
             move |editor, compositor| {
                 if editor.navigation_generation != generation {
                     return;
                 }
+                let mut tree = match result {
+                    Ok(tree) => tree,
+                    Err(error) => {
+                        if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+                            view.file_tree_pending_visible = None;
+                        }
+                        editor.set_error(format!("{error:#}"));
+                        return;
+                    }
+                };
                 if let Some(view) = compositor.find::<crate::ui::EditorView>() {
                     if let Some(old) = &view.file_tree {
                         if old.root == tree.root {
                             tree.expanded = old.expanded.clone();
                             tree.scroll = old.scroll;
                             tree.focused = old.focused;
+                            tree.visible = old.visible;
                             if let Some(node) = old.nodes.get(old.selected) {
                                 tree.reveal(&node.path);
                             }
                         }
                     }
+                    if let Some(visible) = view.file_tree_pending_visible.take() {
+                        tree.visible = visible;
+                    }
+                    tree.focused &= tree.visible;
                     view.file_tree = Some(tree);
                     view.review_previous_tree = None;
                 }

@@ -1,5 +1,8 @@
 # Neohelix review cheat sheet
 
+See the [optional user keymap and short command aliases](keybindings.md) for
+the author's `Space g` and `z f` menus. Tables below also include fork defaults.
+
 ## Start a review
 
 ```sh
@@ -23,10 +26,11 @@ deleted baseline rows are virtual and read-only. `--pager` makes file inputs rea
 | --- | --- |
 | Working-copy review | `Space v`, `:diff-review [repo]` |
 | Directory review | `:diff-review before-dir after-dir` |
-| File sidebar | `Space E`, `:file-tree [directory]` |
+| File sidebar toggle | `Space E`, `:file-tree-toggle` (preserves state) |
+| Open/focus sidebar | `:file-tree [directory]`, `:ft [directory]` |
 | Original file picker | `Space e` |
 | Switch focused pane | `Ctrl-w h` / `Ctrl-w l` |
-| Next / previous hunk | `]c` / `[c`, `:diff-next` / `:diff-prev` |
+| Next / previous hunk | `]g` / `[g`, `:diff-next` / `:diff-prev` |
 | Next / previous file | `:diff-file-next` / `:diff-file-prev` |
 | Toggle review layout | `:diff-layout` |
 | Choose review layout | `:diff-layout inline` / `:diff-layout side-by-side` |
@@ -84,10 +88,10 @@ for limits and current multiplexer support.
 
 `:blame-toggle` shows/hides a full-file commit/date/author strip to the left of
 the focused buffer, independently of the file tree and popup. The author's
-config binds it to `' g b`. Metadata loads asynchronously; no GitHub token is
+config binds it to `Space g b`. Metadata loads asynchronously; no GitHub token is
 needed for these local annotations.
 
-With your `B` binding, open on-demand blame details without continuously rendering
+With your `Space B` binding, open on-demand blame details without continuously rendering
 inline blame. Within the popup:
 
 | Key | Action |

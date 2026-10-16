@@ -434,7 +434,7 @@ impl MappableCommand {
         file_picker_in_current_buffer_directory, "Open file picker at current buffer's directory",
         file_picker_in_current_directory, "Open file picker at current working directory",
         file_explorer, "Open file explorer in workspace root",
-        file_tree, "Open or focus the expandable file sidebar",
+        file_tree, "Toggle the expandable file sidebar",
         diff_review, "Review Git/JJ working-copy changes",
         file_explorer_in_current_buffer_directory, "Open file explorer at current buffer's directory",
         file_explorer_in_current_directory, "Open file explorer at current working directory",
@@ -3356,14 +3356,7 @@ fn file_explorer(cx: &mut Context) {
 
 fn file_tree(cx: &mut Context) {
     cx.callback.push(Box::new(|compositor, context| {
-        if let Some(tree) = compositor
-            .find::<ui::EditorView>()
-            .and_then(|view| view.file_tree.as_mut())
-        {
-            tree.focused = true;
-        } else {
-            crate::diff_review::load_tree(context.editor, context.jobs, find_workspace().0);
-        }
+        crate::diff_review::toggle_tree(context.editor, compositor, context.jobs);
     }));
 }
 

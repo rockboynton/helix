@@ -160,6 +160,7 @@ impl Editor {
         );
         let cursor = doc.selection(id).primary().cursor(doc.text().slice(..));
         if toggle
+            && !all
             && view.folds.valid(doc)
             && view.folds.ranges.iter().any(|range| {
                 let header = doc
@@ -191,7 +192,20 @@ impl Editor {
             Vec::new()
         };
         let target = if all {
-            closed = candidates;
+            if toggle && closed.iter().any(|range| candidates.contains(range)) {
+                // Open syntax regions without opening unrelated manual folds.
+                closed.retain(|range| !candidates.contains(range));
+            } else {
+                closed.retain(|old| {
+                    candidates.iter().all(|range| {
+                        old.end <= range.start
+                            || old.start >= range.end
+                            || (old.start <= range.start && old.end >= range.end)
+                            || (range.start <= old.start && range.end >= old.end)
+                    })
+                });
+                closed.extend(candidates);
+            }
             None
         } else {
             let range = candidates

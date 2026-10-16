@@ -9,6 +9,7 @@ Tree-sitter parse trees, including injected languages, without an LSP request.
 | `:fold-close` | Close the innermost open syntax region containing the cursor |
 | `:fold-toggle` | Open a closed fold on its heading/summary, otherwise close a syntax region |
 | `:fold-all` | Close all syntax regions, retaining nested closed state |
+| `:fold-toggle-all` | Open all syntax folds if any are closed, otherwise close all; preserve unrelated manual folds |
 | `:fold-open` | Open the fold on its heading/summary; closed children remain collapsed |
 | `:fold-open-all` | Open all folds, including hidden descendants |
 | `:fold-selection` | Manually fold selected lines, even without a language query |
@@ -50,6 +51,9 @@ example, in a Steel keymap hash:
 ```scheme
 "C-f" ":fold-toggle"
 ```
+
+The author's [optional keymap](keybindings.md) uses `z f t` for a single fold
+and `z f T` for all syntax folds.
 
 Syntax folding currently applies to normal views, including read-only pager
 files. In comparisons, use `:diff-fold [N]` instead: independent syntax folds

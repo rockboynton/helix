@@ -29,6 +29,7 @@ pub struct FileTree {
     pub selected: usize,
     pub scroll: usize,
     pub focused: bool,
+    pub visible: bool,
     pub area: Rect,
     pub review: Option<crate::diff_review::Review>,
     visible_cache: Vec<usize>,
@@ -87,6 +88,7 @@ impl FileTree {
             selected: 0,
             scroll: 0,
             focused: true,
+            visible: true,
             area: Rect::default(),
             review: None,
             visible_cache: Vec::new(),
@@ -313,7 +315,7 @@ impl FileTree {
             .position(|&index| index == self.selected)
             .unwrap_or(0);
         match key.code {
-            KeyCode::Char(':') => {
+            KeyCode::Char(':') | KeyCode::Char(' ') => {
                 self.focused = false;
                 return Ok(EventResult::Ignored(None));
             }

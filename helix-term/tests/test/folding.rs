@@ -6,6 +6,46 @@ fn contents() -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn toggle_all_syntax_folds_preserves_unrelated_manual_folds() -> anyhow::Result<()> {
+    use std::io::Write;
+    let text = "// manual a\n// manual b\n// manual c\n\nfn example() {\n    if true {\n        one();\n        two();\n    }\n}\n";
+    let mut file = tempfile::Builder::new().suffix(".rs").tempfile()?;
+    file.write_all(text.as_bytes())?;
+    let mut app = AppBuilder::new().with_file(file.path(), None).build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("gg3x:fold-selection<ret>"),
+                Some(&|app| assert_eq!(current_ref!(app.editor).0.folds.ranges.len(), 1)),
+            ),
+            (
+                Some(":fold-toggle-all<ret>"),
+                Some(&|app| assert_eq!(current_ref!(app.editor).0.folds.ranges.len(), 2)),
+            ),
+            (
+                Some(":fold-toggle-all<ret>"),
+                Some(&|app| {
+                    let (view, doc) = current_ref!(app.editor);
+                    assert_eq!(view.folds.ranges, vec![0..doc.text().line_to_char(3)]);
+                }),
+            ),
+            (
+                Some(":fold-toggle-all<ret>"),
+                Some(&|app| assert_eq!(current_ref!(app.editor).0.folds.ranges.len(), 2)),
+            ),
+            (
+                Some(":fold-open-all<ret>"),
+                Some(&|app| assert!(current_ref!(app.editor).0.folds.ranges.is_empty())),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn syntax_folds_toggle_nest_reveal_and_invalidate_without_changing_text() -> anyhow::Result<()>
 {
     use std::io::Write;

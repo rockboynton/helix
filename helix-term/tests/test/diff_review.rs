@@ -10,6 +10,100 @@ fn tree(app: &helix_term::application::Application) -> &helix_term::ui::file_tre
         .unwrap()
 }
 
+#[test]
+fn path_command_aliases_resolve_with_arguments() {
+    use helix_term::commands::MappableCommand;
+    for (alias, name) in [
+        ("ds", "diff-split"),
+        ("d3", "diff-three"),
+        ("dr", "diff-review"),
+        ("drp", "diff-review-patch"),
+        ("ft", "file-tree"),
+    ] {
+        let command: MappableCommand = format!(":{alias} 'path with spaces'").parse().unwrap();
+        let MappableCommand::Typable {
+            name: resolved,
+            args,
+            ..
+        } = command
+        else {
+            panic!("expected typable command")
+        };
+        assert_eq!(resolved, name);
+        assert_eq!(args, "'path with spaces'");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sidebar_toggle_preserves_expansion_and_returns_editor_space() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    std::fs::create_dir(root.path().join("src"))?;
+    std::fs::write(root.path().join("src/main.rs"), "fn main() {}\n")?;
+    let mut app = AppBuilder::new().build()?;
+    let open = format!(":ft {}<ret>", root.path().display());
+    test_key_sequences(
+        &mut app,
+        vec![
+            (Some(&open), Some(&|app| assert!(tree(app).visible))),
+            (
+                Some("l<space>E"),
+                Some(&|app| {
+                    assert!(!tree(app).visible);
+                    assert!(!tree(app).focused);
+                    assert!(tree(app).expanded.contains(std::path::Path::new("src")));
+                    assert_eq!(current_ref!(app.editor).0.area.x, 0);
+                }),
+            ),
+            (
+                Some("<space>E"),
+                Some(&|app| {
+                    assert!(tree(app).visible && tree(app).focused);
+                    assert!(tree(app).expanded.contains(std::path::Path::new("src")));
+                    assert!(current_ref!(app.editor).0.area.x > 0);
+                }),
+            ),
+            (Some("<space>E"), Some(&|app| assert!(!tree(app).visible))),
+            (Some(":ft<ret>"), Some(&|app| assert!(tree(app).visible))),
+            (Some(":file-tree-close<ret>:qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn hidden_review_refresh_keeps_comparison_and_sidebar_hidden() -> anyhow::Result<()> {
+    let left = tempfile::tempdir()?;
+    let right = tempfile::tempdir()?;
+    std::fs::write(left.path().join("main.rs"), "fn before() {}\n")?;
+    std::fs::write(right.path().join("main.rs"), "fn after() {}\n")?;
+    let mut app = AppBuilder::new().build()?;
+    let review = format!(
+        ":dr {} {}<ret>",
+        left.path().display(),
+        right.path().display()
+    );
+    test_key_sequences(
+        &mut app,
+        vec![
+            (Some(&review), Some(&|app| assert!(tree(app).visible))),
+            (
+                Some("<space>E:diff-review-refresh<ret>"),
+                Some(&|app| {
+                    assert!(!tree(app).visible);
+                    assert!(tree(app).review.is_some());
+                    assert!(app.editor.diff_session.is_some());
+                    assert_eq!(app.editor.tree.views().count(), 2);
+                }),
+            ),
+            (Some("<space>E"), Some(&|app| assert!(tree(app).visible))),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn diff_off_restores_sidebar_and_keeps_dirty_working_file_on_left() -> anyhow::Result<()> {
     check_diff_off(false).await

@@ -4,6 +4,8 @@ PNG/PDF file-picker previews use native terminal graphics, with asynchronous
 Poppler CLI rendering for PDFs; see [media previews](docs/media-previews.md).
 
 Start with the [review and GitLens cheat sheet](docs/neohelix-cheatsheet.md).
+The author's [optional keymap](docs/keybindings.md) documents the folding/Git
+menus and short aliases for path-taking commands.
 
 Inline review: `hx --diff --diff-layout inline before.rs after.rs`.
 Three-way editing/review: `hx --diff3 left.rs base.rs right.rs`.
