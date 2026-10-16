@@ -184,6 +184,12 @@ The diff/status provider uses `jj-lib` 0.46.0, rather than shelling out to `jj`.
 Neither the `jj` executable nor external diff/copy tools are required for the
 provider itself. User-configured external commands can still require those tools.
 
+The changed-file picker uses the active file's repository, falling back to the
+current directory for scratch/non-repository buffers. JJ paths are resolved
+against their workspace root before previewing or opening them, so launching
+Helix from a subdirectory or outside the opened file's repository works too.
+Normal workspace-trust requirements still apply.
+
 Standard Git and Simple backends are supported; custom backends and future
 repository formats need a compatible library update. Parent-tree reads, bookmark
 formatting, rename detection, and discarded status snapshots are native.

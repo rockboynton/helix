@@ -2,6 +2,77 @@ use super::helpers::*;
 use helix_view::current_ref;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn changed_file_picker_uses_open_jj_file_when_cwd_is_outside_repository() -> anyhow::Result<()>
+{
+    let directory = tempfile::tempdir()?;
+    let root = directory.path().canonicalize()?;
+    let init = std::process::Command::new("jj")
+        .args(["git", "init", "--colocate"])
+        .current_dir(&root)
+        .output()?;
+    assert!(
+        init.status.success(),
+        "{}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+    let nested = root.join("nested");
+    std::fs::create_dir(&nested)?;
+    let initial = nested.join("initial.txt");
+    let target = root.join("pick_me.txt");
+    std::fs::write(&initial, "initial\n")?;
+    std::fs::write(&target, "target contents\n")?;
+    assert!(!helix_stdx::env::current_working_dir().starts_with(&root));
+    let mut app = AppBuilder::new().with_file(&initial, None).build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("<space>g"),
+                Some(&|app| {
+                    let surface = app
+                        .test_surface()
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol.as_str())
+                        .collect::<String>();
+                    assert!(
+                        surface.contains("pick_me.txt"),
+                        "picker did not discover external JJ workspace: {surface}"
+                    );
+                }),
+            ),
+            (
+                Some("pick_me"),
+                Some(&|app| {
+                    let surface = app
+                        .test_surface()
+                        .content
+                        .iter()
+                        .map(|cell| cell.symbol.as_str())
+                        .collect::<String>();
+                    assert!(
+                        surface.contains("target contents"),
+                        "preview must use the absolute path: {surface}"
+                    );
+                }),
+            ),
+            (
+                Some("<ret>"),
+                Some(&|app| {
+                    let (_, doc) = current_ref!(app.editor);
+                    assert_eq!(doc.path(), Some(target.as_path()));
+                    assert_eq!(doc.text().to_string(), "target contents\n");
+                }),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn full_file_blame_toggle_is_view_local_and_scrolls_in_the_gutter() -> anyhow::Result<()> {
     let root = tempfile::tempdir()?;
     let file = root.path().join("main.rs");

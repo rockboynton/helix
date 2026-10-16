@@ -210,7 +210,12 @@ impl DiffProviderRegistry {
             let Some(diff_provider) = self.provider_for(&cwd) else {
                 return;
             };
-            if let Err(err) = diff_provider.for_each_changed_file(&f) {
+            let Some(root) = self.review_root(&cwd) else {
+                return;
+            };
+            if let Err(err) = diff_provider
+                .for_each_changed_file(|change| f(change.map(|change| change.rooted(&root))))
+            {
                 f(Err(err));
             }
         });

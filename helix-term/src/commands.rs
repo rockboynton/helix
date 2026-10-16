@@ -3677,6 +3677,37 @@ fn changed_file_picker(cx: &mut Context) {
         return;
     }
 
+    // A file opened from outside its repository still supplies the picker
+    // context. Fall back to cwd for scratch buffers or non-repository files.
+    let document_dir = doc!(cx.editor)
+        .path()
+        .and_then(|path| path.parent())
+        .map(Path::to_path_buf);
+    let repository = document_dir
+        .into_iter()
+        .chain([cwd.to_path_buf()])
+        .find_map(|path| {
+            let trust_full = cx
+                .editor
+                .workspace_trust
+                .query(
+                    &helix_loader::find_workspace_in(&path).0,
+                    helix_loader::workspace_trust::TrustQuery::Git,
+                )
+                .is_trusted();
+            cx.editor.diff_providers.add(&path, trust_full);
+            if let Some(root) = cx.editor.diff_providers.review_root(&path) {
+                Some((Arc::<Path>::from(path), Arc::<Path>::from(root)))
+            } else {
+                cx.editor.diff_providers.remove(&path);
+                None
+            }
+        });
+    let Some((discovery, cwd)) = repository else {
+        cx.editor.set_error("No available Git/JJ repository for the current buffer or directory; JJ workspaces must be trusted");
+        return;
+    };
+
     let added = cx.editor.theme.get("diff.plus");
     let modified = cx.editor.theme.get("diff.delta");
     let conflict = cx.editor.theme.get("diff.delta.conflict");
@@ -3742,20 +3773,6 @@ fn changed_file_picker(cx: &mut Context) {
     .with_title("Changed Files".into());
     let injector = picker.injector();
 
-    let trust_full = cx
-        .editor
-        .workspace_trust
-        .query(
-            &helix_loader::find_workspace_in(&cwd).0,
-            helix_loader::workspace_trust::TrustQuery::Git,
-        )
-        .is_trusted();
-    // Helix can be launched without arguments, in which case no diff provider will be loaded since
-    // there is no file to provide infos for.
-    //
-    // This ensures we have one to work with for cwd (and as a bonus it means any file opened
-    // from this picker will have its diff provider already in cache).
-    cx.editor.diff_providers.add(&cwd, trust_full);
     cx.editor.diff_providers.clone().for_each_changed_file(
         cwd.clone(),
         move |change| match change {
@@ -3767,7 +3784,7 @@ fn changed_file_picker(cx: &mut Context) {
         },
     );
     cx.push_layer(Box::new(overlaid(picker)));
-    cx.editor.diff_providers.remove(&cwd);
+    cx.editor.diff_providers.remove(&discovery);
 }
 
 pub fn command_palette(cx: &mut Context) {

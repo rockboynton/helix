@@ -1017,6 +1017,27 @@ mod tests {
         assert!(registry.get_current_head_name(&path).is_some());
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn changed_file_picker_roots_jj_paths_from_a_nested_directory() {
+        let fixture = Fixture::new(true);
+        let nested = fixture.root.join("nested");
+        std::fs::create_dir(&nested).unwrap();
+        let file = nested.join("changed.txt");
+        std::fs::write(&file, "changed\n").unwrap();
+        let mut registry = crate::DiffProviderRegistry::default();
+        registry.add(&nested, true);
+        assert_eq!(registry.review_root(&nested), Some(fixture.root.clone()));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        registry.for_each_changed_file(Arc::from(nested), move |change| tx.send(change).is_ok());
+        let change = tokio::time::timeout(std::time::Duration::from_secs(10), rx.recv())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(change.path(), file);
+        assert!(change.path().is_absolute());
+    }
+
     #[test]
     fn conflict_status_and_merged_parent_base() {
         let mut fixture = Fixture::new(true);
