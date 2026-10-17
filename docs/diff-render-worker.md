@@ -52,10 +52,41 @@ worker and losing workspace configuration. With this setting, jj supplies
 absolute snapshot paths while retaining the workspace directory. jjui uses the
 same jj formatter settings; no jjui worker or service is needed.
 
+### Starting alongside jjui
+
+A jjui launcher can start `hx --diff-worker-warm --width 100` in the
+background at the JJ workspace root, then immediately execute the real jjui.
+This overlaps initialization with jjui startup; it does not eliminate cold
+configuration/query compilation or preload any revision. Run warmup and jjui
+with the same environment, including `JJUI=1`. Keep warmup output redirected
+away from the terminal. Non-UI invocations such as `jjui --version` should not
+start a worker.
+
+Set `HELIX_DIFF_WORKER_SHARED_VIEWPORT=1` in that process tree to share the
+warmed renderer between jjui's inline preview and wider side-by-side view.
+Actual width, layout, context, color and theme are applied per request. This is
+an explicit configuration contract: **user and trusted project configuration
+must be independent of initial `COLUMNS`, `LINES`, `DFT_WIDTH` and the shell's
+`PWD` spelling**. These four environment values no longer partition workers or
+native profiles in this mode. The actual working directory remains isolated;
+all other environment values and dependency checks retain normal isolation.
+Do not enable this mode for configuration that derives settings from those
+variables. Leave it unset or set it to `0` for the default width/environment
+isolation; no viewport guessing is necessary.
+
+The NixOS jjui launcher opts into both settings only for jjui and its children,
+not ordinary editor or shell `jj` invocations. Explicit `HELIX_DIFF_WORKER=0`
+disables that worker, and `HELIX_DIFF_WORKER_SHARED_VIEWPORT=0` disables
+speculative startup while preserving demand-started, isolated workers. The
+launcher neither waits for warmup nor changes jjui's arguments. Existing
+two-minute idle expiry and eight-worker cap still apply.
+
 ## Controls
 
 - `HELIX_DIFF_WORKER=1`: opt in to the background renderer.
 - `HELIX_DIFF_WORKER=0` (or unset): fresh-process rendering with disk caches.
+- `HELIX_DIFF_WORKER_SHARED_VIEWPORT=1`: opt into the viewport-independent
+  configuration contract above; default workers remain width/env isolated.
 - `HELIX_DIFF_CACHE=0`: bypass native configuration and query-analysis disk
   caches and source highlight events, evaluating configuration and syntax afresh.
 - `HELIX_DIFF_HIGHLIGHT_CACHE=0`: bypass only source highlight events, retaining

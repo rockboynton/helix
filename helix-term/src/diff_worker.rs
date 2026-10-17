@@ -64,6 +64,12 @@ fn uid() -> u32 {
     unsafe { libc::geteuid() }
 }
 
+/// Explicit contract for UI launchers whose configuration is independent of
+/// viewport dimensions (and the shell's redundant PWD spelling).
+fn shared_viewport() -> bool {
+    std::env::var_os("HELIX_DIFF_WORKER_SHARED_VIEWPORT").is_some_and(|value| value == "1")
+}
+
 fn trace(message: impl std::fmt::Display) {
     if std::env::var_os("HELIX_DIFF_WORKER_TRACE").is_some() {
         eprintln!("diff worker: {message}");
@@ -254,6 +260,7 @@ impl Scope {
     /// complete configuration fingerprint before every render, so scanning the
     /// same dependencies in the client adds latency without improving freshness.
     fn identity(width: u16) -> Result<Self> {
+        let shared = shared_viewport();
         let root = private_root()?;
         let mut hash = Sha256::new();
         hash.update(VERSION.to_le_bytes());
@@ -266,6 +273,13 @@ impl Scope {
         let mut environment = std::env::vars_os().collect::<Vec<_>>();
         environment.sort();
         for (name, value) in environment {
+            if shared
+                && ["COLUMNS", "LINES", "DFT_WIDTH", "PWD"]
+                    .iter()
+                    .any(|skip| name == OsStr::new(skip))
+            {
+                continue;
+            }
             if [
                 "_",
                 "SHLVL",
@@ -292,7 +306,11 @@ impl Scope {
         // This is a private filesystem name, not authentication. A 128-bit
         // digest keeps sockets within Darwin's short sockaddr_un path limit.
         let base = finish_hash(hash)[..32].to_owned();
-        let slot = format!("{base}.{width}");
+        let slot = if shared {
+            format!("{base}.shared")
+        } else {
+            format!("{base}.{width}")
+        };
         ensure!(
             root.join(format!("{slot}.sock"))
                 .as_os_str()
@@ -693,7 +711,9 @@ fn ready(listener: &UnixListener, remaining: Duration) -> io::Result<bool> {
 
 pub fn serve(args: &Args) -> Result<()> {
     let scope_width = args.diff_width.unwrap_or(100);
-    let scope = Scope::capture(scope_width)?;
+    // No configuration has been loaded yet. Take the initial dependency
+    // snapshot when the first request arrives, not twice around socket setup.
+    let mut scope = Scope::identity(scope_width)?;
     let lock = scope.lock("serve")?;
     if !try_lock(&lock)? {
         return Ok(());
@@ -776,7 +796,7 @@ pub fn serve(args: &Args) -> Result<()> {
             unreachable!()
         };
         if version != VERSION
-            || width != scope_width
+            || (!shared_viewport() && width != scope_width)
             || !(20..=4096).contains(&width)
             || context > 1000
             || !paths.iter().all(|path| path.is_absolute())
@@ -795,7 +815,9 @@ pub fn serve(args: &Args) -> Result<()> {
                 return Ok(());
             }
         };
-        if current != scope.fingerprint {
+        if scope.fingerprint.is_empty() {
+            scope.fingerprint = current;
+        } else if current != scope.fingerprint {
             let _ = reply(&mut stream, STALE, &[]);
             return Ok(());
         }
@@ -820,18 +842,22 @@ pub fn serve(args: &Args) -> Result<()> {
             request_args.files.insert(path, Vec::new());
         }
         if session.is_none() {
-            match RenderSession::new(&request_args) {
-                Ok(value) => session = Some(value),
+            match RenderSession::new_with_scope(&request_args, Some(&scope)) {
+                Ok((value, evaluated)) => {
+                    // Native profile hits restore only rendering data: the
+                    // request-start snapshot already validates them. Executed
+                    // configuration may generate stubs or race a config edit.
+                    if evaluated && fingerprint()? != scope.fingerprint {
+                        let _ = reply(&mut stream, STALE, &[]);
+                        return Ok(());
+                    }
+                    session = Some(value);
+                }
                 Err(error) => {
                     let message = format!("{error:#}");
                     let _ = reply(&mut stream, ERROR, message.as_bytes());
                     return Ok(());
                 }
-            }
-            // Initialization can generate module stubs or race a config edit.
-            if fingerprint()? != scope.fingerprint {
-                let _ = reply(&mut stream, STALE, &[]);
-                return Ok(());
             }
         }
         let mut output = OutputBuffer {

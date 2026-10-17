@@ -230,33 +230,46 @@ impl RenderSession {
 
     pub fn new(args: &Args) -> Result<Self> {
         #[cfg(unix)]
+        {
+            Self::new_with_scope(args, None).map(|(session, _)| session)
+        }
+        #[cfg(not(unix))]
+        {
+            Self::uncached(args)
+        }
+    }
+
+    #[cfg(unix)]
+    /// Returns the session and whether executable configuration was evaluated.
+    /// A native-profile hit uses the caller's request-start dependency snapshot;
+    /// callers must revalidate after executable configuration runs.
+    pub(crate) fn new_with_scope(
+        args: &Args,
+        validated: Option<&crate::diff_worker::Scope>,
+    ) -> Result<(Self, bool)> {
         let _ = tree_house_bindings::query_cache::configure(None);
-        #[cfg(unix)]
-        let cache = match cache::Context::capture(args) {
+        let cache = match cache::Context::capture(args, validated) {
             Ok(cache) => Some(cache),
             Err(error) => {
                 cache::trace(format!("cache unavailable: {error:#}"));
                 None
             }
         };
-        #[cfg(unix)]
         if let Some(cache) = &cache {
             match cache.load() {
-                Ok(Some(session)) => return Ok(session),
+                Ok(Some(session)) => return Ok((session, false)),
                 Ok(None) => (),
                 Err(error) => cache::trace(format!("profile rejected: {error:#}")),
             }
         }
-        #[allow(unused_mut)]
         let mut session = Self::uncached(args)?;
-        #[cfg(unix)]
         if let Some(cache) = cache {
             if let Err(error) = cache.store(&session) {
                 cache::trace(format!("profile not stored: {error:#}"));
             }
             session.highlights = Some(cache.highlights());
         }
-        Ok(session)
+        Ok((session, true))
     }
 
     fn uncached(args: &Args) -> Result<Self> {

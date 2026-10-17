@@ -42,6 +42,93 @@ fn explicit_warmup_starts_one_worker_without_render_output_or_implicit_opt_in() 
 }
 
 #[test]
+fn shared_viewport_is_opt_in_and_reuses_warmup_across_preview_sizes() -> Result<()> {
+    for shared in [false, true] {
+        let fixture = Fixture::new()?;
+        let command = |width: &str, worker: bool| {
+            let mut command = fixture.command();
+            if shared {
+                command.env("HELIX_DIFF_WORKER_SHARED_VIEWPORT", "1");
+            }
+            command
+                .env("HELIX_DIFF_WORKER", if worker { "1" } else { "0" })
+                .env("COLUMNS", width)
+                .env("LINES", width)
+                .env("DFT_WIDTH", width)
+                .env("PWD", format!("/presentation-only/{width}"));
+            command
+        };
+        let warm = command("100", true)
+            .args(["--diff-worker-warm", "--width", "100"])
+            .output()?;
+        ensure!(
+            warm.status.success(),
+            "{}",
+            String::from_utf8_lossy(&warm.stderr)
+        );
+        let warmed = fixture.pids()?;
+        for (width, layout) in [
+            ("80", "inline"),
+            ("160", "side-by-side"),
+            ("80", "side-by-side"),
+        ] {
+            let args = [
+                "--render-diff",
+                "--width",
+                width,
+                "--color",
+                "always",
+                "--diff-layout",
+                layout,
+                "a.txt",
+                "b.txt",
+            ];
+            let expected = command(width, false).args(args).output()?;
+            let output = command(width, true).args(args).output()?;
+            ensure!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(String::from_utf8_lossy(&output.stderr).contains("retained renderer"));
+            assert_eq!(output.stdout, expected.stdout);
+        }
+        let pids = fixture.pids()?;
+        assert_eq!(pids.len(), if shared { 1 } else { 3 });
+        if shared {
+            assert_eq!(pids, warmed);
+        }
+        // Ignoring presentation variables must never ignore arbitrary config inputs.
+        let changed = command("80", true)
+            .env("NEOHELIX_TEST_CONFIG_INPUT", "different")
+            .args(["--render-diff", "--width", "80", "a.txt", "b.txt"])
+            .output()?;
+        ensure!(
+            changed.status.success(),
+            "{}",
+            String::from_utf8_lossy(&changed.stderr)
+        );
+        assert_eq!(fixture.pids()?.len(), pids.len() + 1);
+        let mut stop = fixture.command();
+        if shared {
+            stop.env("HELIX_DIFF_WORKER_SHARED_VIEWPORT", "1");
+        }
+        stop.env("COLUMNS", "80")
+            .env("LINES", "80")
+            .env("DFT_WIDTH", "80")
+            .env("PWD", "/presentation-only/80")
+            .env("NEOHELIX_TEST_CONFIG_INPUT", "different")
+            .arg("--diff-worker-stop")
+            .output()?;
+        // Default-mode workers intentionally require each distinct environment.
+        for width in ["100", "80", "160"] {
+            command(width, true).arg("--diff-worker-stop").output()?;
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn parallel_worker_matches_full_parse_across_unseen_snapshots_and_coverage() -> Result<()> {
     let fixture = Fixture::new()?;
     let mut pid = None;
@@ -673,6 +760,7 @@ impl Fixture {
             .env("HELIX_DIFF_CACHE_TRACE", "1")
             .env("HELIX_DIFF_WORKER", "1")
             .env_remove("HELIX_STEEL_CONFIG")
+            .env_remove("HELIX_DIFF_WORKER_SHARED_VIEWPORT")
             .env_remove("HELIX_DIFF_WORKER_WATCH");
         command
     }
@@ -710,12 +798,18 @@ impl Fixture {
         Ok(pids)
     }
     fn stop(&self) -> Result<()> {
-        let output = self.command().arg("--diff-worker-stop").output()?;
-        ensure!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
+        for shared in [false, true] {
+            let mut command = self.command();
+            if shared {
+                command.env("HELIX_DIFF_WORKER_SHARED_VIEWPORT", "1");
+            }
+            let output = command.arg("--diff-worker-stop").output()?;
+            ensure!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
         Ok(())
     }
 }

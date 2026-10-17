@@ -26,6 +26,16 @@ initializes shared resources without preloading the revision being tested.
 Keep the default worker-free; opting in is explicit. See the performance notes
 for the current matched sequence, startup distinction and reproducible harness.
 
+Automatic jjui warmup and explicitly shared preview/full-view workers are
+implemented locally. The actual-host PTY harness now measures startup and
+unseen-revision navigation, not formatter subprocesses alone. Packaged runtime
+startup and empty-query-cache initialization remain distinct performance cases;
+neither is covered by initialized-worker parity. Final packaged Linux PTY
+startup is +53.21 ms versus Delta with initialized disk resources, versus a
+much larger +549.54 ms with empty diff caches. Later unseen previews stay
+within +38 ms in both runs. See the performance notes before claiming
+launch-time parity. Native macOS is pending.
+
 ## Queued
 
 - Native JJ workspace: the revision picker now drives the existing review UI;

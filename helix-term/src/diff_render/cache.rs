@@ -55,14 +55,27 @@ fn private_file(meta: &fs::Metadata) -> bool {
 }
 
 impl Context {
-    pub(super) fn capture(args: &Args) -> Result<Self> {
+    pub(super) fn capture(
+        args: &Args,
+        validated: Option<&crate::diff_worker::Scope>,
+    ) -> Result<Self> {
         let started = Instant::now();
         ensure!(
             !std::env::var_os("HELIX_DIFF_CACHE").is_some_and(|value| value == "0"),
             "cache disabled"
         );
         let width = args.diff_width.unwrap_or(100);
-        let scope = crate::diff_worker::Scope::capture(width)?;
+        // A worker has just validated these dependencies before initializing
+        // its session. Reuse that snapshot; storing still revalidates after
+        // configuration evaluation, as does the worker before serving output.
+        let captured;
+        let scope = match validated {
+            Some(scope) => scope,
+            None => {
+                captured = crate::diff_worker::Scope::capture(width)?;
+                &captured
+            }
+        };
         let root = helix_loader::cache_dir().join("diff-profile-v1");
         fs::DirBuilder::new()
             .recursive(true)
@@ -89,7 +102,7 @@ impl Context {
         Ok(Self {
             path: root.join(format!("{}.{width}.profile", scope.base)),
             root,
-            fingerprint: scope.fingerprint,
+            fingerprint: scope.fingerprint.clone(),
             namespace,
         })
     }

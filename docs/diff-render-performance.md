@@ -1,5 +1,81 @@
 # Reusable diff renderer measurements
 
+## Actual jjui startup and navigation
+
+Final local implementation, packaged Nix runtime, normal user Steel/Gruvbox,
+three-trial Linux medians in milliseconds, shared config/query resources primed:
+
+| Painted view | Delta | Neohelix automatic worker | Difference |
+| --- | ---: | ---: | ---: |
+| Startup, `930c788a5` | 348.69 | 401.90 | +53.21 |
+| Next unseen, `e25ef77fa` | 297.36 | 256.44 | -40.92 |
+| Next unseen, `f36d57681` | 243.57 | 276.92 | +33.35 |
+| Next unseen, `1891050b8` | 206.71 | 211.15 | +4.44 |
+| Full split view, `1891050b8` | 165.61 | 134.58 | -31.03 |
+
+**Automatic launch is close but still misses +50 ms by 3.21 ms in this run.**
+Subsequent unseen revisions meet that target. Do not claim a universal or native
+macOS guarantee from three Linux PTY trials. The optimization removes redundant
+initial dependency scans, reusing the request-start snapshot for native-profile
+restoration. Executed configuration is still revalidated after initialization;
+every render still starts with a live dependency/trust check. A concurrent edit
+during a data-only profile hit is observed on the next request, like subsequent
+retained-session requests.
+
+`contrib/bench-jjui-startup.py` measures an actual jjui 0.10.11 process in a
+160-column, 40-row PTY: launch to first painted inline preview (80 columns),
+then `j` to each previously unseen revision, then `d` to the final split view
+(160 columns). Unlike the initialized-worker table below, **launch timings
+include concurrent background warmup**. The preview and full view must use one
+PID without fallback; the harness checks that and stops it afterward.
+
+The instrumented formatter captures output and prepends a unique marker for
+both tools. A `pyte` screen checks that marker after terminal redraws, not just
+its appearance in the raw escape stream. Measurements therefore include common
+Python instrumentation, jj export/capture, jjui debounce and painting overhead.
+They are not bare formatter timings or native Ghostty/Zellij/macOS validation.
+The harness uses a private shared-object clone, isolated JJ/jjui settings and
+diff caches, and the normal user Steel/Gruvbox configuration. No OS cache flush.
+Each mode/trial visits each revision once; no measured revision is preloaded.
+
+Before redundant initialization scans were removed, three-trial launch medians
+were 398.19 ms with checkout runtime versus Delta's 348.52 ms, but **452.35 ms
+with packaged runtime versus Delta's 346.98 ms**. Thus the checkout result was
+borderline (+49.67 ms), and the packaged result failed the +50 ms target
+(+105.37 ms). Later unseen previews were within 35 ms of Delta or faster;
+the wider full view reused the same worker. Do not substitute checkout results
+for packaged-runtime results.
+
+Removing the first two redundant dependency scans reduced packaged startup to
+414.34 ms versus Delta's 348.64 ms (+65.70 ms). Configuration-only warmup then
+regressed it to 481.38 ms versus 349.39 ms and was rejected: loading syntax
+resources before the real diff helps more than avoiding disposable warm trees.
+
+With the final implementation and empty diff-profile/query/highlight caches,
+packaged startup was **898.82 ms versus Delta's 349.28 ms**. Later previews
+measured 262.97/276.69/211.97 ms versus Delta's 292.75/238.94/208.39 ms; full
+view was 134.46 versus 165.80 ms. Cold-cache startup still fails the target.
+This case does not flush global Steel AOT or OS caches and does not represent
+a completely fresh installation. The pre-optimization startup was 963.78 ms.
+
+The initialized-cache comparison primes only native rendering configuration and
+Rust/Markdown query resources with unrelated tiny files; it then removes source
+style entries. It does not assume ordinary editor startup already does this.
+
+Reproduce with Python containing `pyte` (for example a Nix Python environment
+with `python3Packages.pyte`), Delta, Git, JJ and the real **unwrapped** jjui:
+
+```sh
+HELIX_RUNTIME=/path/to/packaged/runtime python contrib/bench-jjui-startup.py \
+  --hx target/rust-1.99/release/hx --jjui /path/to/real/jjui \
+  --launcher /path/to/nixos/jjui/launch.sh \
+  --iterations 3 --count 4 --full-view --modes delta auto-worker
+```
+
+Add `--cold-resources` for empty diff caches. The launcher comes from the
+companion NixOS configuration; its real executable paths are supplied by the
+harness. See the [shared-viewport contract](diff-render-worker.md#starting-alongside-jjui).
+
 ## Parallel retained renderer: 2026-10-16
 
 Acceptance target: at most **50 ms slower than Delta** for the first view of an
@@ -57,8 +133,9 @@ HELIX_RUNTIME="$PWD/runtime" python contrib/bench-diff-worker-sequence.py \
 Omit `--warm-worker` to include process/renderer initialization in request zero.
 The fresh one-shot path still misses this target for some files; do not describe
 these retained-worker results as worker-free cold-start parity. Native macOS,
-live jjui navigation and automatic session-start initialization remain separate
-verification/integration tasks. See [worker usage](diff-render-worker.md).
+live macOS navigation remain separate verification tasks. The PTY measurements
+above cover automatic jjui session-start initialization on Linux. See
+[worker usage](diff-render-worker.md).
 
 ## Stopped-worker launch
 
