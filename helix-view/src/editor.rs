@@ -744,6 +744,9 @@ pub fn get_terminal_provider() -> Option<TerminalConfig> {
 pub struct LspConfig {
     /// Enables LSP
     pub enable: bool,
+    /// Share compatible language servers and unsaved buffers between editor processes (Unix).
+    /// Changes affect newly started servers, not existing connections.
+    pub shared: bool,
     /// Display LSP messagess from $/progress below statusline
     pub display_progress_messages: bool,
     /// Display LSP messages from window/showMessage below statusline
@@ -771,6 +774,7 @@ impl Default for LspConfig {
     fn default() -> Self {
         Self {
             enable: true,
+            shared: true,
             display_progress_messages: false,
             display_messages: true,
             auto_signature_help: true,
@@ -782,6 +786,24 @@ impl Default for LspConfig {
             goto_reference_include_declaration: true,
             display_color_swatches: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod lsp_config_tests {
+    use super::LspConfig;
+
+    #[test]
+    fn sharing_defaults_on_and_can_be_disabled() {
+        let default: LspConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert!(default.shared);
+        let disabled: LspConfig =
+            serde_json::from_value(serde_json::json!({"shared": false})).unwrap();
+        assert!(!disabled.shared);
+        assert_eq!(serde_json::to_value(disabled).unwrap()["shared"], false);
+        assert!(
+            serde_json::from_value::<LspConfig>(serde_json::json!({"shared": "true"})).is_err()
+        );
     }
 }
 
@@ -2370,7 +2392,7 @@ impl Editor {
         // store only successfully started language servers
         let language_servers = lang.as_ref().map_or_else(HashMap::default, |language| {
             self.language_servers
-                .get(language, path, root_dirs, config.lsp.snippets)
+                .get(language, path, root_dirs, config.lsp.snippets, config.lsp.shared)
                 .filter_map(|(lang, client)| match client {
                     Ok(client) => Some((lang, client)),
                     Err(err) => {

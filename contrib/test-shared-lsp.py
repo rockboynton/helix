@@ -148,15 +148,23 @@ class SharedTests(unittest.TestCase):
     def editor(self, file, pane, sharing="1", server=None):
         config=self.root/"config/helix"
         config.mkdir(parents=True,exist_ok=True)
-        (config/"helix.scm").write_text("(provide configure!) (define (configure!) #t)")
+        # Exercise both configuration paths in the same sharing session.
+        enabled = sharing == "1"
+        scheme = '(provide configure!) (define (configure!) #t)'
+        if sharing is not None and pane % 2 == 0:
+            scheme = ('(require "helix/configuration.scm") (provide configure!) '
+                      '(define (configure!) (lsp (hash \'shared '+('#t' if enabled else '#f')+')))')
+        (config/"helix.scm").write_text(scheme)
         (config/"init.scm").write_text('(require "helix.scm") (configure!)')
+        toml = '' if sharing is None else '[editor.lsp]\nshared = '+str(enabled and pane % 2 != 0).lower()+'\n'
+        (config/"config.toml").write_text(toml)
         command=str(Path(server or sys.executable).resolve())
         arguments=[] if server else ["-u",str(self.fake)]
         options='\nconfig={cargo={buildScripts={enable=false}},procMacro={enable=false},checkOnSave=false}\n' if server else '\n'
         (config/"languages.toml").write_text('[language-server.fixture]\ncommand='+json.dumps(command)+
             '\nargs='+json.dumps(arguments)+options+'[[language]]\nname="rust"\nroots=["Cargo.toml"]\nlanguage-servers=["fixture"]\n')
         (self.root/"Cargo.toml").write_text('[package]\nname="fixture"\nversion="0.1.0"\nedition="2021"\n')
-        env=dict(os.environ,HELIX_SHARED_LSP=sharing,HELIX_SHARED_LSP_DIR=str(self.sockets),
+        env=dict(os.environ,HELIX_SHARED_LSP_DIR=str(self.sockets),
             HELIX_SHARED_LSP_IDLE_SECS="1",FAKE_LSP_LOG=str(self.log),ZELLIJ_PANE_ID=str(pane),
             HELIX_RUNTIME=str(Path(__file__).resolve().parents[1]/"runtime"),
             HELIX_STEEL_CONFIG=str(config),XDG_CONFIG_HOME=str(config.parent),
@@ -382,13 +390,12 @@ class SharedTests(unittest.TestCase):
         self.wait(lambda: one.as_uri() in self.editors[1][2].read_text())
         os.write(first,b"iFIRST \x1b")
         self.wait(lambda: any(e["method"]=="state" and e.get("uri")==one.as_uri() and e.get("text","").startswith("FIRST ") for e in self.entries()))
-        self.wait(lambda: 'neohelix/syncDocument' in self.editors[1][2].read_text())
-        # A subsequent command is processed after the peer update in the UI.
+        self.wait(lambda: (self.buffer_text(2, one.as_uri()) or "").startswith("FIRST "))
         os.write(second,b":write\r")
         self.wait(lambda: one.read_text().startswith("FIRST "))
         os.write(second,b"iSECOND \x1b")
         self.wait(lambda: any(e["method"]=="state" and e.get("uri")==one.as_uri() and "SECOND " in e.get("text","") for e in self.entries()))
-        self.wait(lambda: 'neohelix/syncDocument' in self.editors[0][2].read_text())
+        self.wait(lambda: "SECOND " in (self.buffer_text(1, one.as_uri()) or ""))
         os.write(first,b":write\r")
         self.wait(lambda: "SECOND " in one.read_text())
         self.assertIn("FIRST ",one.read_text())
@@ -403,7 +410,7 @@ class SharedTests(unittest.TestCase):
         os.write(first,b"iUNSAVED \x1b")
         self.wait(lambda: any(e["method"]=="state" and e.get("text","").startswith("UNSAVED ") for e in self.entries()))
         second=self.editor(file,2)
-        self.wait(lambda: self.editors[1][2].exists() and 'neohelix/syncDocument' in self.editors[1][2].read_text())
+        self.wait(lambda: (self.buffer_text(2, file.as_uri()) or "").startswith("UNSAVED "))
         os.write(second,b":write\r")
         self.wait(lambda: file.read_text().startswith("UNSAVED "))
         os.write(first,b"i12345\x1b")
@@ -414,6 +421,7 @@ class SharedTests(unittest.TestCase):
         expected=[e["text"] for e in self.entries() if e["method"]=="state"][-1]
         for sequence in ["12345","67890"]:
             self.assertEqual("".join(char for char in expected if char in sequence),sequence)
+        self.wait(lambda: all(self.buffer_text(pane, file.as_uri()) == expected for pane in (1, 2)))
         os.write(first,b":write\r")
         self.wait(lambda: file.read_text()==expected)
         os.write(second,b":write\r")
@@ -525,13 +533,21 @@ class SharedTests(unittest.TestCase):
         self.wait(lambda: {entry["pid"] for entry in self.entries() if entry["method"]=="state" and entry.get("text","").startswith("REMOTE ")} >= private)
         self.assertEqual(file.read_text(),"fn same() {}\n")
 
-    def test_real_editors_without_opt_in_remain_independent(self):
+    def test_real_editors_with_sharing_disabled_remain_independent(self):
         one,two=self.root/"one.rs",self.root/"two.rs"
         one.write_text("fn first() {}\n"); two.write_text("fn second() {}\n")
         self.editor(one,1,sharing="0"); self.editor(two,2,sharing="0")
         self.wait(lambda: sum(e["method"]=="textDocument/didOpen" for e in self.entries())>=2)
         self.assertEqual(len(self.starts()),2)
         self.assertFalse(list(self.sockets.glob("*.sock")))
+
+    def test_real_editors_share_by_default_without_configuration(self):
+        one,two=self.root/"one.rs",self.root/"two.rs"
+        one.write_text("fn first() {}\n"); two.write_text("fn second() {}\n")
+        self.editor(one,1,sharing=None); self.editor(two,2,sharing=None)
+        self.wait(lambda: sum(e["method"]=="textDocument/didOpen" for e in self.entries())>=2)
+        self.assertEqual(len(self.starts()),1,self.entries())
+        self.assertTrue(list(self.sockets.glob("*.sock")))
 
     @unittest.skipUnless(os.environ.get("RUST_ANALYZER"),"set RUST_ANALYZER for native real-server editor test")
     def test_two_real_editors_with_rust_analyzer(self):

@@ -121,6 +121,10 @@
 ;; Whether to enable snippet support
 ;; * snippets: bool
 ;;
+;; Share compatible language servers and unsaved buffers between editors (Unix).
+;; Applies to newly started servers; defaults to #t on Unix (ignored elsewhere).
+;; * shared: bool
+;;
 ;; Whether to include declaration in the goto reference query
 ;; * goto_reference_include_declaration: bool
 ;;
@@ -132,6 +136,7 @@
 ;; ```rust
 ;;         LspConfig {
 ;;            enable: true,
+;;            shared: true,
 ;;            display_progress_messages: false,
 ;;            display_messages: true,
 ;;            auto_signature_help: true,

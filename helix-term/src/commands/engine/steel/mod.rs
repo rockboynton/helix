@@ -3177,6 +3177,10 @@ impl HelixConfiguration {
             app_config.editor.lsp.enable = bool::from_steelval(enabled)?;
         }
 
+        if let Some(shared) = config.get("shared") {
+            app_config.editor.lsp.shared = bool::from_steelval(shared)?;
+        }
+
         if let Some(display) = config.get("display-progress-messages") {
             app_config.editor.lsp.display_progress_messages = bool::from_steelval(display)?;
         }

@@ -1,11 +1,29 @@
 # Shared LSP instances
 
-Status: experimental Unix implementation, **disabled by default**. Start editors
-with `HELIX_SHARED_LSP=1 hx` to opt in. Editors without that variable retain
-ordinary independent language servers. Do not enable this globally until its
-restrictions below fit your workflow. Native macOS runtime testing is pending.
+Status: experimental Unix implementation, **enabled by default**. Set
+`editor.lsp.shared = false` to use ordinary independent language servers.
+Review the restrictions below for your workflow. Native macOS runtime testing is pending.
 The target is independent Neohelix processes, including separate Zellij panes;
 sharing must not depend on the terminal multiplexer.
+
+In Steel configuration:
+
+```scheme
+(require "helix/configuration.scm")
+(lsp (hash 'shared #f)) ; opt out of sharing
+```
+
+Or in TOML:
+
+```toml
+[editor.lsp]
+shared = false # opt out of sharing
+```
+
+Changes apply to newly started language servers; already attached servers are
+not migrated. Close and reopen the editor to switch an existing workspace.
+`:lsp-restart` deliberately starts a private server without disturbing peers.
+The former `HELIX_SHARED_LSP` opt-in is no longer used.
 
 ## Behavior and restrictions
 
@@ -63,7 +81,8 @@ initialization and use single-threaded asynchronous I/O runtimes.
 This is an editor-aware protocol, not a transparent multiplexer for arbitrary
 LSP clients. Read-only views that cannot accept synchronization and other
 incompatible frontends fall back rather than pretending their text is synchronized.
-Custom servers with pane-dependent environments are unsuitable for this opt-in.
+Custom servers with pane-dependent environments may not share; disable sharing
+if independent editor-local state is required.
 
 ## Compatibility, discovery and bounds
 

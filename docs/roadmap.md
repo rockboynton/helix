@@ -44,7 +44,7 @@ launch-time parity. Native macOS is pending.
 
 - Shared LSP follow-up: native macOS runtime validation and additional real
   servers/configurations. The experimental Unix broker is implemented locally,
-  with explicit opt-in, live shared unsaved documents, coordinated workspace
+  enabled by default on Unix, with live shared unsaved documents, coordinated workspace
   edits and file-path rebinding; private fallback handles incompatible clients
   and backend failures;
   see [restrictions, tests and measurements](shared-lsp.md). Request latency

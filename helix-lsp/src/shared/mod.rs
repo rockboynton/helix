@@ -1,5 +1,5 @@
-//! Opt-in local LSP sharing. The editor still owns a small proxy child, not
-//! the shared server. No configuration or credentials are persisted here.
+//! Local LSP sharing, controlled by editor.lsp.shared. The editor owns a small
+//! proxy child, not the shared server. No configuration or credentials are persisted here.
 mod broker;
 mod discovery;
 mod documents;
@@ -130,16 +130,14 @@ enum Output {
     Private(String),
 }
 
-/// Returns None by default. Unsupported environments retain direct spawning.
+/// Construct the proxy command when sharing is enabled in editor configuration.
+/// Unsupported environments retain direct spawning.
 pub(crate) fn command(
     command: PathBuf,
     args: &[String],
     root: &std::path::Path,
     overrides: &[(std::ffi::OsString, std::ffi::OsString)],
 ) -> Option<(PathBuf, Vec<String>, (String, String))> {
-    if std::env::var_os("HELIX_SHARED_LSP").as_deref() != Some(OsStr::new("1")) {
-        return None;
-    }
     let spec = Spec::capture(command, args, root, overrides).ok()?;
     let bootstrap = serde_json::to_string(&spec).ok()?;
     // Linux also limits each individual environment entry (typically 128 KiB).

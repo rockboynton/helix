@@ -188,6 +188,7 @@ The following statusline elements can be configured:
 | `enable`              | Enables LSP integration. Setting to false will completely disable language servers regardless of language settings.| `true` |
 | `display-messages`    | Display LSP `window/showMessage` messages below statusline[^1] | `true` |
 | `display-progress-messages` | Display LSP progress messages below statusline[^1]    | `false` |
+| `shared` | Share compatible language servers and unsaved buffers between Neohelix processes (Unix only; applies to newly started servers). See [Shared LSP](https://github.com/rockboynton/helix/blob/neohelix/docs/shared-lsp.md) for restrictions. | `true` |
 | `auto-signature-help` | Enable automatic popup of signature help (parameter hints)  | `true`  |
 | `auto-document-highlight` | Automatically highlight symbol references at the cursor | `false` |
 | `display-inlay-hints` | Display inlay hints[^2]                                     | `false` |

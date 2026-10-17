@@ -714,6 +714,7 @@ impl Registry {
         doc_path: Option<&'a std::path::Path>,
         root_dirs: &'a [PathBuf],
         enable_snippets: bool,
+        allow_sharing: bool,
     ) -> impl Iterator<Item = (LanguageServerName, Result<Arc<Client>>)> + 'a {
         language_config.language_servers.iter().filter_map(
             move |LanguageServerFeatures { name, .. }| {
@@ -742,7 +743,7 @@ impl Registry {
                     doc_path,
                     root_dirs,
                     enable_snippets,
-                    true,
+                    allow_sharing,
                 ) {
                     Ok(client) => {
                         self.inner_by_name
