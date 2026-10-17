@@ -218,6 +218,7 @@ impl Client {
         id: LanguageServerId,
         name: String,
         req_timeout: u64,
+        allow_sharing: bool,
     ) -> Result<(
         Self,
         UnboundedReceiver<(LanguageServerId, Call)>,
@@ -226,10 +227,28 @@ impl Client {
         info!("Starting lsp {name:?} in root {root_path:?}");
         // Resolve path to the binary
         let cmd = helix_stdx::env::which(cmd)?;
-
-        let process = Command::new(cmd)
-            .envs(server_environment)
-            .args(args)
+        let environment = server_environment
+            .into_iter()
+            .map(|(key, value)| (key.as_ref().to_os_string(), value.as_ref().to_os_string()))
+            .collect::<Vec<_>>();
+        let mut command = Command::new(&cmd);
+        command
+            .envs(environment.iter().map(|(key, value)| (key, value)))
+            .args(args);
+        #[cfg(unix)]
+        if let Some((program, args, (key, value))) = allow_sharing
+            .then(|| crate::shared::command(cmd.clone(), args, &root_path, &environment))
+            .flatten()
+        {
+            command = Command::new(program);
+            command
+                .args(args)
+                .envs(environment.iter().map(|(key, value)| (key, value)))
+                .env(key, value);
+        }
+        #[cfg(not(unix))]
+        let _ = allow_sharing;
+        let process = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

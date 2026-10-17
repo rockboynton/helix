@@ -17,9 +17,10 @@ import time
 
 
 class Server:
-    def __init__(self, command, root, options, timeout):
+    def __init__(self, command, root, options, timeout, environment=None):
         self.process = subprocess.Popen(command, cwd=root, stdin=subprocess.PIPE,
-                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                        env=environment)
         self.options = options
         self.root = root
         self.timeout = timeout

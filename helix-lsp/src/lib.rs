@@ -2,6 +2,8 @@ mod client;
 pub mod file_event;
 mod file_operations;
 pub mod jsonrpc;
+#[cfg(unix)]
+pub mod shared;
 mod transport;
 
 use arc_swap::ArcSwap;
@@ -624,6 +626,7 @@ impl Registry {
         doc_path: Option<&std::path::Path>,
         root_dirs: &[PathBuf],
         enable_snippets: bool,
+        allow_sharing: bool,
     ) -> Result<Arc<Client>, StartupError> {
         let syn_loader = self.syn_loader.load();
         let config = syn_loader
@@ -639,6 +642,7 @@ impl Registry {
                 doc_path,
                 root_dirs,
                 enable_snippets,
+                allow_sharing,
             )
             .map(|client| {
                 self.incoming.push(UnboundedReceiverStream::new(client.1));
@@ -676,6 +680,8 @@ impl Registry {
             doc_path,
             root_dirs,
             enable_snippets,
+            // Restart only this editor's backend, never its peers' server.
+            false,
         ) {
             Ok(client) => client,
             Err(StartupError::NoRequiredRootFound) => return None,
@@ -736,6 +742,7 @@ impl Registry {
                     doc_path,
                     root_dirs,
                     enable_snippets,
+                    true,
                 ) {
                     Ok(client) => {
                         self.inner_by_name
@@ -888,6 +895,7 @@ impl<T: Into<Error>> From<T> for StartupError {
 
 /// start_client takes both a LanguageConfiguration and a LanguageServerConfiguration to ensure that
 /// it is only called when it makes sense.
+#[allow(clippy::too_many_arguments)]
 fn start_client(
     id: LanguageServerId,
     name: String,
@@ -896,6 +904,7 @@ fn start_client(
     doc_path: Option<&std::path::Path>,
     root_dirs: &[PathBuf],
     enable_snippets: bool,
+    allow_sharing: bool,
 ) -> Result<NewClient, StartupError> {
     let (workspace, workspace_is_cwd) = helix_loader::find_workspace();
     let workspace = path::normalize(workspace);
@@ -937,6 +946,7 @@ fn start_client(
         id,
         name,
         ls_config.timeout,
+        allow_sharing,
     )?;
 
     let client = Arc::new(client);

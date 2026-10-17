@@ -33,6 +33,11 @@ arc-swap = "1"
 slotmap.workspace = true
 thiserror.workspace = true
 sonic-rs.workspace = true
+sha2 = "0.11"
+libc = "0.2.186"
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [features]
 steel = []

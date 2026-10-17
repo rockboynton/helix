@@ -19,6 +19,28 @@ fn setup_logging(verbosity: u64) -> Result<()> {
 }
 
 fn main() -> Result<()> {
+    #[cfg(unix)]
+    if let Some(mode) = std::env::args_os()
+        .nth(1)
+        .and_then(|arg| arg.into_string().ok())
+        .filter(|arg| {
+            matches!(
+                arg.as_str(),
+                "--internal-lsp-proxy" | "--internal-lsp-broker"
+            )
+        })
+    {
+        anyhow::ensure!(
+            std::env::args_os().count() == 2,
+            "internal LSP modes take no arguments"
+        );
+        // Protocol-only helpers need one I/O reactor, not a full editor's pool
+        // of worker threads in every pane and broker process.
+        return tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?
+            .block_on(helix_lsp::shared::run_internal(&mode));
+    }
     let exit_code = main_impl()?;
     std::process::exit(exit_code);
 }

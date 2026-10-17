@@ -42,14 +42,11 @@ launch-time parity. Native macOS is pending.
   see [usage and boundaries](jj-workspace.md). Next are a persistent graph/list,
   selection-driven previews, and explicit, buffer-safe history operations.
 
-- Share compatible LSP instances between independent Helix processes, including
-  separate Zellij panes. Design workspace/server/config identity, document
-  ownership and version coordination, process lifetime, and isolation first.
-  Investigation has started: [baseline and safety design](shared-lsp.md), with a
-  reproducible two-instance protocol/memory harness and generic stream transport
-  groundwork, tested with child pipes and a Unix socket pair. No sharing is
-  enabled yet; compatibility, authenticated broker discovery, routing and
-  document-ownership/fallback policies remain to implement.
+- Shared LSP follow-up: native macOS runtime validation and additional real
+  servers/configurations. The experimental Unix broker is implemented locally,
+  with explicit opt-in, disjoint-document sharing and private fallback;
+  see [restrictions, tests and measurements](shared-lsp.md). Request latency
+  overhead must remain within a few milliseconds of the direct server.
 
 ## Implemented locally, pending release
 

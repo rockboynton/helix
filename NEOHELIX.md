@@ -33,6 +33,8 @@ background execution, or reusable UI primitives.
 ## Feature inventory
 
 Current priorities and queued work are tracked in the [development queue](docs/roadmap.md).
+Experimental [shared LSP instances](docs/shared-lsp.md) let compatible editor
+processes share one backend for disjoint documents; opt-in and restrictions apply.
 
 The stack is based on [upstream Helix](https://github.com/helix-editor/helix).
 Its original integration base was
