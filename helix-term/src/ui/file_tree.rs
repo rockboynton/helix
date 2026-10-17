@@ -15,6 +15,8 @@ use std::{
 };
 use tui::buffer::Buffer;
 
+mod filter;
+
 #[derive(Debug)]
 pub struct Node {
     pub path: PathBuf,
@@ -34,6 +36,7 @@ pub struct FileTree {
     pub area: Rect,
     pub review: Option<crate::diff_review::Review>,
     visible_cache: Vec<usize>,
+    filter: filter::Filter,
 }
 
 impl FileTree {
@@ -93,6 +96,7 @@ impl FileTree {
             area: Rect::default(),
             review: None,
             visible_cache: Vec::new(),
+            filter: filter::Filter::default(),
         };
         tree.rebuild_visibility();
         tree
@@ -145,11 +149,13 @@ impl FileTree {
             .iter()
             .enumerate()
             .filter(|(_, node)| {
-                node.path
-                    .ancestors()
-                    .skip(1)
-                    .filter(|path| !path.as_os_str().is_empty())
-                    .all(|path| self.expanded.contains(path))
+                (self.filter.query.is_empty() || self.filter.paths.contains(&node.path))
+                    && node
+                        .path
+                        .ancestors()
+                        .skip(1)
+                        .filter(|path| !path.as_os_str().is_empty())
+                        .all(|path| self.expansion().contains(path))
             })
             .map(|(index, _)| index)
             .collect();
@@ -161,7 +167,7 @@ impl FileTree {
             .skip(1)
             .filter(|path| !path.as_os_str().is_empty())
         {
-            self.expanded.insert(parent.to_path_buf());
+            self.expansion_mut().insert(parent.to_path_buf());
         }
         if let Some(index) = self.nodes.iter().position(|node| node.path == path) {
             self.selected = index;
@@ -170,12 +176,13 @@ impl FileTree {
     }
 
     pub fn expand_all(&mut self) {
-        self.expanded.extend(
-            self.nodes
-                .iter()
-                .filter(|node| node.directory)
-                .map(|node| node.path.clone()),
-        );
+        let directories = self
+            .nodes
+            .iter()
+            .filter(|node| node.directory)
+            .map(|node| node.path.clone())
+            .collect::<Vec<_>>();
+        self.expansion_mut().extend(directories);
         self.rebuild_visibility();
     }
 
@@ -214,7 +221,7 @@ impl FileTree {
         for (row, &index) in visible.iter().skip(self.scroll).take(height).enumerate() {
             let node = &self.nodes[index];
             let marker = if node.directory {
-                if self.expanded.contains(&node.path) {
+                if self.expansion().contains(&node.path) {
                     "▾"
                 } else {
                     "▸"
@@ -240,7 +247,7 @@ impl FileTree {
                 .picker
                 .then(|| {
                     if node.directory {
-                        let key = if self.expanded.contains(&node.path) {
+                        let key = if self.expansion().contains(&node.path) {
                             "folder_opened"
                         } else {
                             "folder"
@@ -293,11 +300,24 @@ impl FileTree {
                 );
             }
         }
+        if area.height > 1 {
+            let footer = self.filter_status();
+            surface.set_stringn(
+                area.x,
+                area.bottom() - 1,
+                &footer,
+                area.width.saturating_sub(1) as usize,
+                editor.theme.get("ui.text.focus"),
+            );
+        }
     }
 
     pub fn handle(&mut self, event: &Event, editor: &mut Editor) -> Result<EventResult> {
         if !self.focused && !matches!(event, Event::Mouse(_)) {
             return Ok(EventResult::Ignored(None));
+        }
+        if self.focused && self.handle_filter(event) {
+            return Ok(EventResult::Consumed(None));
         }
         let visible = self.visible();
         if let Event::Mouse(mouse) = event {
@@ -360,6 +380,28 @@ impl FileTree {
             return Ok(EventResult::Ignored(None));
         }
         match key.code {
+            KeyCode::Char('?') => editor.set_status("Tree: / filter, Enter keep/open, Esc cancel/clear, n/p matches (review files without filter), j/k move, h/l fold, H/L fold all, PgUp/PgDn scroll, Tab editor, r refresh, v review layout"),
+            KeyCode::Char('/') => self.begin_filter(),
+            KeyCode::Esc if !self.filter.query.is_empty() => self.clear_filter(),
+            KeyCode::Char('n') | KeyCode::Char('p') | KeyCode::Char('N') if !self.filter.query.is_empty() => {
+                self.next_match(key.code != KeyCode::Char('n'));
+            }
+            KeyCode::Char('L') => self.expand_all(),
+            KeyCode::Char('H') => {
+                self.expansion_mut().clear();
+                self.rebuild_visibility();
+                if let Some(&index) = self.visible_cache.first() { self.selected = index; }
+            }
+            KeyCode::PageDown | KeyCode::PageUp => {
+                let amount = self.area.height.saturating_sub(2) as usize;
+                let position = if key.code == KeyCode::PageUp { position.saturating_sub(amount) } else { (position + amount).min(visible.len().saturating_sub(1)) };
+                if let Some(&index) = visible.get(position) { self.selected = index; }
+            }
+            KeyCode::Char('d') | KeyCode::Char('u') if key.modifiers == KeyModifiers::CONTROL => {
+                let amount = (self.area.height.saturating_sub(2) as usize / 2).max(1);
+                let position = if key.code == KeyCode::Char('u') { position.saturating_sub(amount) } else { (position + amount).min(visible.len().saturating_sub(1)) };
+                if let Some(&index) = visible.get(position) { self.selected = index; }
+            }
             KeyCode::Char('r') if self.review.is_some() && self.root.join(".jj").is_dir() => {
                 let root = self.root.clone();
                 return Ok(EventResult::Consumed(Some(Box::new(
@@ -407,8 +449,9 @@ impl FileTree {
             }
             KeyCode::Char('h') | KeyCode::Left => {
                 if let Some(node) = self.nodes.get(self.selected) {
-                    if !self.expanded.remove(&node.path) {
-                        if let Some(parent) = node.path.parent().map(Path::to_path_buf) {
+                    let path = node.path.clone();
+                    if !self.expansion_mut().remove(&path) {
+                        if let Some(parent) = path.parent().map(Path::to_path_buf) {
                             self.reveal(&parent);
                         }
                     }
@@ -436,10 +479,19 @@ impl FileTree {
                     review.open(index, editor)?;
                     let name = review.entries[index].name.clone();
                     self.reveal(&name);
+                    self.ensure_filter_selection();
+                }
+            }
+            KeyCode::Char('n') | KeyCode::Char('p') => {
+                let files = visible.iter().copied().filter(|&index| !self.nodes[index].directory).collect::<Vec<_>>();
+                if !files.is_empty() {
+                    let current = files.iter().position(|&index| index == self.selected);
+                    let next = if key.code == KeyCode::Char('p') { current.unwrap_or(0).checked_sub(1).unwrap_or(files.len() - 1) } else { current.map_or(0, |index| (index + 1) % files.len()) };
+                    self.selected = files[next];
                 }
             }
             KeyCode::Enter
-                if self
+                if visible.contains(&self.selected) && self
                     .nodes
                     .get(self.selected)
                     .is_some_and(|node| node.entry.is_some()) =>
@@ -458,12 +510,16 @@ impl FileTree {
     }
 
     pub fn activate(&mut self, editor: &mut Editor) -> Result<()> {
+        if !self.visible_cache.contains(&self.selected) {
+            return Ok(());
+        }
         let Some(node) = self.nodes.get(self.selected) else {
             return Ok(());
         };
         if node.directory {
-            if !self.expanded.remove(&node.path) {
-                self.expanded.insert(node.path.clone());
+            let path = node.path.clone();
+            if !self.expansion_mut().remove(&path) {
+                self.expansion_mut().insert(path);
             }
             self.rebuild_visibility();
         } else if let Some(index) = node.entry {

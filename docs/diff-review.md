@@ -44,7 +44,7 @@ opened. See [file comparison](file-diff.md) for rendering and patch format detai
 | `:diff-review-refresh` | Reload the catalog and clean sources, retaining unsaved edits |
 | `:file-tree [directory]` | Focus the current sidebar, or browse a directory |
 | `:file-tree-focus` | Toggle tree/editor focus; reveal or create the tree if needed |
-| `Space E`, `:file-tree-toggle` | Toggle sidebar visibility without losing state |
+| `:file-tree-toggle` (user config: `Space e`) | Toggle sidebar visibility without losing state |
 | `:file-tree-close` | Close the sidebar without closing documents |
 | `:diff-off` | Keep working file in the left pane and restore the previous sidebar |
 
@@ -53,7 +53,22 @@ the parent, `l` expands, and Enter opens a file or toggles a directory. `g`/`G`
 select first/last; Tab or Escape returns to the editor. In a JJ review, `r` opens
 the [native revision selector](jj-workspace.md). In a review,
 `n`/`p` select next/previous file and `v` toggles layouts. Mouse selection and
-wheel scrolling are supported. `Space e` still opens Helix's original file explorer.
+wheel scrolling are supported. In the user's Scheme config, `Space E` opens the
+original explorer in the current buffer's directory.
+
+`/` edits a live, case-insensitive name/path substring filter, including files
+under collapsed folders. Ancestors remain visible as context. `Enter` accepts
+the filter; `n`/`p` or `N` move through matching entries with wraparound, without
+opening files. Another Enter opens the selected file. Escape cancels a filter
+edit, or clears an accepted filter before leaving the tree. Backspace deletes a
+grapheme; Ctrl-u clears the input and Ctrl-w deletes a word. No-match Enter does
+nothing. Clearing restores unfiltered expansion, selection and scroll; refresh
+retains the query and recomputes matches for the new catalog.
+
+`H`/`L` collapse/expand all, PageUp/PageDown page through entries, Ctrl-u/Ctrl-d
+move half a page outside filter input, and `?` shows a key summary. Without a
+filter, review `n`/`p` retain their next/previous-file behavior; filesystem `n`/`p`
+select next/previous visible files, skipping folders.
 
 The sidebar uses the active icon set's file-type and open/closed folder glyphs
 and colors. As in file pickers, `editor.icons.picker = false` disables icons.

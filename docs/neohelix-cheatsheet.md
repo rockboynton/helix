@@ -27,10 +27,10 @@ deleted baseline rows are virtual and read-only. `--pager` makes file inputs rea
 | Working-copy review | `Space v`, `:diff-review [repo]` |
 | JJ revision selector | `:jj-review [revset]`, `:jjr [revset]`; `r` in a focused JJ review sidebar |
 | Directory review | `:diff-review before-dir after-dir` |
-| File sidebar toggle | `Space E`, `:file-tree-toggle` (preserves state) |
+| File sidebar toggle (user config) | `Space e`, `:file-tree-toggle` (preserves state) |
 | Open/focus sidebar | `:file-tree [directory]`, `:ft [directory]` |
 | Toggle tree/editor focus | `:file-tree-focus` (user config: `Ctrl-w e`) |
-| Original file picker | `Space e` |
+| Explorer in current buffer directory (user config) | `Space E` |
 | Switch focused pane | `Ctrl-w h` / `Ctrl-w l` |
 | Next / previous hunk | `]g` / `[g`, `:diff-next` / `:diff-prev` |
 | Next / previous file | `:diff-file-next` / `:diff-file-prev` |
@@ -57,6 +57,16 @@ Piped patches are immutable snapshots. Manual refresh is still useful if native
 watching is disabled or unavailable.
 
 ## Sidebar navigation
+
+`/` edits a live, case-insensitive name/path substring filter. Matching files
+remain in their hierarchy with ancestors revealed; `Enter` keeps the filter,
+then opens the selected file on the next press. `n`/`p` (or `N` backwards) wrap
+through matches without switching the review file. `Esc` cancels an edit, clears
+an accepted filter, then returns to the editor on a subsequent press. Backspace
+edits a grapheme; `Ctrl-u` clears the input and `Ctrl-w` deletes a word.
+`H`/`L` collapse/expand all; PageUp/PageDown and `Ctrl-u`/`Ctrl-d` navigate pages
+and half-pages outside filter input. `?` shows a key summary. Clearing the filter
+restores browsing expansion; refresh retains the query and selection.
 
 `j` / `k` select; `h` collapses or goes to parent; `l` expands; Enter opens a file
 or toggles a directory. `g` / `G` select first / last. Tab or Escape returns to

@@ -238,6 +238,172 @@ async fn native_jj_revision_selection_reuses_panes_and_keeps_history_read_only(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn filesystem_tree_filters_nested_paths_without_opening_hidden_selections(
+) -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    std::fs::create_dir_all(root.path().join("src"))?;
+    std::fs::create_dir_all(root.path().join("docs"))?;
+    for path in ["src/main.rs", "src/lib.rs", "docs/readme.md"] {
+        std::fs::write(root.path().join(path), "text\n")?;
+    }
+    let mut app = AppBuilder::new().build()?;
+    let command = format!(":file-tree {}<ret>", root.path().display());
+    test_key_sequences(
+        &mut app,
+        vec![
+            (Some(&command), None),
+            (
+                Some("/RS<ret>"),
+                Some(&|app| {
+                    let tree = tree(app);
+                    assert!(tree.focused);
+                    let paths = tree
+                        .visible()
+                        .iter()
+                        .map(|&i| tree.nodes[i].path.clone())
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        paths,
+                        ["src", "src/lib.rs", "src/main.rs"].map(std::path::PathBuf::from)
+                    );
+                }),
+            ),
+            (
+                Some("n"),
+                Some(&|app| {
+                    assert_eq!(
+                        tree(app).nodes[tree(app).selected].path,
+                        std::path::Path::new("src/main.rs")
+                    )
+                }),
+            ),
+            (
+                Some("n"),
+                Some(&|app| {
+                    assert_eq!(
+                        tree(app).nodes[tree(app).selected].path,
+                        std::path::Path::new("src/lib.rs")
+                    )
+                }),
+            ),
+            (
+                Some("p"),
+                Some(&|app| {
+                    assert_eq!(
+                        tree(app).nodes[tree(app).selected].path,
+                        std::path::Path::new("src/main.rs")
+                    )
+                }),
+            ),
+            (
+                Some("/<C-u>absent<ret><ret>"),
+                Some(&|app| {
+                    assert!(tree(app).visible().is_empty());
+                    assert!(tree(app).focused);
+                    assert!(current_ref!(app.editor).1.path().is_none());
+                }),
+            ),
+            (
+                Some("/<C-u>rs<esc>"),
+                Some(&|app| assert!(tree(app).visible().is_empty())),
+            ),
+            (
+                Some("<esc>"),
+                Some(&|app| {
+                    assert!(tree(app).focused);
+                    assert_eq!(tree(app).visible().len(), 2);
+                }),
+            ),
+            (
+                Some("L"),
+                Some(&|app| assert_eq!(tree(app).visible().len(), 5)),
+            ),
+            (
+                Some("H"),
+                Some(&|app| assert_eq!(tree(app).visible().len(), 2)),
+            ),
+            (Some("<esc>:qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn review_filter_survives_refresh_and_navigates_matches_without_switching_files(
+) -> anyhow::Result<()> {
+    let left = tempfile::tempdir()?;
+    let right = tempfile::tempdir()?;
+    for dir in [&left, &right] {
+        for name in ["src/main.rs", "tests/main.rs", "z-other.txt"] {
+            let path = dir.path().join(name);
+            std::fs::create_dir_all(path.parent().unwrap())?;
+            std::fs::write(
+                path,
+                if dir.path() == left.path() {
+                    "old\n"
+                } else {
+                    "new\n"
+                },
+            )?;
+        }
+    }
+    let mut app = AppBuilder::new()
+        .with_file(left.path(), None)
+        .with_file(right.path(), None)
+        .with_review(Layout::SideBySide)
+        .build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (Some(":ft<ret>"), None),
+            (Some("/main<ret>"), Some(&|app| assert!(tree(app).focused))),
+            (
+                Some("n"),
+                Some(&|app| {
+                    assert_eq!(
+                        tree(app).nodes[tree(app).selected].path,
+                        std::path::Path::new("tests/main.rs")
+                    );
+                    assert!(current_ref!(app.editor)
+                        .1
+                        .path()
+                        .unwrap()
+                        .ends_with("src/main.rs"));
+                }),
+            ),
+            (
+                Some("r"),
+                Some(&|app| {
+                    let tree = tree(app);
+                    assert_eq!(tree.visible().len(), 4);
+                    assert!(tree
+                        .visible()
+                        .iter()
+                        .all(|&i| tree.nodes[i].path != std::path::Path::new("z-other.txt")));
+                }),
+            ),
+            (
+                Some("<ret>"),
+                Some(&|app| {
+                    assert!(!tree(app).focused);
+                    assert!(current_ref!(app.editor)
+                        .1
+                        .path()
+                        .unwrap()
+                        .ends_with("tests/main.rs"));
+                }),
+            ),
+            (Some(":qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn review_expands_changed_folders_and_restores_collapsed_browsing_tree() -> anyhow::Result<()>
 {
     use std::path::Path;

@@ -215,6 +215,7 @@ fn load_impl(
                         // review's own expansion choices; diff-off restores browsing.
                         if same_review && old_tree.root == tree.root {
                             tree.expanded = old_tree.expanded.clone();
+                            tree.inherit_filter(old_tree);
                             let old_directories = old_tree
                                 .nodes
                                 .iter()
@@ -315,6 +316,9 @@ fn load_impl(
                     }
                 }
                 if let Some(view) = compositor.find::<crate::ui::EditorView>() {
+                    if let Some(old) = &view.file_tree {
+                        tree.restore_filter_selection(old);
+                    }
                     if view
                         .file_tree
                         .as_ref()
@@ -323,6 +327,7 @@ fn load_impl(
                         view.review_previous_tree = view.file_tree.take();
                     }
                     view.file_tree_pending_visible = None;
+                    tree.ensure_filter_selection();
                     view.file_tree = Some(tree);
                 }
                 if pending {
@@ -398,6 +403,7 @@ pub fn load_tree(editor: &mut Editor, jobs: &mut crate::job::Jobs, root: PathBuf
                             if let Some(node) = old.nodes.get(old.selected) {
                                 tree.reveal(&node.path);
                             }
+                            tree.inherit_filter(old);
                         }
                     }
                     if let Some(visible) = view.file_tree_pending_visible.take() {

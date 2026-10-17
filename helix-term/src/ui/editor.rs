@@ -1701,7 +1701,10 @@ impl Component for EditorView {
             .as_mut()
             .filter(|tree| tree.visible && !pending_keymap)
         {
-            if tree.focused && matches!(event, Event::Key(key) if key.code == KeyCode::Char('r')) {
+            if tree.focused
+                && !tree.filter_editing()
+                && matches!(event, Event::Key(key) if key.code == KeyCode::Char('r'))
+            {
                 if let Some(review) = &tree.review {
                     crate::diff_review::load(context.editor, context.jobs, review.origin.clone());
                 } else {
