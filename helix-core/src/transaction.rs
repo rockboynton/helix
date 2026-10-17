@@ -299,12 +299,72 @@ impl ChangeSet {
     /// `other`, otherwise (the default) treat `other` as coming first.
     ///
     /// Given two changes `A` and `B`, `A.compose(B.map(A))` and
-    /// `B.compose(A.map(B, true))` will produce the same document. This
+    /// `B.compose(A.map_with_assoc(B, true))` will produce the same document. This
     /// provides a basic form of [operational
     /// transformation](https://en.wikipedia.org/wiki/Operational_transformation),
     /// and can be used for collaborative editing.
-    pub fn map(self, _other: Self) -> Self {
-        unimplemented!()
+    pub fn map(self, other: Self) -> Self {
+        self.map_with_assoc(other, false)
+    }
+
+    /// Transform concurrent changes, choosing insertion order at equal positions.
+    pub fn map_with_assoc(self, other: Self, before: bool) -> Self {
+        use Operation::*;
+        assert_eq!(
+            self.len, other.len,
+            "concurrent changes require the same base"
+        );
+        if self.changes.is_empty() {
+            return Self {
+                changes: Vec::new(),
+                len: other.len_after,
+                len_after: other.len_after,
+            };
+        }
+        if other.changes.is_empty() {
+            return self;
+        }
+        let mut output = Self::with_capacity(self.changes.len() + other.changes.len());
+        let mut ours = self.changes.into_iter();
+        let mut theirs = other.changes.into_iter();
+        let mut a = ours.next();
+        let mut b = theirs.next();
+        while a.is_some() || b.is_some() {
+            if matches!(a, Some(Insert(_))) && (before || !matches!(b, Some(Insert(_)))) {
+                if let Some(Insert(text)) = a.take() {
+                    output.insert(text);
+                }
+                a = ours.next();
+                continue;
+            }
+            if let Some(Insert(text)) = &b {
+                output.retain(text.chars().count());
+                b = theirs.next();
+                continue;
+            }
+            let (Some(left), Some(right)) = (&a, &b) else {
+                unreachable!("incomplete concurrent changes");
+            };
+            let n = left.len_chars().min(right.len_chars());
+            match (left, right) {
+                (Retain(_), Retain(_)) => output.retain(n),
+                (Delete(_), Retain(_)) => output.delete(n),
+                (Retain(_) | Delete(_), Delete(_)) => (),
+                _ => unreachable!(),
+            }
+            for (operation, iter) in [(&mut a, &mut ours), (&mut b, &mut theirs)] {
+                match operation.as_mut().unwrap() {
+                    Retain(count) | Delete(count) => {
+                        *count -= n;
+                        if *count == 0 {
+                            *operation = iter.next();
+                        }
+                    }
+                    Insert(_) => unreachable!(),
+                }
+            }
+        }
+        output
     }
 
     /// Returns a new changeset that reverts this one. Useful for `undo` implementation.
