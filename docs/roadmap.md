@@ -45,6 +45,8 @@ launch-time parity. Native macOS is pending.
 - Share compatible LSP instances between independent Helix processes, including
   separate Zellij panes. Design workspace/server/config identity, document
   ownership and version coordination, process lifetime, and isolation first.
+  Investigation has started: [baseline and safety design](shared-lsp.md), with a
+  reproducible two-instance protocol/memory harness. No sharing is enabled yet.
 
 ## Implemented locally, pending release
 
