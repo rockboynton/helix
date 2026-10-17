@@ -34,7 +34,8 @@ background execution, or reusable UI primitives.
 
 Current priorities and queued work are tracked in the [development queue](docs/roadmap.md).
 Experimental [shared LSP instances](docs/shared-lsp.md) let compatible editor
-processes share one backend for disjoint documents; opt-in and restrictions apply.
+processes share one backend and live unsaved documents, with coordinated workspace
+edits and file moves; opt-in and restrictions apply.
 
 The stack is based on [upstream Helix](https://github.com/helix-editor/helix).
 Its original integration base was

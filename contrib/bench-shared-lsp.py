@@ -99,8 +99,24 @@ def measure(args, shared):
                 latencies.append(dict(requests=len(samples),p50_ms=round(statistics.median(samples),3),
                     p95_ms=round(samples[math.ceil(len(samples)*.95)-1],3),
                     p99_ms=round(samples[math.ceil(len(samples)*.99)-1],3),max_ms=round(max(samples),3)))
+            edit_latencies = []
+            for client,query,file in zip(clients,queries,args.files):
+                text=file.read_text()
+                line=text.count("\n")
+                character=len(text.rsplit("\n",1)[-1].encode("utf-16-le"))//2
+                samples=[]
+                for index in range(args.edit_requests):
+                    started=time.perf_counter_ns()
+                    client.notify("textDocument/didChange",dict(textDocument=dict(uri=file.as_uri(),version=index+2),contentChanges=[dict(range=dict(start=dict(line=line,character=character),end=dict(line=line,character=character)),text="\n")]))
+                    hover=client.request("textDocument/hover",query)
+                    samples.append((time.perf_counter_ns()-started)/1_000_000)
+                    if not hover or not hover.get("contents"):
+                        raise RuntimeError("edit barrier lost its useful hover")
+                    line+=1; character=0
+                samples.sort()
+                edit_latencies.append(dict(requests=len(samples),p50_ms=round(statistics.median(samples),3),p95_ms=round(samples[math.ceil(len(samples)*.95)-1],3),p99_ms=round(samples[math.ceil(len(samples)*.99)-1],3),max_ms=round(max(samples),3)) if samples else None)
             sample = processes([client.process.pid for client in clients])
-            result = dict(mode="shared" if shared else "direct", timings=timings, warm_hover_latency=latencies, processes=sample,
+            result = dict(mode="shared" if shared else "direct", timings=timings, warm_hover_latency=latencies, edit_hover_latency=edit_latencies, processes=sample,
                 total_pss_kib=sum(p["pss_kib"] for p in sample) if sample else None)
             print(json.dumps(result), flush=True)
         finally:
@@ -122,10 +138,15 @@ if __name__ == "__main__":
     parser.add_argument("--timeout",type=float,default=90)
     parser.add_argument("--settle",type=float,default=2)
     parser.add_argument("--requests",type=int,default=200)
+    parser.add_argument("--edit-requests",type=int,default=100,help="in-memory newline edits followed by a useful hover barrier per file")
     parser.add_argument("--options",type=json.loads,default={"cargo":{"buildScripts":{"enable":False}},"procMacro":{"enable":False},"checkOnSave":False})
     parser.add_argument("--mode",choices=["direct","shared","both"],default="both")
+    parser.add_argument("--reverse",action="store_true",help="measure shared before direct to check ordering effects")
     args = parser.parse_args()
     if args.requests < 1:
         parser.error("--requests must be positive")
-    for shared in ([False,True] if args.mode=="both" else [args.mode=="shared"]):
+    if args.edit_requests < 0:
+        parser.error("--edit-requests must be nonnegative")
+    order=[True,False] if args.reverse else [False,True]
+    for shared in (order if args.mode=="both" else [args.mode=="shared"]):
         measure(args,shared)
