@@ -2462,7 +2462,8 @@ impl Editor {
                     // Named/loaded snapshots are buffers too, not disposable empty scratches.
                     && doc.path().is_none()
                     && doc.name.is_none()
-                    && doc.text().len_chars() == 0
+                    && (doc.text().len_chars() == 0
+                        || doc.text().slice(..) == doc.line_ending.as_str())
                     // If the buffer we are changing to is not this buffer
                     && id != doc.id
                     // Ensure the buffer is not displayed in any other splits.

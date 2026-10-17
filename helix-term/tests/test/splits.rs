@@ -1,6 +1,23 @@
 use super::*;
 
 use helix_stdx::path;
+use helix_view::doc;
+
+#[tokio::test(flavor = "multi_thread")]
+async fn opening_a_file_preserves_a_named_newline_only_snapshot() -> anyhow::Result<()> {
+    let file = tempfile::NamedTempFile::new()?;
+    let mut app = helpers::AppBuilder::new().build()?;
+    let snapshot = doc!(app.editor).id();
+    app.editor.document_mut(snapshot).unwrap().name = Some("[before snapshot]".into());
+    app.editor
+        .open(file.path(), helix_view::editor::Action::Replace)?;
+    assert_eq!(app.editor.documents().count(), 2);
+    assert_eq!(
+        app.editor.document(snapshot).unwrap().name.as_deref(),
+        Some("[before snapshot]")
+    );
+    Ok(())
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn test_split_write_quit_all() -> anyhow::Result<()> {
