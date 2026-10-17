@@ -28,9 +28,29 @@ impl FileBlame {
 
     /// Expensive history traversal and commit decoding: never call on a render path.
     pub fn try_new(file: PathBuf) -> Result<Self> {
+        // Documents and gix may reach the same worktree through different aliases
+        // (notably /var versus /private/var on macOS). Resolve directory aliases
+        // on both sides before stripping the prefix. Keep the leaf name intact:
+        // blame can still read history for a file deleted from the working tree.
+        let file = get_repo_dir(&file)?
+            .canonicalize()
+            .context("Failed to resolve blame file directory")?
+            .join(file.file_name().context("Blame file has no name")?);
         let thread_safe_repo =
             open_repo(get_repo_dir(&file)?, false).context("Failed to open git repo")?;
         let repo = thread_safe_repo.to_thread_local();
+        let workdir = repo
+            .workdir()
+            .context("Git repository has no working directory")?
+            .canonicalize()
+            .context("Failed to resolve Git working directory for blame")?;
+        let relative = file.strip_prefix(&workdir).with_context(|| {
+            format!(
+                "Blame file {} is outside Git working directory {}",
+                file.display(),
+                workdir.display()
+            )
+        })?;
         let head = repo.head()?.peel_to_commit()?.id;
         let mut resource_cache = repo.diff_resource_cache_for_tree_diff()?;
         let entries = gix::blame::file(
@@ -38,12 +58,7 @@ impl FileBlame {
             head,
             None,
             &mut resource_cache,
-            &gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(
-                file.strip_prefix(
-                    repo.workdir()
-                        .context("Git repository has no working directory")?,
-                )?,
-            )?),
+            &gix::path::to_unix_separators_on_windows(gix::path::try_into_bstr(relative)?),
             gix::blame::Options::default(),
         )?
         .entries;
@@ -234,6 +249,59 @@ mod test {
     use crate::git::test::create_commit_with_message;
     use crate::git::test::empty_git_repo;
     use std::fs::File;
+
+    #[cfg(unix)]
+    #[test]
+    fn blame_resolves_symlinked_roots_and_linked_worktrees() {
+        use crate::git::test::exec_git_cmd;
+        let fixture = empty_git_repo();
+        let root = fixture.path();
+        std::fs::create_dir(root.join("src")).unwrap();
+        std::fs::write(root.join("src/file.rs"), "fn tracked() {}\n").unwrap();
+        create_commit_with_message(root, true, "tracked history");
+        let expected = FileBlame::try_new(root.join("src/file.rs"))
+            .unwrap()
+            .blame_for_line(0, 0, 0)
+            .details();
+        assert_eq!(
+            expected.title.as_deref().map(str::trim_end),
+            Some("tracked history")
+        );
+        let aliases = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(root, aliases.path().join("alias")).unwrap();
+        let aliased_file = aliases.path().join("alias/src/file.rs");
+        let discovered = open_repo(aliased_file.parent().unwrap(), false)
+            .unwrap()
+            .to_thread_local();
+        // This is the exact lexical prefix operation that failed before both
+        // sides were normalized: discovery has resolved the root alias already.
+        assert!(aliased_file
+            .strip_prefix(discovered.workdir().unwrap())
+            .is_err());
+        let actual = FileBlame::try_new(aliased_file)
+            .unwrap()
+            .blame_for_line(0, 0, 0)
+            .details();
+        assert_eq!(actual, expected);
+        let linked = aliases.path().join("linked");
+        exec_git_cmd(
+            &["worktree", "add", "-b", "linked", linked.to_str().unwrap()],
+            root,
+        );
+        std::os::unix::fs::symlink(&linked, aliases.path().join("linked-alias")).unwrap();
+        let actual = FileBlame::try_new(aliases.path().join("linked-alias/src/file.rs"))
+            .unwrap()
+            .blame_for_line(0, 0, 0)
+            .details();
+        assert_eq!(actual, expected);
+        // No requirement for an existing leaf file just to read its history.
+        std::fs::remove_file(linked.join("src/file.rs")).unwrap();
+        let deleted = FileBlame::try_new(linked.join("src/file.rs"))
+            .unwrap()
+            .blame_for_line(0, 0, 0)
+            .details();
+        assert_eq!(deleted, expected);
+    }
 
     /// describes how a line was modified
     #[derive(PartialEq, PartialOrd, Ord, Eq)]

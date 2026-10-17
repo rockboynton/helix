@@ -164,6 +164,13 @@ The existing on-demand popup shortcut remains separate.
 
 ### Requirements and limitations
 
+Blame resolves directory aliases on both the file path and Git worktree root
+before computing the repository-relative path. This supports symlinked checkout
+paths and linked worktrees, including macOS-style temporary-directory aliases.
+Older builds could report only `prefix not found` for this mismatch; remaining
+outside-worktree errors now identify the two paths. This happens before GitHub
+authentication or API lookup.
+
 - The repository must be trusted. Uncommitted lines have no historical blame.
 - GitHub enrichment uses a pooled native Octocrab client—no `gh` subprocess is
   needed for requests or credential lookup. Offline/authentication failures and
