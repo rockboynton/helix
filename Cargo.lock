@@ -3416,6 +3416,7 @@ dependencies = [
  "helix-loader",
  "helix-lsp-types",
  "helix-stdx",
+ "imara-diff",
  "libc",
  "log",
  "parking_lot",

@@ -4,6 +4,43 @@ use helix_stdx::path;
 use helix_view::doc;
 
 #[tokio::test(flavor = "multi_thread")]
+async fn moving_directory_rebinds_all_open_documents_without_losing_edits() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let old = directory.path().join("old");
+    let new = directory.path().join("new");
+    std::fs::create_dir(&old)?;
+    std::fs::write(old.join("a.rs"), "fn a() {}\n")?;
+    std::fs::write(old.join("b.rs"), "fn b() {}\n")?;
+    let mut app = helpers::AppBuilder::new()
+        .with_file(old.join("a.rs"), None)
+        .build()?;
+    let first = doc!(app.editor).id();
+    let second = app
+        .editor
+        .open(&old.join("b.rs"), helix_view::editor::Action::Load)?;
+    let view = app.editor.get_synced_view_id(first);
+    let doc = app.editor.document_mut(first).unwrap();
+    let transaction =
+        helix_core::Transaction::change(doc.text(), [(0, 0, Some("unsaved ".into()))].into_iter());
+    assert!(doc.apply(&transaction, view));
+    app.editor.move_path(&old, &new)?;
+    assert_eq!(
+        app.editor.document(first).unwrap().path(),
+        Some(new.join("a.rs").as_path())
+    );
+    assert_eq!(
+        app.editor.document(second).unwrap().path(),
+        Some(new.join("b.rs").as_path())
+    );
+    assert_eq!(
+        app.editor.document(first).unwrap().text().to_string(),
+        "unsaved fn a() {}\n"
+    );
+    assert_eq!(std::fs::read_to_string(new.join("a.rs"))?, "fn a() {}\n");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn opening_a_file_preserves_a_named_newline_only_snapshot() -> anyhow::Result<()> {
     let file = tempfile::NamedTempFile::new()?;
     let mut app = helpers::AppBuilder::new().build()?;

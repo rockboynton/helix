@@ -177,6 +177,8 @@ pub struct RefactorFile {
 }
 
 pub struct Document {
+    /// Source of a replicated edit; notify other servers, never echo to this one.
+    pub(crate) shared_lsp_origin: Option<helix_lsp::LanguageServerId>,
     pub inline_diff: Option<Box<crate::inline_diff::InlineDiff>>,
     pub refactor: Option<RefactorState>,
     pub(crate) id: DocumentId,
@@ -834,6 +836,7 @@ impl Document {
             auto_reload_deleted: false,
             last_saved_revision: 0,
             modified_since_accessed: false,
+            shared_lsp_origin: None,
             language_servers: HashMap::new(),
             diff_handle: None,
             config,
@@ -1804,6 +1807,18 @@ impl Document {
     /// Apply a [`Transaction`] to the [`Document`] to change its text.
     pub fn apply(&mut self, transaction: &Transaction, view_id: ViewId) -> bool {
         self.apply_inner(transaction, view_id, true)
+    }
+
+    pub fn apply_shared(
+        &mut self,
+        transaction: &Transaction,
+        view_id: ViewId,
+        origin: helix_lsp::LanguageServerId,
+    ) -> bool {
+        self.shared_lsp_origin = Some(origin);
+        let applied = self.apply_inner(transaction, view_id, true);
+        self.shared_lsp_origin = None;
+        applied
     }
 
     /// Get the line blame for this view

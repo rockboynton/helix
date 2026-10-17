@@ -1286,9 +1286,12 @@ pub fn rename_symbol(cx: &mut Context) {
 
                 match block_on(future) {
                     Ok(edits) => {
-                        let _ = cx
+                        if let Err(error) = cx
                             .editor
-                            .apply_workspace_edit(offset_encoding, &edits.unwrap_or_default());
+                            .apply_workspace_edit(offset_encoding, &edits.unwrap_or_default())
+                        {
+                            cx.editor.set_error(error.kind.to_string());
+                        }
                     }
                     Err(err) => cx.editor.set_error(err.to_string()),
                 }

@@ -111,12 +111,28 @@ pub(super) fn reader(
 
 #[derive(Default)]
 pub(super) struct History {
-    documents: BTreeMap<String, Vec<Value>>,
+    documents: BTreeMap<String, Value>,
     settings: Option<Value>,
     bytes: usize,
+    encoding: String,
+    syncs: BTreeMap<String, Value>,
 }
 impl History {
     pub(super) fn record(&mut self, value: &Value) -> bool {
+        if value["method"] == "neohelix/finishEdit" {
+            for item in value["params"]["documents"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                if !self.record(&json!({"jsonrpc":"2.0","method":"textDocument/didOpen","params":{"textDocument":item}})) { return false; }
+            }
+        }
+        if value.get("method").is_none() {
+            if let Some(params) = value["id"].as_str().and_then(|id| self.syncs.remove(id)) {
+                return self.synchronized(&params, &value["result"]).is_ok();
+            }
+        }
         let method = value["method"].as_str().unwrap_or("");
         if method == "workspace/didChangeConfiguration" {
             let size = value.to_string().len();
@@ -133,35 +149,84 @@ impl History {
         };
         if method == "textDocument/didClose" {
             if let Some(history) = self.documents.remove(uri) {
-                self.bytes -= history.iter().map(|v| v.to_string().len()).sum::<usize>();
+                self.bytes -= history.to_string().len();
             }
             return true;
         }
         if !matches!(method, "textDocument/didOpen" | "textDocument/didChange") {
             return true;
         }
-        let size = value.to_string().len();
-        if self.bytes + size > 8 * 1024 * 1024 || self.documents.len() >= 512 {
+        let snapshot = if method == "textDocument/didChange" {
+            let Some(mut snapshot) = self.documents.get(uri).cloned() else {
+                return false;
+            };
+            let Ok(text) = super::documents::apply_changes(
+                snapshot["params"]["textDocument"]["text"].as_str().unwrap(),
+                &value["params"]["contentChanges"],
+                &self.encoding,
+            ) else {
+                return false;
+            };
+            snapshot["params"]["textDocument"]["text"] = json!(text);
+            snapshot["params"]["textDocument"]["version"] =
+                value["params"]["textDocument"]["version"].clone();
+            snapshot
+        } else {
+            value.clone()
+        };
+        let old = self
+            .documents
+            .get(uri)
+            .map_or(0, |value| value.to_string().len());
+        let size = snapshot.to_string().len();
+        if self.bytes - old + size > 8 * 1024 * 1024 || (self.documents.len() >= 512 && old == 0) {
             return false;
         }
-        self.bytes += size;
-        if method == "textDocument/didOpen" {
-            if let Some(old) = self.documents.insert(uri.into(), vec![value.clone()]) {
-                self.bytes -= old.iter().map(|v| v.to_string().len()).sum::<usize>();
-            }
-        } else {
-            self.documents
-                .entry(uri.into())
-                .or_default()
-                .push(value.clone());
-        }
+        self.bytes = self.bytes - old + size;
+        self.documents.insert(uri.into(), snapshot);
         true
+    }
+    fn synchronized(&mut self, params: &Value, result: &Value) -> Result<()> {
+        if result["applied"] != true {
+            return Ok(());
+        }
+        let uri = params["uri"].as_str().context("sync lacks URI")?;
+        let snapshot = self
+            .documents
+            .get(uri)
+            .context("sync for closed document")?;
+        ensure!(
+            snapshot["params"]["textDocument"]["version"] == params["expectedVersion"],
+            "sync replay version mismatch"
+        );
+        let before = helix_core::Rope::from_str(
+            snapshot["params"]["textDocument"]["text"].as_str().unwrap(),
+        );
+        let changes = params["changes"]
+            .as_array()
+            .context("sync lacks changes")?
+            .iter()
+            .map(|change| {
+                Ok((
+                    change[0].as_u64().context("invalid start")? as usize,
+                    change[1].as_u64().context("invalid end")? as usize,
+                    Some(helix_core::Tendril::from(
+                        change[2].as_str().context("invalid replacement")?,
+                    )),
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let transaction = helix_core::Transaction::change(&before, changes.into_iter());
+        let mut text = before;
+        ensure!(transaction.apply(&mut text), "invalid sync transaction");
+        ensure!(self.record(&json!({"method":"textDocument/didChange","params":{"textDocument":{"uri":uri,"version":result["version"]},"contentChanges":[{"text":text.to_string()}]}})), "shared replay capacity reached");
+        Ok(())
     }
     pub(super) fn replay(&self) -> Vec<Value> {
         self.settings
             .iter()
             .cloned()
-            .chain(self.documents.values().flatten().cloned())
+            .chain(self.documents.values().cloned())
             .collect()
     }
     fn retains(value: &Value) -> bool {
@@ -182,11 +247,29 @@ fn cancel_pending(pending: &mut BTreeMap<String, Value>, reason: &str) -> Vec<Va
         "error":{"code":-32800,"message":format!("Shared LSP switched to a private server: {reason}; retry the request")}})).collect()
 }
 
+fn backend_capabilities(mut capabilities: Value) -> Value {
+    if let Some(experimental) = capabilities
+        .get_mut("experimental")
+        .and_then(Value::as_object_mut)
+    {
+        if experimental.remove("neohelixShared").is_some() {
+            experimental.remove("neohelixSharedSession");
+            let original = experimental.remove("neohelixBackendExperimental");
+            if let Some(original) = original {
+                capabilities["experimental"] = original;
+            } else if experimental.is_empty() {
+                capabilities.as_object_mut().unwrap().remove("experimental");
+            }
+        }
+    }
+    capabilities
+}
+
 async fn private(
     spec: Spec,
     initialize: Value,
     original_result: Option<Value>,
-    history: History,
+    mut history: History,
     mut input: mpsc::Receiver<Result<Value>>,
     mut output: Pipe,
     trigger: Option<Value>,
@@ -210,7 +293,7 @@ async fn private(
                 if value.get("method").is_none() && value["id"] == "neohelix/private-initialize" {
                     ensure!(value.get("error").is_none(), "private server initialization failed");
                     if let Some(old) = &original_result {
-                        ensure!(old["capabilities"] == value["result"]["capabilities"], "private server capabilities changed; restart the language server");
+                        ensure!(backend_capabilities(old["capabilities"].clone()) == backend_capabilities(value["result"]["capabilities"].clone()), "private server capabilities changed; restart the language server");
                         wire::write_lsp(&mut writer, &json!({"jsonrpc":"2.0","method":"initialized","params":{}})).await?;
                         for message in history.replay() { wire::write_lsp(&mut writer, &message).await?; }
                     } else {
@@ -228,6 +311,11 @@ async fn private(
             value = input.recv() => {
                 let Some(value) = value else { return Ok(()); };
                 let value = value?;
+                if value["id"].as_str().is_some_and(|id| id.starts_with("neohelix/sync/")) {
+                    ensure!(history.record(&value), "failed to retain late shared edit");
+                    continue;
+                }
+                if private_control(&value, &mut output).await? { continue; }
                 if value.get("method").is_none() && server_calls.remove(&value["id"].to_string()) {
                     wire::write_lsp(&mut writer, &value).await?;
                 } else {
@@ -239,11 +327,12 @@ async fn private(
         }
     }
     if let Some(value) = trigger {
-        if value.get("id").is_none() {
+        if !private_control(&value, &mut output).await? && value.get("id").is_none() {
             wire::write_lsp(&mut writer, &value).await?;
         }
     }
     for value in deferred {
+        if private_control(&value, &mut output).await? { continue; }
         wire::write_lsp(&mut writer, &value).await?;
     }
     loop {
@@ -255,6 +344,18 @@ async fn private(
             value = input.recv() => {
                 let Some(value) = value else { return Ok(()); };
                 let value = value?;
+                if value["id"].as_str().is_some_and(|id| id.starts_with("neohelix/sync/")) {
+                    let uri = value["id"].as_str().and_then(|id| history.syncs.get(id)).and_then(|params| params["uri"].as_str()).map(str::to_owned);
+                    ensure!(history.record(&value), "failed to retain late shared edit");
+                    if value["result"]["applied"] == true {
+                        if let Some(snapshot) = uri.and_then(|uri| history.documents.get(&uri)) {
+                            let item = &snapshot["params"]["textDocument"];
+                            wire::write_lsp(&mut writer, &json!({"jsonrpc":"2.0","method":"textDocument/didChange","params":{"textDocument":{"uri":item["uri"],"version":item["version"]},"contentChanges":[{"text":item["text"]}]}})).await?;
+                        }
+                    }
+                    continue;
+                }
+                if private_control(&value, &mut output).await? { continue; }
                 let exit = value["method"] == "exit";
                 wire::write_lsp(&mut writer, &value).await?;
                 if exit { let _ = tokio::time::timeout(Duration::from_secs(1), child.wait()).await; return Ok(()); }
@@ -265,6 +366,19 @@ async fn private(
     let _ = child.kill().await;
     let _ = child.wait().await;
     result
+}
+
+async fn private_control(value: &Value, output: &mut Pipe) -> Result<bool> {
+    if !value["method"]
+        .as_str()
+        .is_some_and(|method| method.starts_with("neohelix/"))
+    {
+        return Ok(false);
+    }
+    if let Some(id) = value.get("id") {
+        wire::write_lsp(output, &json!({"jsonrpc":"2.0","id":id,"error":{"code":-32801,"message":"shared broker is no longer available; inspect any applied edits before requesting the action again"}})).await?;
+    }
+    Ok(true)
 }
 
 pub(super) async fn run(spec: Spec) -> Result<()> {
@@ -325,7 +439,13 @@ pub(super) async fn run(spec: Spec) -> Result<()> {
             }
         }
     }));
-    let mut history = History::default();
+    let mut history = History {
+        encoding: result["capabilities"]["positionEncoding"]
+            .as_str()
+            .unwrap_or("utf-16")
+            .into(),
+        ..History::default()
+    };
     let mut pending = BTreeMap::new();
     let mut inflight: Option<(Value, bool)> = None;
     let reason;
@@ -350,6 +470,9 @@ pub(super) async fn run(spec: Spec) -> Result<()> {
                         inflight = None;
                     }
                     Some(Ok(Output::Message(value))) => {
+                        if value["method"] == "neohelix/syncDocument" {
+                            history.syncs.insert(value["id"].as_str().context("sync lacks ID")?.to_owned(), value["params"].clone());
+                        }
                         if value.get("method").is_none() { pending.remove(&value["id"].to_string()); }
                         wire::write_lsp(&mut output, &value).await?;
                     }

@@ -52,6 +52,23 @@ fn workspace_for_uri(uri: lsp::Url) -> WorkspaceFolder {
     }
 }
 
+#[cfg(unix)]
+enum PrepareSharedEdit {}
+#[cfg(unix)]
+impl lsp::request::Request for PrepareSharedEdit {
+    type Params = Value;
+    type Result = Value;
+    const METHOD: &'static str = "neohelix/prepareEdit";
+}
+#[cfg(unix)]
+enum FinishSharedEdit {}
+#[cfg(unix)]
+impl lsp::request::Request for FinishSharedEdit {
+    type Params = Value;
+    type Result = Value;
+    const METHOD: &'static str = "neohelix/finishEdit";
+}
+
 #[derive(Debug)]
 pub struct Client {
     id: LanguageServerId,
@@ -73,6 +90,41 @@ pub struct Client {
 }
 
 impl Client {
+    #[cfg(unix)]
+    pub fn shared_files_renamed(&self, old: &Path, new: &Path) {
+        if !self.is_initialized()
+            || !self
+                .capabilities()
+                .experimental
+                .as_ref()
+                .is_some_and(|value| value["neohelixShared"] == true)
+        {
+            return;
+        }
+        if let (Ok(old), Ok(new)) = (lsp::Url::from_file_path(old), lsp::Url::from_file_path(new)) {
+            let _ = self.send_custom_notification(
+                "neohelix/filesRenamed".into(),
+                Some(serde_json::json!({"files":[{"oldUri":old,"newUri":new}]})),
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    pub fn prepare_shared_edit(&self, token: &str) -> impl Future<Output = Result<Value>> {
+        self.call::<PrepareSharedEdit>(serde_json::json!({"token":token}))
+    }
+
+    #[cfg(unix)]
+    pub fn finish_shared_edit(
+        &self,
+        token: &str,
+        applied: bool,
+        documents: Value,
+    ) -> impl Future<Output = Result<Value>> {
+        self.call::<FinishSharedEdit>(
+            serde_json::json!({"token":token,"applied":applied,"documents":documents}),
+        )
+    }
     pub fn try_add_doc(
         self: &Arc<Self>,
         root_markers: &RootMarkers,
@@ -1157,6 +1209,18 @@ impl Client {
     ) -> Option<()> {
         let capabilities = self.capabilities.get().unwrap();
 
+        #[cfg(unix)]
+        if capabilities
+            .experimental
+            .as_ref()
+            .is_some_and(|value| value["neohelixShared"] == true)
+        {
+            let _ = self.send_custom_notification(
+                "neohelix/documentSaved".into(),
+                Some(serde_json::json!({"uri":text_document.uri,"text":text.to_string()})),
+            );
+        }
+
         let include_text = match &capabilities.text_document_sync.as_ref()? {
             lsp::TextDocumentSyncCapability::Options(lsp::TextDocumentSyncOptions {
                 save: options,
@@ -1894,7 +1958,6 @@ impl Client {
     }
 
     /// Send a custom RPC notification with arbitrary method and params to the language server.
-    #[cfg(feature = "steel")]
     pub fn send_custom_notification(&self, method: String, params: Option<Value>) -> Result<()> {
         let server_tx = self.server_tx.clone();
 

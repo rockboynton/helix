@@ -54,37 +54,36 @@ fn routing_separates_colliding_ids_cancellation_and_diagnostics() {
 }
 
 #[test]
-fn overlapping_documents_and_mutating_requests_isolate_before_forwarding() {
+fn overlapping_documents_share_text_and_keep_backend_open_until_last_close() {
     let mut router = Router::default();
     router.attach(1);
     router.attach(2);
     only_server(router.client(1, open("file:///same.rs", "unsaved one")));
-    assert!(matches!(
-        router
-            .client(2, open("file:///same.rs", "unsaved two"))
-            .as_slice(),
-        [Action::Private(2, _)]
+    let mut joining = open("file:///same.rs", "disk version");
+    joining["params"]["textDocument"]["version"] = json!(0);
+    let sync = only_client(router.client(2, joining), 2);
+    assert_eq!(sync["method"], "neohelix/syncDocument");
+    assert_eq!(sync["params"]["expectedVersion"], 0);
+    assert!(router
+        .client(
+            2,
+            json!({"id":sync["id"],"result":{"applied":true,"version":2}})
+        )
+        .is_empty());
+    only_server(router.client(2, hover(7, "file:///same.rs")));
+    only_server(router.client(
+        1,
+        json!({"method":"workspace/executeCommand","id":3,"params":{"command":"once"}}),
     ));
-    assert!(matches!(
-        router.client(2, hover(7, "file:///same.rs")).as_slice(),
-        [Action::Private(2, _)]
+    assert!(router.detach(1).iter().all(
+        |action| matches!(action, Action::Server(value) if value["method"] == "$/cancelRequest")
     ));
-    assert!(matches!(
-        router
-            .client(
-                1,
-                json!({"method":"workspace/executeCommand","id":3,"params":{"command":"dangerous"}})
-            )
-            .as_slice(),
-        [Action::Private(1, _)]
-    ));
-    let closes = router.detach(1);
-    assert_eq!(only_server(closes)["method"], "textDocument/didClose");
-    only_server(router.client(2, open("file:///same.rs", "unsaved two")));
+    let actions = router.detach(2);
+    assert!(actions.iter().any(|action| matches!(action, Action::Server(value) if value["method"] == "textDocument/didClose")));
 }
 
 #[test]
-fn settings_versions_and_server_edits_fail_closed() {
+fn settings_versions_fail_closed_and_server_edits_route_once() {
     let mut router = Router::default();
     router.attach(1);
     router.attach(2);
@@ -95,10 +94,135 @@ fn settings_versions_and_server_edits_fail_closed() {
     assert!(matches!(router.client(2, json!({"method":"workspace/didChangeConfiguration","params":{"settings":{"feature":false}}})).as_slice(), [Action::Private(2, _)]));
     only_server(router.client(1, open("file:///one.rs", "one")));
     assert!(matches!(router.client(1, json!({"method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///one.rs","version":1},"contentChanges":[]}})).as_slice(), [Action::Private(1, _)]));
-    let rejected = only_server(router.server(
-        json!({"id":"edit","method":"workspace/applyEdit","params":{"edit":{"changes":{}}}}),
-    ));
-    assert_eq!(rejected["result"]["applied"], false);
+    let request = only_client(
+        router.server(
+            json!({"id":"edit","method":"workspace/applyEdit","params":{"edit":{"changes":{}}}}),
+        ),
+        1,
+    );
+    assert_eq!(request["method"], "workspace/applyEdit");
+    let reply =
+        only_server(router.client(1, json!({"id":request["id"],"result":{"applied":true}})));
+    assert_eq!(reply["id"], "edit");
+}
+
+#[test]
+fn workspace_edit_updates_peer_only_buffer_without_private_backend_or_saving() {
+    let mut router = Router::default();
+    router.attach(1);
+    router.attach(2);
+    only_server(router.client(1, open("file:///one.rs", "old")));
+    only_server(router.client(2, open("file:///two.rs", "old")));
+    let query = only_server(router.client(1, json!({"id":1,"method":"textDocument/rename","params":{"textDocument":{"uri":"file:///one.rs"},"position":{"line":0,"character":0},"newName":"new"}})));
+    let edit = json!({"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"new"});
+    let reply = only_client(router.server(json!({"id":query["id"],"result":{"changes":{"file:///one.rs":[edit],"file:///two.rs":[edit]}}})), 1);
+    let token = reply["result"]["changeAnnotations"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .next()
+        .unwrap();
+    let prepared = only_client(
+        router.client(
+            1,
+            json!({"id":2,"method":"neohelix/prepareEdit","params":{"token":token}}),
+        ),
+        1,
+    );
+    assert!(prepared["result"]["edit"]["changes"]
+        .get("file:///one.rs")
+        .is_some());
+    assert!(prepared["result"]["edit"]["changes"]
+        .get("file:///two.rs")
+        .is_none());
+    only_server(router.client(1, json!({"method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///one.rs","version":2},"contentChanges":[{"text":"new"}]}})));
+    let actions = router.client(
+        1,
+        json!({"id":3,"method":"neohelix/finishEdit","params":{"token":token,"applied":true}}),
+    );
+    assert_eq!(actions.len(), 3);
+    assert!(actions.iter().any(|action| matches!(action, Action::Server(value) if value["method"] == "textDocument/didChange" && value["params"]["textDocument"]["uri"] == "file:///two.rs")));
+    assert!(actions.iter().any(|action| matches!(action, Action::Client(2, value) if value["method"] == "neohelix/syncDocument")));
+    assert!(only_client(
+        router.client(
+            1,
+            json!({"id":4,"method":"neohelix/finishEdit","params":{"token":token,"applied":true}})
+        ),
+        1
+    )
+    .get("error")
+    .is_some());
+}
+
+#[test]
+fn peer_typing_after_prepare_rejects_workspace_edit_without_overwriting_it() {
+    let mut router = Router::default();
+    router.attach(1);
+    router.attach(2);
+    only_server(router.client(1, open("file:///one.rs", "old")));
+    only_server(router.client(2, open("file:///two.rs", "old")));
+    let query = only_server(router.client(1, json!({"id":1,"method":"textDocument/rename","params":{"textDocument":{"uri":"file:///one.rs"}}})));
+    let reply = only_client(router.server(json!({"id":query["id"],"result":{"changes":{"file:///two.rs":[{"range":{"start":{"line":0,"character":0},"end":{"line":0,"character":3}},"newText":"new"}]}}})),1);
+    let token = reply["result"]["changeAnnotations"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .next()
+        .unwrap();
+    only_client(
+        router.client(
+            1,
+            json!({"id":2,"method":"neohelix/prepareEdit","params":{"token":token}}),
+        ),
+        1,
+    );
+    let changed = only_server(router.client(2, json!({"method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///two.rs","version":2},"contentChanges":[{"text":"typing"}]}})));
+    assert_eq!(changed["params"]["contentChanges"][0]["text"], "typing");
+    let reply = only_client(
+        router.client(
+            1,
+            json!({"id":3,"method":"neohelix/finishEdit","params":{"token":token,"applied":true}}),
+        ),
+        1,
+    );
+    assert!(reply["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("document changed"));
+}
+
+#[test]
+fn disconnect_during_server_edit_does_not_replay_it_to_another_frontend() {
+    let mut router = Router::default();
+    router.attach(1);
+    router.attach(2);
+    only_client(
+        router.server(
+            json!({"id":"edit","method":"workspace/applyEdit","params":{"edit":{"changes":{}}}}),
+        ),
+        1,
+    );
+    let reply = only_server(router.detach(1));
+    assert_eq!(reply["id"], "edit");
+    assert_eq!(reply["result"]["applied"], false);
+}
+
+#[test]
+fn rename_rebinds_views_and_routes_late_old_uri_changes_to_the_new_document() {
+    let mut router = Router::default();
+    router.attach(1);
+    router.attach(2);
+    only_server(router.client(1, open("file:///old.rs", "abc")));
+    assert!(router.client(2, open("file:///old.rs", "abc")).is_empty());
+    let actions = router.client(1, json!({"method":"neohelix/filesRenamed","params":{"files":[{"oldUri":"file:///old.rs","newUri":"file:///new.rs"}]}}));
+    assert_eq!(actions.len(), 4);
+    assert!(router.client(1,json!({"method":"textDocument/didClose","params":{"textDocument":{"uri":"file:///old.rs"}}})).is_empty());
+    assert!(router.client(1, open("file:///new.rs", "abc")).is_empty());
+    let actions = router.client(2,json!({"method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///old.rs","version":2},"contentChanges":[{"text":"xyz"}]}}));
+    assert!(actions.iter().any(|action| matches!(action, Action::Server(value) if value["params"]["textDocument"]["uri"] == "file:///new.rs" && value["method"] == "textDocument/didChange")));
+    assert!(!actions
+        .iter()
+        .any(|action| matches!(action, Action::Private(_, _))));
 }
 
 #[test]
@@ -251,13 +375,16 @@ fn peer_rejecting_replayed_watchers_is_isolated() {
 }
 
 #[test]
-fn replay_retains_exact_unsaved_change_sequence_and_closes() {
+fn replay_compacts_unsaved_changes_without_losing_unicode_and_closes() {
     let mut history = proxy::History::default();
     let opened = open("file:///one.rs", "λ🦀abc");
     let changed = json!({"method":"textDocument/didChange","params":{"textDocument":{"uri":"file:///one.rs","version":2},"contentChanges":[{"range":{"start":{"line":0,"character":3},"end":{"line":0,"character":6}},"text":"xyz"}]}});
     assert!(history.record(&opened));
     assert!(history.record(&changed));
-    assert_eq!(history.replay(), [opened, changed]);
+    let replay = history.replay();
+    assert_eq!(replay.len(), 1);
+    assert_eq!(replay[0]["params"]["textDocument"]["text"], "λ🦀xyz");
+    assert_eq!(replay[0]["params"]["textDocument"]["version"], 2);
     assert!(history.record(&json!({"method":"textDocument/didClose","params":{"textDocument":{"uri":"file:///one.rs"}}})));
     assert!(history.replay().is_empty());
     assert!(!history.record(&open("file:///huge.rs", &"x".repeat(8 * 1024 * 1024))));

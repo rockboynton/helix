@@ -1083,6 +1083,26 @@ impl Application {
 
         match call {
             Call::Notification(helix_lsp::jsonrpc::Notification { method, params, .. }) => {
+                #[cfg(unix)]
+                if method == "neohelix/filesRenamed" {
+                    if let Ok(params) = params.parse::<serde_json::Value>() {
+                        if let Err(error) = self.editor.rebind_shared_documents(server_id, &params)
+                        {
+                            self.editor
+                                .set_error(format!("shared file rename: {error}"));
+                        }
+                    }
+                    return;
+                }
+                #[cfg(unix)]
+                if method == "neohelix/documentSaved" {
+                    if let Ok(params) = params.parse::<serde_json::Value>() {
+                        if let Err(error) = self.editor.saved_shared_document(server_id, &params) {
+                            log::warn!("shared document save: {error}");
+                        }
+                    }
+                    return;
+                }
                 let notification = match Notification::parse(&method, params) {
                     Ok(notification) => notification,
                     Err(helix_lsp::Error::Unhandled) => {
@@ -1284,6 +1304,20 @@ impl Application {
             Call::MethodCall(helix_lsp::jsonrpc::MethodCall {
                 method, params, id, ..
             }) => {
+                #[cfg(unix)]
+                if method == "neohelix/syncDocument" {
+                    let reply = params
+                        .parse::<serde_json::Value>()
+                        .map_err(anyhow::Error::from)
+                        .and_then(|params| self.editor.sync_shared_document(server_id, &params))
+                        .map_err(|error| helix_lsp::jsonrpc::Error {
+                            code: helix_lsp::jsonrpc::ErrorCode::InvalidParams,
+                            message: error.to_string(),
+                            data: None,
+                        });
+                    let _ = language_server!().reply(id, reply);
+                    return;
+                }
                 let reply = match MethodCall::parse(&method, params) {
                     Err(helix_lsp::Error::Unhandled) => {
                         error!(

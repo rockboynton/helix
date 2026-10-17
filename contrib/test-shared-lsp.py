@@ -28,7 +28,7 @@ spec.loader.exec_module(baseline)
 HX = str(Path(os.environ.get("HX", Path(__file__).resolve().parents[1] / "target/debug/hx")).resolve())
 
 FAKE = r'''
-import json,os,sys
+import json,os,sys,re
 documents = {}
 def record(method, **extra):
     line = json.dumps(dict(pid=os.getpid(), parent=os.getppid(), method=method, **extra)) + "\n"
@@ -52,10 +52,12 @@ while True:
         key,value = line.decode().split(":",1); headers[key.lower()] = value.strip()
     message = json.loads(sys.stdin.buffer.read(int(headers["content-length"])))
     method, params = message.get("method"), message.get("params") or {}
-    if method is None: continue
+    if method is None:
+        record("reply",id=message.get("id"),result=message.get("result"))
+        continue
     record(method, uri=params.get("textDocument", {}).get("uri"))
     if method == "initialize":
-        send(dict(id=message["id"], result=dict(capabilities=dict(hoverProvider=True,textDocumentSync=2))))
+        send(dict(id=message["id"], result=dict(capabilities=dict(hoverProvider=True,renameProvider=True,textDocumentSync=2,executeCommandProvider=dict(commands=["fixture.applyEdit"])))))
     elif method == "initialized":
         send(dict(id="register",method="client/registerCapability",params=dict(registrations=[dict(id="watch",method="workspace/didChangeWatchedFiles",registerOptions=dict(watchers=[]))])))
         send(dict(id="config",method="workspace/configuration",params=dict(items=[dict(section="")])))
@@ -79,9 +81,30 @@ while True:
     elif method == "textDocument/hover":
         text,version=documents[params["textDocument"]["uri"]]
         send(dict(id=message["id"],result=dict(contents=text,range=None)))
+    elif method == "textDocument/rename":
+        changes=[]
+        renamed=params["newName"]=="moved"
+        old_uri=params["textDocument"]["uri"]
+        new_uri=old_uri.rsplit('/',1)[0]+'/moved.rs'
+        for uri,(text,version) in documents.items():
+            edits=[]
+            for line,row in enumerate(text.splitlines()):
+                for match in re.finditer(r'\bold\b',row):
+                    edits.append(dict(range=dict(start=dict(line=line,character=match.start()),end=dict(line=line,character=match.end())),newText=params["newName"]))
+            if edits: changes.append(dict(textDocument=dict(uri=new_uri if renamed and uri==old_uri else uri,version=version),edits=edits))
+        resources=[dict(kind="rename",oldUri=old_uri,newUri=new_uri)] if renamed else []
+        send(dict(id=message["id"],result=dict(documentChanges=resources+changes)))
     elif method == "workspace/symbol":
         if params.get("query") == "crash": os._exit(7)
         send(dict(id=message["id"],result=[]))
+    elif method == "workspace/executeCommand":
+        if params.get("command")=="fixture.applyEdit":
+            changes={}
+            for uri,(text,version) in documents.items():
+                row=text.splitlines()[0]
+                changes[uri]=[dict(range=dict(start=dict(line=0,character=0),end=dict(line=0,character=len(row))),newText=row.replace("old","new"))]
+            send(dict(id="apply-edit",method="workspace/applyEdit",params=dict(edit=dict(changes=changes))))
+        send(dict(id=message["id"],result=None))
     elif method == "shutdown": send(dict(id=message["id"],result=None))
     elif method == "exit": sys.exit(0)
     elif "id" in message: send(dict(id=message["id"],result=None))
@@ -113,9 +136,13 @@ class SharedTests(unittest.TestCase):
         deadline=time.monotonic()+20
         while time.monotonic()<deadline:
             self.pump()
-            if predicate(): return
+            try:
+                if predicate(): return
+            except FileNotFoundError:
+                # Atomic saves can briefly move the old pathname away.
+                pass
             time.sleep(.02)
-        logs=[p.read_text()[-3000:] for _,_,p in self.editors if p.exists()]
+        logs=[p.read_text()[:1500]+"\n...\n"+p.read_text()[-4000:] for _,_,p in self.editors if p.exists()]
         self.fail(f"timed out; LSP events={self.entries()}, editor logs={logs}")
 
     def editor(self, file, pane, sharing="1", server=None):
@@ -147,6 +174,49 @@ class SharedTests(unittest.TestCase):
     def entries(self):
         if not self.log.exists(): return []
         return [json.loads(line) for line in self.log.read_text().splitlines()]
+
+    def buffer_text(self, pane, uri):
+        """Replay logged local edits and acknowledged peer transactions.
+
+        Release builds coalesce updates; acknowledgment counts are not text
+        versions shared between editor processes.
+        """
+        log=self.editors[pane-1][2]
+        if not log.exists(): return None
+        documents={}; pending={}
+        def offset(text, position):
+            rows=text.splitlines(keepends=True)
+            before="".join(rows[:position["line"]])
+            row=rows[position["line"]] if position["line"]<len(rows) else ""
+            return len(before)+len(row.encode("utf-16-le")[:position["character"]*2].decode("utf-16-le"))
+        for line in log.read_text().splitlines():
+            sent='fixture -> ' in line
+            marker='fixture -> ' if sent else 'fixture <- '
+            if marker not in line: continue
+            try: value=json.loads(line.split(marker,1)[1])
+            except json.JSONDecodeError: continue
+            method=value.get('method'); params=value.get('params') or {}
+            if not sent and method=='neohelix/syncDocument': pending[value['id']]=params
+            elif sent and method=='textDocument/didOpen':
+                item=params['textDocument']; documents[item['uri']]=item['text']
+            elif sent and method=='textDocument/didClose': documents.pop(params['textDocument']['uri'],None)
+            elif sent and method=='textDocument/didChange':
+                name=params['textDocument']['uri']
+                if name not in documents: continue
+                text=documents[name]
+                for change in params['contentChanges']:
+                    if 'range' in change:
+                        start=offset(text,change['range']['start']); end=offset(text,change['range']['end'])
+                        text=text[:start]+change['text']+text[end:]
+                    else: text=change['text']
+                documents[name]=text
+            elif sent and value.get('id') in pending:
+                update=pending.pop(value['id'])
+                if (value.get('result') or {}).get('applied') and update['uri'] in documents:
+                    text=documents[update['uri']]
+                    for start,end,replacement in reversed(update['changes']): text=text[:start]+replacement+text[end:]
+                    documents[update['uri']]=text
+        return documents.get(uri)
 
     def starts(self):
         return [entry for entry in self.entries() if entry["method"] == "spawn"]
@@ -187,7 +257,7 @@ class SharedTests(unittest.TestCase):
         first.close(); self.clients.remove(first)
         self.assertEqual(self.hover(second, b), "unsaved second")
 
-    def test_overlap_isolates_and_replays_unsaved_utf16_edits(self):
+    def test_divergent_preexisting_unsaved_buffer_is_not_overwritten(self):
         first, second = self.start(), self.start()
         a = self.open(first, "same.rs", "first client's version")
         b = self.open(second, "other.rs", "λ🦀abc")
@@ -201,18 +271,16 @@ class SharedTests(unittest.TestCase):
         self.assertEqual(len(self.starts()), 2)
         self.assertFalse((self.root / "same.rs").exists(), "fallback wrote unsaved text to disk")
 
-    def test_mutating_request_is_cancelled_before_execution_then_uses_private_server(self):
+    def test_execute_command_runs_once_without_starting_a_private_server(self):
         first, second = self.start(), self.start()
         a = self.open(first, "one.rs", "one")
         b = self.open(second, "two.rs", "two")
         self.hover(first, a); self.hover(second, b)
-        with self.assertRaisesRegex(RuntimeError, "retry"):
-            second.request("workspace/executeCommand", dict(command="dangerous"))
+        second.request("workspace/executeCommand", dict(command="once"))
         self.assertEqual(self.hover(second, b), "two")
-        self.assertFalse(any(e["method"] == "workspace/executeCommand" for e in self.entries()))
-        second.request("workspace/executeCommand", dict(command="safe to retry explicitly"))
         self.assertEqual(sum(e["method"] == "workspace/executeCommand" for e in self.entries()), 1)
         self.assertEqual(self.hover(first, a), "one")
+        self.assertEqual(len(self.starts()),1)
 
     def test_different_settings_do_not_share(self):
         first = self.start(dict(feature=True))
@@ -302,7 +370,7 @@ class SharedTests(unittest.TestCase):
         self.assertEqual(target.read_text(),"preserve me")
         target.unlink()
 
-    def test_two_real_editors_share_then_isolate_without_saving_buffers(self):
+    def test_two_real_editors_share_same_unsaved_document_bidirectionally(self):
         one,two=self.root/"one.rs",self.root/"two.rs"
         one.write_text("fn first() {}\n"); two.write_text("fn second() {}\n")
         first=self.editor(one,1); second=self.editor(two,2)
@@ -311,10 +379,61 @@ class SharedTests(unittest.TestCase):
         os.write(second,b"iUNSAVED \x1b")
         self.wait(lambda: any(e["method"]=="state" and e.get("text","").startswith("UNSAVED ") for e in self.entries()))
         os.write(second,b":open "+str(one).encode()+b"\r")
-        self.wait(lambda: len(self.starts())==2)
-        private_pid=self.starts()[-1]["pid"]
-        self.wait(lambda: any(e["method"]=="state" and e["pid"]==private_pid and e.get("uri")==two.as_uri() and e.get("text","").startswith("UNSAVED ") for e in self.entries()))
+        self.wait(lambda: one.as_uri() in self.editors[1][2].read_text())
+        os.write(first,b"iFIRST \x1b")
+        self.wait(lambda: any(e["method"]=="state" and e.get("uri")==one.as_uri() and e.get("text","").startswith("FIRST ") for e in self.entries()))
+        self.wait(lambda: 'neohelix/syncDocument' in self.editors[1][2].read_text())
+        # A subsequent command is processed after the peer update in the UI.
+        os.write(second,b":write\r")
+        self.wait(lambda: one.read_text().startswith("FIRST "))
+        os.write(second,b"iSECOND \x1b")
+        self.wait(lambda: any(e["method"]=="state" and e.get("uri")==one.as_uri() and "SECOND " in e.get("text","") for e in self.entries()))
+        self.wait(lambda: 'neohelix/syncDocument' in self.editors[0][2].read_text())
+        os.write(first,b":write\r")
+        self.wait(lambda: "SECOND " in one.read_text())
+        self.assertIn("FIRST ",one.read_text())
+        self.assertEqual(len(self.starts()),1,self.entries())
         self.assertEqual(two.read_text(),"fn second() {}\n")
+
+    def test_two_real_editors_join_unsaved_text_and_concurrent_insertions_converge(self):
+        file=self.root/"same.rs"
+        file.write_text("fn same() {}\n")
+        first=self.editor(file,1)
+        self.wait(lambda: any(e["method"]=="state" for e in self.entries()))
+        os.write(first,b"iUNSAVED \x1b")
+        self.wait(lambda: any(e["method"]=="state" and e.get("text","").startswith("UNSAVED ") for e in self.entries()))
+        second=self.editor(file,2)
+        self.wait(lambda: self.editors[1][2].exists() and 'neohelix/syncDocument' in self.editors[1][2].read_text())
+        os.write(second,b":write\r")
+        self.wait(lambda: file.read_text().startswith("UNSAVED "))
+        os.write(first,b"i12345\x1b")
+        os.write(second,b"i67890\x1b")
+        def complete(text):
+            return all(text.count(char)==1 for char in "1234567890")
+        self.wait(lambda: any(e["method"]=="state" and complete(e.get("text","")) for e in self.entries()))
+        expected=[e["text"] for e in self.entries() if e["method"]=="state"][-1]
+        for sequence in ["12345","67890"]:
+            self.assertEqual("".join(char for char in expected if char in sequence),sequence)
+        os.write(first,b":write\r")
+        self.wait(lambda: file.read_text()==expected)
+        os.write(second,b":write\r")
+        self.wait(lambda: 'written' in self.editors[1][2].read_text() or file.read_text()==expected)
+        self.assertEqual(file.read_text(),expected)
+        self.assertEqual(len(self.starts()),1,self.entries())
+
+    def test_rename_coordinates_two_real_editors_without_saving_or_new_backend(self):
+        one,two=self.root/"one.rs",self.root/"two.rs"
+        one.write_text("fn old() {}\n"); two.write_text("fn use_it() { old(); }\n")
+        first=self.editor(one,1); second=self.editor(two,2)
+        self.wait(lambda: sum(e["method"]=="state" for e in self.entries())==2)
+        os.write(first,b"3l r\x15new\r")
+        self.wait(lambda: len({e.get("uri") for e in self.entries() if e["method"]=="state" and "new" in e.get("text","")})==2)
+        self.wait(lambda: '"applied":true' in self.editors[1][2].read_text())
+        self.assertEqual(one.read_text(),"fn old() {}\n")
+        self.assertEqual(two.read_text(),"fn use_it() { old(); }\n")
+        self.assertEqual(len(self.starts()),1,self.entries())
+        os.write(first,b":write\r"); os.write(second,b":write\r")
+        self.wait(lambda: "new" in one.read_text() and "new" in two.read_text())
 
     def test_real_editor_restart_is_private_and_preserves_unsaved_text(self):
         one,two=self.root/"one.rs",self.root/"two.rs"
@@ -333,6 +452,79 @@ class SharedTests(unittest.TestCase):
         self.assertFalse(any(e["method"]=="shutdown" and e["pid"]==shared for e in self.entries()))
         self.assertEqual(two.read_text(),"fn second() {}\n")
 
+    def test_server_initiated_workspace_edit_has_one_driver_and_updates_peer(self):
+        one,two=self.root/"one.rs",self.root/"two.rs"
+        one.write_text("fn old() {}\n"); two.write_text("fn old() {}\n")
+        first=self.editor(one,1); second=self.editor(two,2)
+        self.wait(lambda: sum(e["method"]=="state" for e in self.entries())==2)
+        os.write(second,b":lsp-workspace-command fixture.applyEdit\r")
+        self.wait(lambda: any(e["method"]=="reply" and e.get("id")=="apply-edit" and e.get("result",{}).get("applied") for e in self.entries()))
+        self.wait(lambda: '"applied":true' in self.editors[1][2].read_text())
+        self.assertEqual(sum(e["method"]=="reply" and e.get("id")=="apply-edit" for e in self.entries()),1)
+        self.assertEqual(len(self.starts()),1)
+        self.assertEqual(one.read_text(),"fn old() {}\n")
+        self.assertEqual(two.read_text(),"fn old() {}\n")
+        os.write(first,b":write\r"); os.write(second,b":write\r")
+        self.wait(lambda: "new" in one.read_text() and "new" in two.read_text())
+
+    def test_server_workspace_rename_then_text_edit_rebinds_shared_buffer(self):
+        old,new=self.root/"old.rs",self.root/"moved.rs"
+        old.write_text("fn old() {}\n")
+        first=self.editor(old,1); second=self.editor(old,2)
+        self.wait(lambda: all(log.exists() and 'textDocument/didOpen' in log.read_text() for _,_,log in self.editors))
+        os.write(first,b"3l r\x15moved\r")
+        self.wait(lambda: new.exists() and not old.exists())
+        self.wait(lambda: any(e["method"]=="state" and e.get("uri")==new.as_uri() and "fn moved" in e.get("text","") for e in self.entries()))
+        self.wait(lambda: '"applied":true' in self.editors[1][2].read_text())
+        self.assertEqual(new.read_text(),"fn old() {}\n")
+        os.write(second,b":write\r")
+        self.wait(lambda: new.read_text()=="fn moved() {}\n")
+        self.assertEqual(len(self.starts()),1,self.entries())
+
+    def test_moving_shared_unsaved_buffer_rebinds_peer_without_reloading(self):
+        old,new=self.root/"old.rs",self.root/"new.rs"
+        old.write_text("fn same() {}\n")
+        first=self.editor(old,1); second=self.editor(old,2)
+        self.wait(lambda: all(log.exists() and 'textDocument/didOpen' in log.read_text() for _,_,log in self.editors))
+        os.write(first,b"iUNSAVED \x1b")
+        self.wait(lambda: self.buffer_text(2,old.as_uri())=="UNSAVED fn same() {}\n")
+        os.write(first,b":move "+str(new).encode()+b"\r")
+        self.wait(lambda: new.exists() and not old.exists())
+        self.wait(lambda: all(new.as_uri() in log.read_text() and 'neohelix/filesRenamed' in log.read_text() for _,_,log in self.editors))
+        self.assertEqual(new.read_text(),"fn same() {}\n")
+        os.write(second,b":write\r")
+        self.wait(lambda: new.read_text().startswith("UNSAVED "))
+        self.assertFalse(old.exists(),"peer saved to the old filename")
+        self.assertEqual(len(self.starts()),1,self.entries())
+
+    def test_peer_save_clears_modified_state_without_forcing_other_editor_to_save(self):
+        file=self.root/"same.rs"
+        file.write_text("fn same() {}\n")
+        first=self.editor(file,1); second=self.editor(file,2)
+        self.wait(lambda: all(log.exists() and 'textDocument/didOpen' in log.read_text() for _,_,log in self.editors))
+        os.write(first,b"iSHARED \x1b")
+        self.wait(lambda: self.buffer_text(2,file.as_uri())=="SHARED fn same() {}\n")
+        os.write(second,b":write\r")
+        self.wait(lambda: file.read_text().startswith("SHARED "))
+        self.wait(lambda: 'neohelix/documentSaved' in self.editors[0][2].read_text())
+        os.write(first,b":quit-all\r")
+        self.wait(lambda: self.editors[0][0].poll() is not None)
+        self.assertIsNone(self.editors[1][0].poll())
+        self.assertEqual(len(self.starts()),1)
+
+    def test_backend_crash_replays_peer_edits_without_forcing_save(self):
+        file=self.root/"same.rs"
+        file.write_text("fn same() {}\n")
+        first=self.editor(file,1); self.editor(file,2)
+        self.wait(lambda: all(log.exists() and 'textDocument/didOpen' in log.read_text() for _,_,log in self.editors))
+        os.write(first,b"iREMOTE \x1b")
+        self.wait(lambda: self.buffer_text(2,file.as_uri())=="REMOTE fn same() {}\n")
+        os.kill(self.starts()[0]["pid"],signal.SIGKILL)
+        self.wait(lambda: len(self.starts())==3)
+        private={entry["pid"] for entry in self.starts()[1:]}
+        self.wait(lambda: {entry["pid"] for entry in self.entries() if entry["method"]=="state" and entry.get("text","").startswith("REMOTE ")} >= private)
+        self.assertEqual(file.read_text(),"fn same() {}\n")
+
     def test_real_editors_without_opt_in_remain_independent(self):
         one,two=self.root/"one.rs",self.root/"two.rs"
         one.write_text("fn first() {}\n"); two.write_text("fn second() {}\n")
@@ -347,7 +539,7 @@ class SharedTests(unittest.TestCase):
         (source/"lib.rs").write_text("mod one; mod two;\n")
         one,two=source/"one.rs",source/"two.rs"
         one.write_text("pub fn first() -> u32 { 1 }\n")
-        two.write_text("pub fn second() -> u32 { 2 }\n")
+        two.write_text("pub fn second() -> u32 { super::one::first() }\n")
         first=self.editor(one,1,server=os.environ["RUST_ANALYZER"])
         second=self.editor(two,2,server=os.environ["RUST_ANALYZER"])
         def received(log):
@@ -371,6 +563,29 @@ class SharedTests(unittest.TestCase):
                 last_request=time.monotonic()
             return False
         self.wait(useful_hovers)
+        # Exercise the real analyzer's cross-file WorkspaceEdit, not merely a
+        # fixture that happens to accept our messages.
+        os.write(first,b"\x1b")
+        time.sleep(.03)
+        os.write(first,b" r")
+        def rename_prepared():
+            requests=[]
+            for line in self.editors[0][2].read_text().splitlines():
+                if 'fixture -> ' in line:
+                    try: message=json.loads(line.split('fixture -> ',1)[1])
+                    except json.JSONDecodeError: continue
+                    if message.get('method')=='textDocument/prepareRename': requests.append(message['id'])
+            return any(message.get('id') in requests and message.get('result') is not None for message in received(self.editors[0][2]))
+        self.wait(rename_prepared)
+        os.write(first,b"\x15renamed\r")
+        self.wait(lambda: 'neohelix/syncDocument' in self.editors[1][2].read_text())
+        self.assertIn("first",one.read_text())
+        self.assertIn("first",two.read_text())
+        for fd in [first,second]:
+            os.write(fd,b"\x1b")
+        time.sleep(.03)
+        for fd in [first,second]: os.write(fd,b":write\r")
+        self.wait(lambda: "renamed" in one.read_text() and "renamed" in two.read_text())
         # Every upstream child belongs to the broker, not to both editor proxies.
         rows=[row.split(None,2) for row in subprocess.check_output(["ps","-axo","pid=,ppid=,comm="],text=True).splitlines()]
         descendants={p.pid for p,_,_ in self.editors}

@@ -2,8 +2,11 @@
 //! the shared server. No configuration or credentials are persisted here.
 mod broker;
 mod discovery;
+mod documents;
+mod edits;
 mod proxy;
 mod router;
+mod text;
 mod wire;
 
 use anyhow::{ensure, Context, Result};
@@ -14,7 +17,7 @@ use std::{collections::BTreeMap, ffi::OsStr, os::unix::fs::MetadataExt, path::Pa
 
 const SPEC_ENV: &str = "HELIX_INTERNAL_LSP_SPEC";
 const SOCKET_ENV: &str = "HELIX_INTERNAL_LSP_SOCKET";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct Spec {

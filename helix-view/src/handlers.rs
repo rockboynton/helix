@@ -10,6 +10,8 @@ pub mod completion;
 pub mod dap;
 pub mod diagnostics;
 pub mod lsp;
+#[cfg(unix)]
+mod shared_lsp;
 pub mod word_index;
 
 #[derive(Debug)]

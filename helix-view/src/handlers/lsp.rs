@@ -57,6 +57,7 @@ pub enum ApplyEditErrorKind {
     FileNotFound,
     InvalidUrl(helix_core::uri::UrlConversionError),
     IoError(std::io::Error),
+    SharedCoordination(String),
     // TODO: check edits before applying and propagate failure
     // InvalidEdit,
 }
@@ -80,6 +81,7 @@ impl Display for ApplyEditErrorKind {
             ApplyEditErrorKind::FileNotFound => f.write_str("file not found"),
             ApplyEditErrorKind::InvalidUrl(err) => f.write_str(&format!("{err}")),
             ApplyEditErrorKind::IoError(err) => f.write_str(&format!("{err}")),
+            ApplyEditErrorKind::SharedCoordination(err) => f.write_str(err),
         }
     }
 }
@@ -138,6 +140,69 @@ impl Editor {
 
     // TODO make this transactional (and set failureMode to transactional)
     pub fn apply_workspace_edit(
+        &mut self,
+        offset_encoding: OffsetEncoding,
+        workspace_edit: &lsp::WorkspaceEdit,
+    ) -> Result<(), ApplyEditError> {
+        #[cfg(unix)]
+        if let Some(token) = workspace_edit
+            .change_annotations
+            .as_ref()
+            .and_then(|annotations| {
+                annotations
+                    .keys()
+                    .find(|key| key.starts_with("neohelix/shared/"))
+            })
+        {
+            let failure = |error: String| ApplyEditError {
+                kind: ApplyEditErrorKind::SharedCoordination(error),
+                failed_change_idx: 0,
+            };
+            let server = self
+                .language_servers
+                .iter_clients()
+                .find(|server| {
+                    server.is_initialized()
+                        && server
+                            .capabilities()
+                            .experimental
+                            .as_ref()
+                            .and_then(|value| value["neohelixSharedSession"].as_str())
+                            .is_some_and(|session| {
+                                token.starts_with(&format!("neohelix/shared/{session}/"))
+                            })
+                })
+                .cloned()
+                .ok_or_else(|| {
+                    failure(
+                        "shared workspace edit belongs to a disconnected server; request it again"
+                            .into(),
+                    )
+                })?;
+            let prepared = helix_lsp::block_on(server.prepare_shared_edit(token))
+                .map_err(|error| failure(error.to_string()))?;
+            let edit = serde_json::from_value(prepared["edit"].clone())
+                .map_err(|error| failure(error.to_string()))?;
+            let applied = self.apply_workspace_edit_raw(offset_encoding, &edit);
+            let documents = prepared["localUris"].as_array().into_iter().flatten().filter_map(|uri| {
+                let url = uri.as_str()?.parse::<helix_lsp::Url>().ok()?;
+                let uri = Uri::try_from(&url).ok()?;
+                let doc = self.document_by_path(uri.as_path()?)?;
+                Some(serde_json::json!({"uri":url,"version":doc.version(),"text":doc.text().to_string(),"languageId":doc.language_id().unwrap_or("")}))
+            }).collect::<Vec<_>>();
+            let finished = helix_lsp::block_on(server.finish_shared_edit(
+                token,
+                applied.is_ok(),
+                serde_json::json!(documents),
+            ));
+            applied?;
+            finished.map_err(|error| failure(error.to_string()))?;
+            return Ok(());
+        }
+        self.apply_workspace_edit_raw(offset_encoding, workspace_edit)
+    }
+
+    fn apply_workspace_edit_raw(
         &mut self,
         offset_encoding: OffsetEncoding,
         workspace_edit: &lsp::WorkspaceEdit,
@@ -231,6 +296,17 @@ impl Editor {
     }
 
     fn apply_document_resource_op(
+        &mut self,
+        op: &lsp::ResourceOp,
+    ) -> Result<(), ApplyEditErrorKind> {
+        let previous = self.applying_resource_op;
+        self.applying_resource_op = true;
+        let result = self.apply_document_resource_op_inner(op);
+        self.applying_resource_op = previous;
+        result
+    }
+
+    fn apply_document_resource_op_inner(
         &mut self,
         op: &lsp::ResourceOp,
     ) -> Result<(), ApplyEditErrorKind> {
@@ -413,6 +489,9 @@ pub fn register_hooks(_handlers: &Handlers) {
         // Send textDocument/didChange notifications.
         if !event.ghost_transaction {
             for language_server in event.doc.language_servers() {
+                if event.doc.shared_lsp_origin == Some(language_server.id()) {
+                    continue;
+                }
                 language_server.text_document_did_change(
                     event.doc.versioned_identifier(),
                     event.old_text,

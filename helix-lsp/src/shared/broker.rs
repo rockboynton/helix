@@ -225,7 +225,17 @@ pub(super) async fn serve(socket: PathBuf) -> Result<()> {
                     Event::Server(value) => {
                         if initialized.is_none() && value.get("method").is_none() && value["id"] == 0 {
                             ensure!(value.get("error").is_none(), "language server initialization failed");
-                            let result = value["result"].clone();
+                            let mut result = value["result"].clone();
+                            if !result["capabilities"]["experimental"].is_object() {
+                                let original = result["capabilities"].get("experimental").cloned();
+                                result["capabilities"]["experimental"] = json!({});
+                                if let Some(original) = original {
+                                    result["capabilities"]["experimental"]["neohelixBackendExperimental"] = original;
+                                }
+                            }
+                            result["capabilities"]["experimental"]["neohelixShared"] = json!(true);
+                            result["capabilities"]["experimental"]["neohelixSharedSession"] = json!(std::process::id().to_string());
+                            router.initialize(&result);
                             initialized = Some(result.clone());
                             let message = json!({"jsonrpc":"2.0","method":"initialized","params":{}});
                             tokio::time::timeout(Duration::from_secs(5), wire::write_lsp(stdin.as_mut().unwrap(), &message)).await??;

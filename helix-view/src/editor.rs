@@ -1530,6 +1530,7 @@ pub struct Editor {
 
     pub config_events: (UnboundedSender<ConfigEvent>, UnboundedReceiver<ConfigEvent>),
     pub needs_redraw: bool,
+    pub(crate) applying_resource_op: bool,
     /// Cached position of the cursor calculated during rendering.
     /// The content of `cursor_cache` is returned by `Editor::cursor` if
     /// set to `Some(_)`. The value will be cleared after it's used.
@@ -1953,6 +1954,7 @@ impl Editor {
             exit_code: 0,
             config_events: unbounded_channel(),
             needs_redraw: false,
+            applying_resource_op: false,
             handlers,
             mouse_down_range: None,
             cursor_cache: CursorCache::default(),
@@ -2143,6 +2145,9 @@ impl Editor {
             .cloned()
             .collect();
         for language_server in language_servers {
+            if self.applying_resource_op {
+                break;
+            }
             let Some(request) = language_server.will_rename(old_path, &new_path, is_dir) else {
                 continue;
             };
@@ -2162,8 +2167,26 @@ impl Editor {
             fs::rename(old_path, &new_path)?;
         }
 
-        if let Some(doc) = self.document_by_path(old_path) {
-            self.set_doc_path(doc.id(), &new_path);
+        #[cfg(unix)]
+        for ls in self.language_servers.iter_clients() {
+            ls.shared_files_renamed(old_path, &new_path);
+        }
+
+        let moved_documents = self
+            .documents
+            .values()
+            .filter_map(|doc| {
+                let suffix = doc.path()?.strip_prefix(old_path).ok()?;
+                let destination = if suffix.as_os_str().is_empty() {
+                    new_path.clone()
+                } else {
+                    new_path.join(suffix)
+                };
+                Some((doc.id(), destination))
+            })
+            .collect::<Vec<_>>();
+        for (id, path) in moved_documents {
+            self.set_doc_path(id, &path);
         }
         let is_dir = new_path.is_dir();
         for ls in self.language_servers.iter_clients() {
@@ -2197,6 +2220,9 @@ impl Editor {
             .cloned()
             .collect();
         for language_server in language_servers {
+            if self.applying_resource_op {
+                break;
+            }
             let Some(request) = language_server.will_create(&path, is_dir) else {
                 continue;
             };
@@ -2243,6 +2269,9 @@ impl Editor {
             .cloned()
             .collect();
         for language_server in language_servers {
+            if self.applying_resource_op {
+                break;
+            }
             let Some(request) = language_server.will_delete(&path, is_dir) else {
                 continue;
             };
