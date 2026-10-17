@@ -1,6 +1,6 @@
 # Shared LSP instances: baseline and design
 
-Status: investigation and measurement tooling only. **Helix still starts an
+Status: measurement tooling and transport groundwork only. **Helix still starts an
 independent server per editor process. No broker is enabled or implemented.**
 The target is independent Neohelix processes, including separate Zellij panes;
 sharing must not depend on the terminal multiplexer.
@@ -54,15 +54,25 @@ protocol baseline, not a substitute for testing Helix itself.
 ## Integration boundary
 
 `helix-lsp/src/client.rs::Client::start` currently resolves the server executable,
-spawns a `kill_on_drop` child, and owns that child. `Transport::start` accepts
-child-pipe-specific readers/writers. Each Client has its own numeric request-ID
+spawns a `kill_on_drop` child, and owns that child. `Transport::start` now accepts
+generic asynchronous readers/writers rather than child-pipe-specific types.
+The ordinary client still supplies the same buffered child pipes, with unchanged
+process ownership and protocol behavior. Each Client has its own numeric request-ID
 counter. Initialization sends the editor PID, capabilities, effective settings,
 root URI and workspace folders. These are separate per editor today.
 
-A shared transport therefore needs process ownership distinct from a client
-connection. Refactor the I/O boundary without changing direct-server behavior
-first. Do not simply replace stdio with a socket: request IDs, document versions,
+A shared client still needs process ownership distinct from a connection.
+The first transport refactor removes the I/O type restriction; it does not attach
+an editor to a broker. Do not simply replace stdio with a socket: request IDs, document versions,
 server-to-client requests, settings and shutdown are also session state.
+
+Transport regressions cover fragmented headers/payloads (including UTF-8),
+initialization and delayed requests, response routing, server-to-client requests,
+disconnect errors, shutdown-time registration acknowledgements and exit flushing.
+Linux tests also exercise an actual Unix socket pair and a child-pipe echo
+process. Socket-pair testing proves the I/O boundary works; it does not verify
+discovery, peer authentication or multi-editor correctness. Native macOS remains
+untested.
 
 ## Safety contract before enabling sharing
 
@@ -102,8 +112,10 @@ that LSP itself provides multi-editor sharing.
 
 ## Next implementation milestones
 
-1. Generalize the existing transport streams while retaining all direct-server
-   behavior and tests. Keep sharing disabled.
+1. **Implemented locally:** generalize the existing transport streams while
+   retaining direct-server behavior. Sharing remains disabled; the editor still
+   starts independent children. Complete before/after editor-level testing when
+   a shared-client attachment path is introduced.
 2. Add a private broker/control handshake and compatibility identity. Test
    startup races and separate configuration/workspaces without a real server.
 3. Prove two clients with disjoint files use one server. Include overlapping

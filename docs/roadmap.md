@@ -46,7 +46,10 @@ launch-time parity. Native macOS is pending.
   separate Zellij panes. Design workspace/server/config identity, document
   ownership and version coordination, process lifetime, and isolation first.
   Investigation has started: [baseline and safety design](shared-lsp.md), with a
-  reproducible two-instance protocol/memory harness. No sharing is enabled yet.
+  reproducible two-instance protocol/memory harness and generic stream transport
+  groundwork, tested with child pipes and a Unix socket pair. No sharing is
+  enabled yet; compatibility, authenticated broker discovery, routing and
+  document-ownership/fallback policies remain to implement.
 
 ## Implemented locally, pending release
 

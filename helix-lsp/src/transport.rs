@@ -11,8 +11,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::{
-    io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter},
-    process::{ChildStderr, ChildStdin, ChildStdout},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     sync::{
         mpsc::{unbounded_channel, Sender, UnboundedReceiver, UnboundedSender},
         Mutex, Notify,
@@ -52,11 +51,13 @@ pub struct Transport {
 }
 
 impl Transport {
+    /// Start the protocol over caller-owned streams. Buffering and process
+    /// lifetime belong to the caller; this does not initialize a shared server.
     #[allow(clippy::type_complexity)]
     pub fn start(
-        server_stdout: BufReader<ChildStdout>,
-        server_stdin: BufWriter<ChildStdin>,
-        server_stderr: BufReader<ChildStderr>,
+        server_stdout: impl AsyncBufRead + Unpin + Send + 'static,
+        server_stdin: impl AsyncWrite + Unpin + Send + 'static,
+        server_stderr: impl AsyncBufRead + Unpin + Send + 'static,
         id: LanguageServerId,
         name: String,
     ) -> (
@@ -172,7 +173,7 @@ impl Transport {
 
     async fn send_payload_to_server(
         &self,
-        server_stdin: &mut BufWriter<ChildStdin>,
+        server_stdin: &mut (impl AsyncWrite + Unpin + Send),
         payload: Payload,
     ) -> Result<()> {
         //TODO: reuse string
@@ -193,7 +194,7 @@ impl Transport {
 
     async fn send_string_to_server(
         &self,
-        server_stdin: &mut BufWriter<ChildStdin>,
+        server_stdin: &mut (impl AsyncWrite + Unpin + Send),
         request: String,
         language_server_name: &str,
     ) -> Result<()> {
@@ -286,7 +287,7 @@ impl Transport {
 
     async fn recv(
         transport: Arc<Self>,
-        mut server_stdout: BufReader<ChildStdout>,
+        mut server_stdout: impl AsyncBufRead + Unpin + Send,
         client_tx: UnboundedSender<(LanguageServerId, jsonrpc::Call)>,
     ) {
         let mut recv_buffer = String::new();
@@ -349,7 +350,7 @@ impl Transport {
         }
     }
 
-    async fn err(transport: Arc<Self>, mut server_stderr: BufReader<ChildStderr>) {
+    async fn err(transport: Arc<Self>, mut server_stderr: impl AsyncBufRead + Unpin + Send) {
         let mut recv_buffer = String::new();
         loop {
             match Self::recv_server_error(&mut server_stderr, &mut recv_buffer, &transport.name)
@@ -366,7 +367,7 @@ impl Transport {
 
     async fn send(
         transport: Arc<Self>,
-        mut server_stdin: BufWriter<ChildStdin>,
+        mut server_stdin: impl AsyncWrite + Unpin + Send,
         client_tx: UnboundedSender<(LanguageServerId, jsonrpc::Call)>,
         mut client_rx: UnboundedReceiver<Payload>,
         mut inject_rx: UnboundedReceiver<Payload>,
@@ -501,3 +502,6 @@ impl Transport {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
