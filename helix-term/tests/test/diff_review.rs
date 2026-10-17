@@ -11,6 +11,138 @@ fn tree(app: &helix_term::application::Application) -> &helix_term::ui::file_tre
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn tree_icons_use_configured_glyphs_styles_and_picker_visibility() -> anyhow::Result<()> {
+    use helix_term::ui::file_tree::FileTree;
+    use helix_view::{
+        graphics::{Color, Rect, Style},
+        icons::{Icon, IconStyle},
+    };
+    use std::{collections::HashMap, path::PathBuf};
+    for enabled in [true, false] {
+        let mut config = helix_term::config::Config::default();
+        config.editor = test_editor_config();
+        config.editor.icons.picker = enabled;
+        let mut app = AppBuilder::new().with_config(config).build()?;
+        let icon = |icon_char| Icon {
+            icon_char,
+            style: Some(IconStyle::Custom(Style::default().fg(Color::Magenta))),
+        };
+        app.editor.icons.ui = Some(HashMap::from([
+            ("folder".into(), icon('📁')),
+            ("folder_opened".into(), icon('📂')),
+        ]));
+        app.editor.icons.mime_type = Some(HashMap::from([("rs".into(), icon('🦀'))]));
+        let mut sidebar = FileTree::from_paths(
+            PathBuf::from("/virtual"),
+            [(PathBuf::from("src/main.rs"), false, None)],
+        );
+        let area = Rect::new(0, 0, 40, 6);
+        let mut surface = tui::buffer::Buffer::empty(area);
+        sidebar.render(area, &mut surface, &app.editor);
+        assert_eq!(
+            surface
+                .content
+                .iter()
+                .any(|cell| cell.symbol.as_str() == "📁"),
+            enabled
+        );
+        sidebar.expand_all();
+        sidebar.render(area, &mut surface, &app.editor);
+        for glyph in ["📂", "🦀"] {
+            let cell = surface
+                .content
+                .iter()
+                .find(|cell| cell.symbol.as_str() == glyph);
+            assert_eq!(cell.is_some(), enabled);
+            if let Some(cell) = cell {
+                assert_eq!(cell.fg, Color::Magenta);
+            }
+        }
+        let text = surface
+            .content
+            .iter()
+            .map(|cell| cell.symbol.as_str())
+            .collect::<String>();
+        assert!(text.contains("main.rs"));
+        for width in 0..9 {
+            sidebar.render(Rect::new(0, 0, width, 6), &mut surface, &app.editor);
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn window_binding_toggles_review_tree_focus_without_hiding_or_changing_panes(
+) -> anyhow::Result<()> {
+    let left = tempfile::tempdir()?;
+    let right = tempfile::tempdir()?;
+    std::fs::write(left.path().join("file.rs"), "fn old() {}\n")?;
+    std::fs::write(right.path().join("file.rs"), "fn new() {}\n")?;
+    let mut config = helix_term::config::Config::default();
+    config.editor = test_editor_config();
+    config.keys = toml::from_str::<helix_term::config::ConfigRaw>(
+        "[keys.normal.C-w]\ne = ':file-tree-focus'\n[keys.select.C-w]\ne = ':file-tree-focus'\n",
+    )?
+    .keys
+    .unwrap();
+    let mut app = AppBuilder::new()
+        .with_config(config)
+        .with_file(left.path(), None)
+        .with_file(right.path(), None)
+        .with_review(Layout::SideBySide)
+        .build()?;
+    test_key_sequences(
+        &mut app,
+        vec![
+            (
+                Some("<C-w>e"),
+                Some(&|app| {
+                    assert!(tree(app).focused);
+                    assert!(tree(app).visible);
+                    assert_eq!(app.editor.tree.views().count(), 2);
+                }),
+            ),
+            (
+                Some("<C-w>e"),
+                Some(&|app| {
+                    assert!(!tree(app).focused);
+                    assert!(tree(app).visible);
+                    assert_eq!(app.editor.tree.views().count(), 2);
+                }),
+            ),
+            (
+                Some(":file-tree-toggle<ret>"),
+                Some(&|app| assert!(!tree(app).visible)),
+            ),
+            (
+                Some("<C-w>e"),
+                Some(&|app| {
+                    assert!(tree(app).visible);
+                    assert!(tree(app).focused);
+                }),
+            ),
+            (Some("<C-w>e"), Some(&|app| assert!(!tree(app).focused))),
+            (
+                Some("v"),
+                Some(&|app| assert_eq!(app.editor.mode(), helix_view::document::Mode::Select)),
+            ),
+            (
+                Some("<C-w>e"),
+                Some(&|app| {
+                    assert!(tree(app).focused);
+                    assert_eq!(app.editor.mode(), helix_view::document::Mode::Select);
+                }),
+            ),
+            (Some("<C-w>e"), Some(&|app| assert!(!tree(app).focused))),
+            (Some("<esc>:qa!<ret>"), None),
+        ],
+        true,
+    )
+    .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_jj_revision_selection_reuses_panes_and_keeps_history_read_only(
 ) -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;

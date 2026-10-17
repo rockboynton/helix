@@ -2173,6 +2173,23 @@ fn diff_split(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> a
 }
 
 fn file_tree(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> anyhow::Result<()> {
+    file_tree_impl(cx, args, event, false)
+}
+
+fn file_tree_focus(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+) -> anyhow::Result<()> {
+    file_tree_impl(cx, args, event, true)
+}
+
+fn file_tree_impl(
+    cx: &mut compositor::Context,
+    args: Args,
+    event: PromptEvent,
+    toggle: bool,
+) -> anyhow::Result<()> {
     if event != PromptEvent::Validate {
         return Ok(());
     }
@@ -2189,8 +2206,8 @@ fn file_tree(cx: &mut compositor::Context, args: Args, event: PromptEvent) -> an
                         .find::<ui::EditorView>()
                         .and_then(|view| view.file_tree.as_mut())
                     {
+                        tree.focused = !tree.visible || !toggle || !tree.focused;
                         tree.visible = true;
-                        tree.focused = true;
                         return;
                     }
                 }
@@ -4546,6 +4563,7 @@ pub const TYPABLE_COMMAND_LIST: &[TypableCommand] = &[
     },
     TypableCommand { name: "file-tree", aliases: &["ft"], doc: "Open or focus an expandable filesystem/review sidebar.", fun: file_tree, completer: CommandCompleter::all(completers::directory), signature: Signature { positionals: (0, Some(1)), ..Signature::DEFAULT } },
     TypableCommand { name: "file-tree-toggle", aliases: &[], doc: "Show/hide the sidebar, retaining its tree, review and watch state.", fun: file_tree_toggle, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
+    TypableCommand { name: "file-tree-focus", aliases: &[], doc: "Toggle focus between the sidebar and current editor pane; reveal or create the sidebar if needed.", fun: file_tree_focus, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "file-tree-close", aliases: &[], doc: "Close the sidebar without closing buffers.", fun: file_tree_close, completer: CommandCompleter::none(), signature: Signature::DEFAULT },
     TypableCommand { name: "jj-review", aliases: &["jjr"], doc: "Select a JJ revision for native in-process review. Optional revset; @ is editable, history is read-only.", fun: jj_review, completer: CommandCompleter::none(), signature: Signature { positionals: (0, None), ..Signature::DEFAULT } },
     TypableCommand { name: "diff-review", aliases: &["dr"], doc: "Review all Git/JJ working changes, or two directories.", fun: diff_review, completer: CommandCompleter::all(completers::directory), signature: Signature { positionals: (0, Some(2)), ..Signature::DEFAULT } },

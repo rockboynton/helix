@@ -1,11 +1,12 @@
 //! Shared, persistent navigation panel for filesystem browsing and changesets.
 use crate::compositor::EventResult;
 use anyhow::Result;
+use helix_core::unicode::width::UnicodeWidthStr;
 use helix_view::{
     editor::Action,
     graphics::Rect,
     input::{Event, MouseButton, MouseEventKind},
-    keyboard::KeyCode,
+    keyboard::{KeyCode, KeyModifiers},
     Editor,
 };
 use std::{
@@ -232,13 +233,30 @@ impl FileTree {
                 .and_then(|index| self.review.as_ref()?.entries.get(index))
                 .map(|entry| format!(" {}", entry.label()))
                 .unwrap_or_default();
-            let text = format!(
-                "{}{} {}{}",
-                "  ".repeat(node.depth.min(32)),
-                marker,
-                name,
-                suffix
-            );
+            let prefix = format!("{}{} ", "  ".repeat(node.depth.min(32)), marker);
+            let icon = editor
+                .config()
+                .icons
+                .picker
+                .then(|| {
+                    if node.directory {
+                        let key = if self.expanded.contains(&node.path) {
+                            "folder_opened"
+                        } else {
+                            "folder"
+                        };
+                        editor.icons.ui.as_ref().and_then(|icons| icons.get(key))
+                    } else {
+                        editor.icons.icon_from_path(Some(&node.path))
+                    }
+                })
+                .flatten();
+            let glyph = icon.map(|icon| safe(&icon.icon_char.to_string()));
+            let icon_text = glyph
+                .as_ref()
+                .map(|glyph| format!("{glyph} "))
+                .unwrap_or_default();
+            let text = format!("{prefix}{icon_text}{name}{suffix}");
             let style = editor.theme.get(if index == self.selected && self.focused {
                 "ui.selection"
             } else if node.directory {
@@ -254,6 +272,16 @@ impl FileTree {
             );
             surface.set_style(line, style);
             surface.set_stringn(line.x, line.y, &text, line.width as usize, style);
+            if let (Some(icon), Some(glyph)) = (icon, glyph) {
+                let offset = prefix.width().min(line.width as usize) as u16;
+                surface.set_stringn(
+                    line.x + offset,
+                    line.y,
+                    &glyph,
+                    line.width.saturating_sub(offset) as usize,
+                    style.patch(icon.style.map(Into::into).unwrap_or_default()),
+                );
+            }
         }
         if area.width > 0 {
             for y in area.y..area.y + area.height {
@@ -326,6 +354,11 @@ impl FileTree {
             .iter()
             .position(|&index| index == self.selected)
             .unwrap_or(0);
+        // Let the editor resolve configured window-menu bindings without
+        // dropping sidebar focus before a focus-toggle command executes.
+        if key.code == KeyCode::Char('w') && key.modifiers == KeyModifiers::CONTROL {
+            return Ok(EventResult::Ignored(None));
+        }
         match key.code {
             KeyCode::Char('r') if self.review.is_some() && self.root.join(".jj").is_dir() => {
                 let root = self.root.clone();

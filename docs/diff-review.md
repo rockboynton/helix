@@ -42,7 +42,9 @@ opened. See [file comparison](file-diff.md) for rendering and patch format detai
 | `:diff-fold [N]` | Collapse unchanged context for the current file (default 3 lines at each edge) |
 | `:fold-open`, `:fold-open-all` | Expand the current fold or all folds in this file |
 | `:diff-review-refresh` | Reload the catalog and clean sources, retaining unsaved edits |
-| `Space E`, `:file-tree [directory]` | Focus the current sidebar, or browse a directory |
+| `:file-tree [directory]` | Focus the current sidebar, or browse a directory |
+| `:file-tree-focus` | Toggle tree/editor focus; reveal or create the tree if needed |
+| `Space E`, `:file-tree-toggle` | Toggle sidebar visibility without losing state |
 | `:file-tree-close` | Close the sidebar without closing documents |
 | `:diff-off` | Keep working file in the left pane and restore the previous sidebar |
 
@@ -51,7 +53,12 @@ the parent, `l` expands, and Enter opens a file or toggles a directory. `g`/`G`
 select first/last; Tab or Escape returns to the editor. In a JJ review, `r` opens
 the [native revision selector](jj-workspace.md). In a review,
 `n`/`p` select next/previous file and `v` toggles layouts. Mouse selection and
-wheel scrolling are supported. `Space e` still opens Helix's original file picker.
+wheel scrolling are supported. `Space e` still opens Helix's original file explorer.
+
+The sidebar uses the active icon set's file-type and open/closed folder glyphs
+and colors. As in file pickers, `editor.icons.picker = false` disables icons.
+In the user's Scheme config, `Ctrl-w e` toggles sidebar/editor focus without
+changing visibility; a hidden sidebar is revealed and focused first.
 
 Ending a review with `:diff-off` replaces the baseline in the leftmost comparison
 pane with the working file and closes only the extra comparison panes. The

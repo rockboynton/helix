@@ -1695,7 +1695,12 @@ impl Component for EditorView {
         event: &Event,
         context: &mut crate::compositor::Context,
     ) -> EventResult {
-        if let Some(tree) = self.file_tree.as_mut().filter(|tree| tree.visible) {
+        let pending_keymap = !self.keymaps.pending().is_empty();
+        if let Some(tree) = self
+            .file_tree
+            .as_mut()
+            .filter(|tree| tree.visible && !pending_keymap)
+        {
             if tree.focused && matches!(event, Event::Key(key) if key.code == KeyCode::Char('r')) {
                 if let Some(review) = &tree.review {
                     crate::diff_review::load(context.editor, context.jobs, review.origin.clone());

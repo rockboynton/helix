@@ -29,6 +29,7 @@ deleted baseline rows are virtual and read-only. `--pager` makes file inputs rea
 | Directory review | `:diff-review before-dir after-dir` |
 | File sidebar toggle | `Space E`, `:file-tree-toggle` (preserves state) |
 | Open/focus sidebar | `:file-tree [directory]`, `:ft [directory]` |
+| Toggle tree/editor focus | `:file-tree-focus` (user config: `Ctrl-w e`) |
 | Original file picker | `Space e` |
 | Switch focused pane | `Ctrl-w h` / `Ctrl-w l` |
 | Next / previous hunk | `]g` / `[g`, `:diff-next` / `:diff-prev` |
