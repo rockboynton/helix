@@ -1,5 +1,8 @@
 # Neohelix review cheat sheet
 
+For actions paired with expected results and disposable fixtures, use the
+[acceptance walkthrough](test-plan.md).
+
 See the [optional user keymap and short command aliases](keybindings.md) for
 the author's `Space g` and `z f` menus. Tables below also include fork defaults.
 
@@ -70,7 +73,8 @@ restores browsing expansion; refresh retains the query and selection.
 
 `j` / `k` select; `h` collapses or goes to parent; `l` expands; Enter opens a file
 or toggles a directory. `g` / `G` select first / last. Tab or Escape returns to
-editing. `r` refreshes. In review trees, `n` / `p` change file and `v` toggles layout.
+editing. `r` refreshes ordinary/Git trees, but reopens the revision picker in a JJ
+review. Without a filter, review-tree `n` / `p` change file and `v` toggles layout.
 `:file-tree-close` closes the sidebar without closing documents.
 
 ## Colors and word changes
@@ -131,8 +135,9 @@ for GitHub/Enterprise setup and the Keychain-free launch instructions.
 Helix terminal. It supports inline / side-by-side layouts and patch input; the
 host controls navigation. See the [full file-diff guide](file-diff.md) for its
 width, context and color flags and the [changeset guide](diff-review.md) for
-review boundaries. Staging, arbitrary revision browsing and full semantic
-changeset analysis are not implemented.
+review boundaries. Native historical JJ revision selection is available through
+`:jj-review`; a persistent revision graph, staging and full semantic changeset
+analysis are not implemented.
 
 With JJ configured to use the `neohelix` tool, `jj diffedit -r REV` opens editable
 multi-file review. In jjui, **Shift-E** uses that same diff editor and returns to

@@ -124,7 +124,7 @@ do not imply that ordinary editor startup already primes all formatter caches.
 Native macOS timings remain unverified.
 
 The tree-house additions are locally vendored and described in
-[`vendor/tree-house/NEOHELIX-PATCH.md`](../vendor/tree-house/NEOHELIX-PATCH.md).
+[`vendor/tree-house/NEOHELIX-PATCH.md`](https://github.com/rockboynton/helix/blob/neohelix/vendor/tree-house/NEOHELIX-PATCH.md).
 Targeted tests compare styles against full forests inside multiline comments,
 raw strings, combined Rustdoc injections, macros, Markdown fences, Scheme
 scopes and HTML scripts, including incremental edits. A separate subprocess

@@ -417,7 +417,18 @@ impl TerminaBackend {
 
 impl Backend for TerminaBackend {
     fn image_commands(&mut self, commands: &[u8]) -> io::Result<()> {
-        self.terminal.write_all(commands)
+        if commands.is_empty() {
+            return Ok(());
+        }
+        let started = std::time::Instant::now();
+        let result = self.terminal.write_all(commands);
+        log::debug!(
+            "Kitty image terminal write: {} bytes in {:?} ({})",
+            commands.len(),
+            started.elapsed(),
+            if result.is_ok() { "ok" } else { "failed" }
+        );
+        result
     }
     fn claim(&mut self) -> io::Result<()> {
         self.terminal.enter_raw_mode()?;

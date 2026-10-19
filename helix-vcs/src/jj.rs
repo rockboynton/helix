@@ -287,8 +287,8 @@ fn base_ignores(repo: &ReadonlyRepo, root: &Path) -> Result<Arc<GitIgnoreFile>> 
     Ok(ignores)
 }
 
-pub(crate) fn open_repo(root: &Path) -> Result<()> {
-    block_on(ContextData::load(root)).map(|_| ())
+pub(crate) fn open_repo(root: &Path) -> Result<PathBuf> {
+    block_on(ContextData::load(root)).map(|context| context.workspace.repo_path().to_path_buf())
 }
 
 pub(super) fn get_diff_base(root: &Path, file: &Path) -> Result<Vec<u8>> {
@@ -964,6 +964,52 @@ mod tests {
     }
 
     #[test]
+    fn operation_and_checkout_events_refresh_bases_but_object_writes_do_not() {
+        use helix_core::file_watcher::{CanonicalPathBuf, Event, EventType};
+        for git in [false, true] {
+            let mut fixture = Fixture::new(git);
+            fixture.baseline(&[("source.txt", b"original\n")]);
+            let path = fixture.root.join("source.txt");
+            let mut registry = crate::DiffProviderRegistry::default();
+            registry.add(&path, true);
+            let heads = fixture.workspace.repo_path().join("op_heads/heads");
+            assert!(registry.get_watched_paths(&fixture.root).contains(&heads));
+            assert_eq!(registry.get_diff_base(&path).unwrap(), b"original\n");
+            for (path, expected) in [
+                (heads.clone(), true),
+                (heads.join("new-operation"), true),
+                (fixture.root.join(".jj/working_copy/checkout"), true),
+                (fixture.root.join(".jj/working_copy/tree_state"), false),
+                (
+                    fixture.workspace.repo_path().join("store/objects/123"),
+                    false,
+                ),
+                (
+                    fixture.root.join("unrelated/.jj/repo/op_heads/heads/123"),
+                    false,
+                ),
+            ] {
+                for ty in [EventType::Create, EventType::Modified, EventType::Delete] {
+                    assert_eq!(
+                        registry.needs_reload(&Event {
+                            path: CanonicalPathBuf::assert_canonicalized(&path),
+                            ty,
+                        }),
+                        expected,
+                        "{}",
+                        path.display()
+                    );
+                }
+            }
+            let tree = fixture.tree(&[("source.txt", fixture.file("source.txt", b"committed\n"))]);
+            let committed = fixture.checkout(vec![fixture.current().id().clone()], tree.clone());
+            fixture.checkout(vec![committed.id().clone()], tree);
+            // Same registry, no document reload and no source-file event.
+            assert_eq!(registry.get_diff_base(&path).unwrap(), b"committed\n");
+        }
+    }
+
+    #[test]
     fn status_queries_preserve_operation_heads_and_working_copy_state() {
         let mut fixture = Fixture::new(true);
         fixture.baseline(&[("source.txt", b"original\n")]);
@@ -1245,6 +1291,11 @@ mod tests {
             .get_wc_commit_id(workspace.workspace_name())
             .unwrap();
         let commit = repo.store().get_commit(id).unwrap();
+        let mut registry = crate::DiffProviderRegistry::default();
+        registry.add(&extra.join("main.txt"), true);
+        assert!(registry
+            .get_watched_paths(&extra)
+            .contains(&fixture.workspace.repo_path().join("op_heads/heads")));
         assert!(get_diff_base(&extra, &extra.join("main.txt"))
             .unwrap()
             .is_empty());

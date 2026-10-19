@@ -2,17 +2,18 @@
 
 ### Try it
 
-Load the [GitLens modules](../runtime/plugins/gitlens/) through your Steel configuration
+Load the [GitLens modules](https://github.com/rockboynton/helix/tree/neohelix/runtime/plugins/gitlens/) through your Steel configuration
 as described below. Importing the plugin does not install keybindings.
 
 1. Launch this build with `hx path/to/file`.
 2. Trust the repository with `:workspace-trust`.
-3. Put the cursor on a committed line and press **Shift-B** (`B`) in normal mode.
+3. Put the cursor on a committed line and use your configured shortcut:
+   **Space B** in the author's keymap, or **B** in the minimal example below.
 4. Use **Tab** to select a link, **Enter** to open it, or **d** to inspect the commit diff.
 5. Press **d** again to return to blame details, or **Esc** to close the popup.
 
-`B` overrides Helix's default backward-WORD motion. `Space B` still invokes
-native statusline blame when retained in your keymap. The popup is independent
+The example `B` binding overrides Helix's default backward-WORD motion. Without
+a user override, `Space B` invokes native statusline blame instead. The popup is independent
 of inline blame; it does not require enabling it.
 
 ### Installation and configuration
@@ -52,8 +53,8 @@ Steel startup runs user configuration first, then a trusted project's
 `.helix/helix.scm` and `.helix/init.scm` when both exist. Each layer resolves its
 own relative imports; a project does not need to import the user's absolute path.
 `HELIX_STEEL_CONFIG`, when set, selects the user layer rather than bypassing
-project trust. Missing TOML files use built-in defaults. `--health` reports the
-built-in/TOML layer before Steel initialization, not runtime Steel overrides.
+project trust. Missing TOML files use built-in defaults. `--health` includes user
+and trusted-project Steel overrides without starting the terminal UI or language servers.
 
 ### What the popup shows
 

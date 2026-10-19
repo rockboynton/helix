@@ -17,7 +17,7 @@ an explanation rather than raw process output.
 
 ## Behavior and limits
 
-- Conversion starts after a 150 ms selection debounce and never blocks the UI.
+- Conversion starts after a 150 ms selection debounce and runs off the UI thread.
   Changing files/pages or closing/hiding the preview cancels pending work and
   kills its renderer child. At most two media workers run at once.
 - PDF conversion has a ten-second timeout, 16 MiB output and 16 KiB stderr limits,
@@ -43,3 +43,17 @@ an explanation rather than raw process output.
 Opening a PNG/PDF as an ordinary document is unchanged for now. This is a
 **preview-first** implementation, not a PDF text editor. The asynchronous provider
 and native image transport are reusable by a future dedicated read-only pane.
+
+## Diagnosing a Zellij-only preview stall
+
+If direct Ghostty works but a picker stops repainting inside Zellij (and Escape
+recovers), do not assume PNG decoding is blocking the editor. Run
+`hx -vv --log /tmp/neohelix-png.log` inside the affected session, select a small
+PNG, try changing the selection, then close the picker. The log records media
+read/encoding time, upload dimensions and terminal-write time. A fast load and
+write with stalled painting narrows the problem to the multiplexer/host path;
+it does not prove the live terminal renderer works just because a unit test passes.
+
+For a temporary text-only fallback in Zellij, launch
+`env ZELLIJ_KITTY_UNICODE_PLACEHOLDERS=0 hx`. This disables image previews for
+that process without changing your config or the Zellij server.

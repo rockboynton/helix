@@ -1,5 +1,9 @@
 # Configuration
 
+Neohelix supports both TOML and [Steel configuration](./neohelix/steel.md).
+The TOML example below is optional; a Steel-only setup does not need an empty
+`config.toml`. User configuration loads before trusted project configuration.
+
 To override global configuration parameters, create a `config.toml` file located in your config directory:
 
 - Linux and Mac: `~/.config/helix/config.toml`

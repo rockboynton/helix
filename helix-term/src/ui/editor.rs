@@ -184,6 +184,26 @@ impl EditorView {
                 Self::doc_syntax_highlighter(doc, syntax_anchor, syntax_height, &loader);
             let mut overlays = Vec::new();
 
+            if config.lsp.semantic_tokens {
+                let end = doc.text().line_to_char(
+                    (doc.text().char_to_line(syntax_anchor) + syntax_height)
+                        .min(doc.text().len_lines()),
+                );
+                let start = doc
+                    .semantic_highlights
+                    .partition_point(|span| span.range.end <= syntax_anchor);
+                let highlights = doc.semantic_highlights[start..]
+                    .iter()
+                    .take_while(|span| span.range.start < end)
+                    .filter_map(|span| {
+                        theme
+                            .find_highlight(span.scope)
+                            .map(|highlight| (highlight, span.range.clone()))
+                    })
+                    .collect();
+                overlays.push(OverlayHighlights::Heterogenous { highlights });
+            }
+
             if doc.inline_diff.is_some() {
                 overlays.push(Self::inline_syntax_highlights(
                     doc,

@@ -156,6 +156,15 @@ impl ImageState {
         for p in placements {
             let image = &p.image;
             if !self.0.contains_key(&image.id) {
+                log::debug!(
+                    "Kitty image upload: id={}, {} × {} pixels, {} × {} cells, {} encoded bytes",
+                    image.id,
+                    image.width,
+                    image.height,
+                    p.width,
+                    p.height,
+                    image.byte_size()
+                );
                 let chunks = image.encoded.as_bytes().chunks(4096);
                 let last = chunks.len().saturating_sub(1);
                 for (i, chunk) in chunks.enumerate() {

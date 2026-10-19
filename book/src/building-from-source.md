@@ -11,11 +11,12 @@
 
 Requirements:
 
-Clone the Helix GitHub repository into a directory of your choice. The
+Clone the Neohelix branch into a directory of your choice. The
 examples in this documentation assume installation into either `~/src/` on
 Linux and macOS, or `%userprofile%\src\` on Windows.
 
-- The [Rust toolchain](https://www.rust-lang.org/tools/install)
+- The [Rust toolchain](https://www.rust-lang.org/tools/install): this branch pins
+  **1.99.0** in `rust-toolchain.toml`; `rustup` selects it automatically.
 - The [Git version control system](https://git-scm.com/)
 - A C++14 compatible compiler to build the tree-sitter grammars, for example GCC or Clang
 
@@ -28,7 +29,7 @@ RUSTFLAGS="-C target-feature=-crt-static"
 1. Clone the repository:
 
    ```sh
-   git clone https://github.com/helix-editor/helix
+   git clone --branch neohelix https://github.com/rockboynton/helix
    cd helix
    ```
 
@@ -146,6 +147,9 @@ hx --health
 
 For more information on the health check results refer to
 [Health check](https://github.com/helix-editor/helix/wiki/Healthcheck).
+`--health` includes user and trusted-project Steel overrides. It checks whether
+configured tools are available, but does not start language servers; open a source
+file to verify actual server initialization.
 
 ### Configure the desktop shortcut
 

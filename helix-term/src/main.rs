@@ -178,6 +178,13 @@ FLAGS:
     }
 
     if args.health {
+        // Resolve the same workspace as editor startup before loading its
+        // trusted configuration. Health does not open any supplied files.
+        if let Some(path) = &args.working_directory {
+            helix_stdx::env::set_current_working_dir(path)?;
+        } else if let Some((path, _)) = args.files.first().filter(|p| p.0.is_dir()) {
+            helix_stdx::env::set_current_working_dir(path)?;
+        }
         if let Err(err) = helix_term::health::print_health(args.health_arg) {
             // Piping to for example `head -10` requires special handling:
             // https://stackoverflow.com/a/65760807/7115678

@@ -119,9 +119,23 @@ impl Preview {
             // Bound CPU/process use even if multiple pickers are retained.
             static WORKERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
             let _permit = WORKERS.acquire().await.unwrap();
+            let started = std::time::Instant::now();
             let result = load(&key.path, key.page)
                 .await
                 .map_err(|err| err.to_string());
+            match &result {
+                Ok(image) => log::debug!(
+                    "Media preview ready: {} × {}, {} encoded bytes in {:?}",
+                    image.width,
+                    image.height,
+                    image.byte_size(),
+                    started.elapsed()
+                ),
+                Err(error) => log::debug!(
+                    "Media preview failed after {:?}: {error}",
+                    started.elapsed()
+                ),
+            }
             *response.lock().unwrap() = Some(result);
             helix_event::request_redraw();
         }));

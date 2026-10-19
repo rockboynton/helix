@@ -1980,6 +1980,55 @@ mod tests {
     }
 
     #[test]
+    fn swapped_actions_only_emphasize_changed_words_in_file_and_patch_layouts() {
+        let before = concat!(
+            "Ctrl+Right { focus-column-or-monitor-right; }\n",
+            "Ctrl+Left { focus-column-or-monitor-left; }\n",
+            "Mod+Ctrl+Right { focus-window-or-workspace-down; }\n",
+            "Mod+Ctrl+Left { focus-window-or-workspace-up; }\n",
+        );
+        let after = concat!(
+            "Ctrl+Right { focus-window-or-workspace-down; }\n",
+            "Ctrl+Left { focus-window-or-workspace-up; }\n",
+            "Mod+Ctrl+Right { focus-column-or-monitor-right; }\n",
+            "Mod+Ctrl+Left { focus-column-or-monitor-left; }\n",
+        );
+        let patch = format!(
+            "--- a/x.kdl\n+++ b/x.kdl\n@@ -1,4 +1,4 @@\n{}{}",
+            before
+                .lines()
+                .map(|line| format!("-{line}\n"))
+                .collect::<String>(),
+            after
+                .lines()
+                .map(|line| format!("+{line}\n"))
+                .collect::<String>()
+        );
+        let patch = crate::diff_patch::parse(&patch).unwrap();
+        let check = |output: &str| {
+            let emphasized = output
+                .split("\x1b[")
+                .filter_map(|segment| {
+                    let (style, text) = segment.split_once('m')?;
+                    (style.contains("48;2;80;24;24") || style.contains("48;2;24;72;32"))
+                        .then_some(text)
+                })
+                .collect::<String>();
+            assert!(emphasized.contains("column"), "{output:?}");
+            assert!(emphasized.contains("window"), "{output:?}");
+            for unchanged in ["Ctrl", "Mod", "focus"] {
+                assert!(!emphasized.contains(unchanged), "{emphasized:?}");
+            }
+        };
+        for layout in [Layout::Inline, Layout::SideBySide] {
+            check(&render_pair(before, after, layout, true));
+            let mut output = Vec::new();
+            renderer(layout, true).patch(&patch, &mut output).unwrap();
+            check(&String::from_utf8(output).unwrap());
+        }
+    }
+
+    #[test]
     fn replacement_words_have_distinct_backgrounds_in_both_layouts() {
         for layout in [Layout::Inline, Layout::SideBySide] {
             let output = render_pair("fn old() {}\n", "fn new() {}\n", layout, true);

@@ -2,6 +2,7 @@ mod client;
 pub mod file_event;
 mod file_operations;
 pub mod jsonrpc;
+pub mod semantic_tokens;
 #[cfg(unix)]
 pub mod shared;
 mod transport;
@@ -491,6 +492,7 @@ pub enum MethodCall {
     // Other kind specifically for extensions
     Other(String, jsonrpc::Params),
     WorkspaceDiagnosticRefresh,
+    SemanticTokensRefresh,
     ShowMessageRequest(lsp::ShowMessageRequestParams),
 }
 
@@ -524,6 +526,7 @@ impl MethodCall {
                 Self::ShowDocument(params)
             }
             lsp::request::WorkspaceDiagnosticRefresh::METHOD => Self::WorkspaceDiagnosticRefresh,
+            lsp::request::SemanticTokensRefresh::METHOD => Self::SemanticTokensRefresh,
             lsp::request::ShowMessageRequest::METHOD => {
                 let params: lsp::ShowMessageRequestParams = params.parse()?;
                 Self::ShowMessageRequest(params)

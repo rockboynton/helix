@@ -27,5 +27,6 @@ mod test {
     mod movement;
     mod pager;
     mod picker_runtime;
+    mod semantic_tokens;
     mod splits;
 }

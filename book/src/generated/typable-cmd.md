@@ -50,7 +50,7 @@
 | `:primary-clipboard-paste-replace` | Replace selections with content of system primary clipboard. |
 | `:show-clipboard-provider` | Show clipboard provider name in status bar. |
 | `:change-current-directory`, `:cd` | Change the current working directory. |
-| `:show-directory-stack` | Show the directory stack as a <space> delimited string. |
+| `:show-directory-stack` | Show the directory stack as a space-delimited string. |
 | `:push-directory`, `:pushd` | Save and then change the current directory. |
 | `:pop-directory`, `:popd` | Remove the top entry from the directory stack, and cd to the new top directory.. |
 | `:show-directory`, `:pwd` | Show the current working directory. |
@@ -69,6 +69,33 @@
 | `:debug-remote`, `:dbg-tcp` | Connect to a debug adapter by TCP address and start a debugging session from a given template with given parameters. |
 | `:debug-eval` | Evaluate expression in current debug context. |
 | `:vsplit`, `:vs` | Open the file in a vertical split. |
+| `:diff-split`, `:diff`, `:ds` | Compare current file with another, two files, or left/base/right files in reusable aligned columns. |
+| `:file-tree`, `:ft` | Open or focus an expandable filesystem/review sidebar. |
+| `:file-tree-toggle` | Show/hide the sidebar, retaining its tree, review and watch state. |
+| `:file-tree-focus` | Toggle focus between the sidebar and current editor pane; reveal or create the sidebar if needed. |
+| `:file-tree-close` | Close the sidebar without closing buffers. |
+| `:jj-review`, `:jjr` | Select a JJ revision for native in-process review. Optional revset; @ is editable, history is read-only. |
+| `:diff-review`, `:dr` | Review all Git/JJ working changes, or two directories. |
+| `:diff-review-patch`, `:drp` | Review a multi-file Git/native-JJ patch without opening referenced paths. |
+| `:diff-file-next` | Review the next changed file. |
+| `:diff-file-prev` | Review the previous changed file. |
+| `:diff-layout` | Switch/toggle review layout: inline or side-by-side. |
+| `:diff-review-refresh` | Refresh the changeset while preserving open edits. |
+| `:diff-three`, `:diff3`, `:d3` | Compare left, base, right files in three aligned editable columns. |
+| `:blame-toggle` | Toggle full-file blame annotations in the focused view's left gutter. |
+| `:diff-off` | Keep the working file in the left pane, close comparison panes and restore the sidebar; retain all buffers. |
+| `:diff-fold` | Collapse unchanged diff context, keeping N lines at each edge (default 3). |
+| `:fold-selection` | Fold selected lines in the focused non-diff view. |
+| `:fold-close` | Close the innermost open syntax fold at the cursor. |
+| `:fold-toggle` | Toggle the syntax fold at the cursor. |
+| `:fold-all` | Close all syntax folds, retaining nested fold state. |
+| `:fold-toggle-all` | Toggle all syntax folds, leaving unrelated manual folds alone. |
+| `:fold-open` | Open the fold at the cursor, including its paired diff folds. |
+| `:fold-open-all` | Open all folds in the focused view or comparison. |
+| `:diff-next` | Jump to the next change in the paired diff. |
+| `:diff-prev` | Jump to the previous change in the paired diff. |
+| `:diff-get` | Replace this hunk with the other pane's version, without saving. |
+| `:diff-put` | Copy this hunk to the other pane, without saving. |
 | `:vsplit-new`, `:vnew` | Open a scratch buffer in a vertical split. |
 | `:hsplit`, `:hs`, `:sp` | Open the file in a horizontal split. |
 | `:hsplit-new`, `:hnew` | Open a scratch buffer in a horizontal split. |

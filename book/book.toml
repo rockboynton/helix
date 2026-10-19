@@ -1,16 +1,16 @@
 [book]
+title = "Neohelix"
 authors = ["Blaž Hrastnik"]
 language = "en"
 src = "src"
 
 [output.html]
-cname = "docs.helix-editor.com"
 default-theme = "colibri"
 preferred-dark-theme = "colibri"
-git-repository-url = "https://github.com/helix-editor/helix"
-edit-url-template = "https://github.com/helix-editor/helix/edit/master/book/{path}"
+git-repository-url = "https://github.com/rockboynton/helix"
+edit-url-template = "https://github.com/rockboynton/helix/edit/neohelix/book/{path}"
 additional-css = ["custom.css"]
-additional-js = ["ts-query.js", "version.js"]
+additional-js = ["ts-query.js"]
 
 [output.html.search]
 use-boolean-and = true

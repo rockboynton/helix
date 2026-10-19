@@ -484,10 +484,11 @@ fn reload_document(editor: &mut Editor, doc_id: DocumentId) -> anyhow::Result<()
 /// Reload VCS diffs for all documents
 fn reload_vcs_diffs(editor: &mut Editor) {
     for doc in editor.documents.values_mut() {
-        let Some(path) = doc.path() else {
+        let Some(path) = doc.path().map(std::path::Path::to_path_buf) else {
             continue;
         };
-        match editor.diff_providers.get_diff_base(path) {
+        doc.set_version_control_head(editor.diff_providers.get_current_head_name(&path));
+        match editor.diff_providers.get_diff_base(&path) {
             Some(diff_base) => doc.set_diff_base(diff_base),
             None => doc.diff_handle = None,
         }

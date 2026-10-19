@@ -278,6 +278,8 @@ pub struct Document {
     pub color_swatches: Option<DocumentColorSwatches>,
     /// Cached LSP document links for navigation (e.g. goto_file).
     pub document_links: Vec<DocumentLink>,
+    pub semantic_highlights: Vec<helix_lsp::semantic_tokens::Highlight>,
+    pub semantic_token_controller: TaskController,
     // NOTE: ideally this would live on the handler for color swatches. This is blocked on a
     // large refactor that would make `&mut Editor` available on the `DocumentDidChange` event.
     pub color_swatch_controller: TaskController,
@@ -851,6 +853,8 @@ impl Document {
             code_action_hints: HashSet::new(),
             color_swatches: None,
             document_links: Vec::new(),
+            semantic_highlights: Vec::new(),
+            semantic_token_controller: TaskController::new(),
             color_swatch_controller: TaskController::new(),
             file_blame: None,
             is_blame_potentially_out_of_date: false,

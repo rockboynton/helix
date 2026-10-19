@@ -759,6 +759,8 @@ pub struct LspConfig {
     pub display_inlay_hints: bool,
     /// Automatically highlight symbol references at the cursor.
     pub auto_document_highlight: bool,
+    /// Overlay language-server semantic tokens on Tree-sitter syntax colors.
+    pub semantic_tokens: bool,
     /// Maximum displayed length of inlay hints (excluding the added trailing `…`).
     /// If it's `None`, there's no limit
     pub inlay_hints_length_limit: Option<NonZeroU8>,
@@ -781,6 +783,7 @@ impl Default for LspConfig {
             display_signature_help_docs: true,
             display_inlay_hints: false,
             auto_document_highlight: false,
+            semantic_tokens: true,
             inlay_hints_length_limit: None,
             snippets: true,
             goto_reference_include_declaration: true,

@@ -1,5 +1,9 @@
 ## Languages
 
+Neohelix can also configure languages, servers and formatters through
+[Steel](./neohelix/steel.md#languages-servers-and-formatters). TOML remains supported;
+Steel-only setups do not need a `languages.toml` file.
+
 Language-specific settings and settings for language servers are configured
 in `languages.toml` files.
 
@@ -264,6 +268,7 @@ The list of supported features is:
 - `rename-symbol`
 - `inlay-hints`
 - `document-colors`
+- `semantic-tokens`
 - `call-hierarchy`
 
 ## Tree-sitter grammar configuration

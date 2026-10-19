@@ -29,8 +29,8 @@ external syntax-highlighting engine.
 - Text-changing transactions, undo/redo, writes (including `:write!` and save-as),
   and `:move` are blocked. Selection-only transactions remain allowed.
 - Documents opened later in the pager session are also read-only. The editing
-  policy is separate from filesystem permissions, so it can be reused for an
-  immutable pane beside an editable pane in a future diff session.
+  policy is separate from filesystem permissions, and is also used for immutable
+  baseline panes beside editable working files in diff/review sessions.
 - Pager documents do not start language servers or VCS diff providers, or register
   document-open hooks for automatic watching. Your usual theme, syntax definitions,
   keymaps, and trusted Steel startup configuration remain available.

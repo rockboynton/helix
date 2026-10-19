@@ -1,5 +1,8 @@
 ## Package managers
 
+These packages install **upstream Helix**, not Neohelix. To install this fork,
+use the [Neohelix source/Nix instructions](./install.md).
+
 - [Linux](#linux)
   - [Debian](#debian)
   - [Ubuntu/Mint](#ubuntumint)

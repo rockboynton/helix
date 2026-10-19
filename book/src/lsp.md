@@ -1,5 +1,9 @@
 # Language servers
 
+Neohelix enables experimental [shared language servers](./neohelix/shared-lsp.md)
+by default on Unix. Compatible editors share a backend and live unsaved documents.
+Set `editor.lsp.shared = false` to opt out; see the guide for limits.
+
 Helix has built-in support for the [Language Server Protocol][lsp], providing
 IDE-like features — diagnostics, completion, goto-definition, rename and more,
 for any language that has a server configured. Language servers are separate

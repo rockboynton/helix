@@ -30,8 +30,10 @@ Replacement hunks also emphasize changed words with a stronger, muted background
 while retaining Tree-sitter foreground colors. This applies to split, three-way,
 inline and patch views, including `--render-diff` output. Themes can override
 `ui.diff.minus.word` and `ui.diff.plus.word` with background colors.
-Unicode word boundaries are used. Pure additions/deletions keep the line fill;
-replacement blocks above 128 lines, 16,384 characters on either side, or 2,048
+Unicode word boundaries are used. Pure additions/deletions keep the line fill.
+Replacement lines are paired before refinement, so matching words on another
+line cannot swallow unchanged key names or create cross-line word emphasis.
+Replacement blocks above 128 lines, 16,384 characters on either side, or 2,048
 tokens fall back to line-only highlighting to bound refinement work. This is
 textual word diffing, not compiler-aware semantic equivalence.
 

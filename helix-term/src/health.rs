@@ -1,5 +1,6 @@
-use crate::config::{Config, ConfigLoadError};
+use crate::config::Config;
 use helix_core::config::{default_lang_config, user_lang_config};
+use helix_core::syntax::config::Configuration;
 use helix_loader::grammar::load_runtime_file;
 use std::{
     collections::HashSet,
@@ -9,6 +10,65 @@ use termina::{
     style::{ColorSpec, StyleExt as _, Stylized},
     Terminal as _,
 };
+
+/// Resolve configuration exactly once, including user/trusted-project Steel.
+/// Health must not report the built-in tools as if they were the active ones.
+fn effective_configuration() -> std::io::Result<(Config, Configuration)> {
+    let config = Config::load_default().map_err(|err| std::io::Error::other(err.to_string()))?;
+    let trust =
+        helix_loader::workspace_trust::WorkspaceTrust::new((&config.editor.workspace_trust).into());
+    let languages = user_lang_config(&trust).unwrap_or_else(|err| {
+        eprintln!("Error parsing user language config: {err}\nUsing default language config");
+        default_lang_config()
+    });
+    #[cfg(feature = "steel")]
+    if config.editor.enable_steel {
+        use arc_swap::{access::Map, ArcSwap};
+        use std::sync::Arc;
+
+        let loader = Arc::new(ArcSwap::from_pointee(
+            helix_core::syntax::Loader::new(languages).map_err(std::io::Error::other)?,
+        ));
+        let mut headless = config;
+        headless.editor.file_watcher.enable = false;
+        headless.editor.lsp.enable = false;
+        let config = Arc::new(ArcSwap::from_pointee(headless));
+        let mut dirs = vec![helix_loader::config_dir()];
+        dirs.extend(helix_loader::runtime_dirs().iter().cloned());
+        let handlers = crate::handlers::setup(config.clone());
+        let mut editor = helix_view::Editor::new(
+            helix_view::graphics::Rect::new(0, 0, 80, 24),
+            Arc::new(helix_view::theme::Loader::new(&dirs)),
+            loader.clone(),
+            Arc::new(Map::new(config.clone(), |config: &Config| &config.editor)),
+            handlers,
+            trust,
+        );
+        editor.pager = true;
+        let mut jobs = crate::job::Jobs::new();
+        let mut cx = crate::commands::Context {
+            register: None,
+            count: None,
+            editor: &mut editor,
+            callback: Vec::new(),
+            on_next_key_callback: None,
+            jobs: &mut jobs,
+        };
+        crate::commands::ScriptingEngine::load_headless_configuration(
+            &mut cx,
+            config.clone(),
+            loader.clone(),
+        )
+        .map_err(std::io::Error::other)?;
+        let loader = loader.load();
+        let languages = Configuration {
+            language: loader.language_configs().cloned().collect(),
+            language_server: loader.language_server_configs().clone(),
+        };
+        return Ok(((*config.load_full()).clone(), languages));
+    }
+    Ok((config, languages))
+}
 
 #[derive(Copy, Clone)]
 pub enum TsFeature {
@@ -112,21 +172,9 @@ pub fn general() -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn clipboard() -> std::io::Result<()> {
+fn clipboard(config: &Config) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
-
-    let config = match Config::load_default() {
-        Ok(config) => config,
-        Err(ConfigLoadError::Error(err)) if err.kind() == std::io::ErrorKind::NotFound => {
-            Config::default()
-        }
-        Err(err) => {
-            writeln!(stdout, "{}", "Configuration file malformed".red())?;
-            writeln!(stdout, "{}", err)?;
-            return Ok(());
-        }
-    };
 
     match config.editor.clipboard_provider.name().as_ref() {
         "none" => {
@@ -150,36 +198,21 @@ pub fn clipboard() -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn languages_all() -> std::io::Result<()> {
-    languages(None)
+fn languages_all(config: Configuration) -> std::io::Result<()> {
+    languages(None, config)
 }
 
-pub fn languages_selection() -> std::io::Result<()> {
+fn languages_selection(config: Configuration) -> std::io::Result<()> {
     let selection = helix_loader::grammar::get_grammar_names().unwrap_or_default();
-    languages(selection)
+    languages(selection, config)
 }
 
-fn languages(selection: Option<HashSet<String>>) -> std::io::Result<()> {
+fn languages(
+    selection: Option<HashSet<String>>,
+    mut syn_loader_conf: Configuration,
+) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
-
-    let trust = helix_loader::workspace_trust::WorkspaceTrust::fully_trusted();
-    let mut syn_loader_conf = match user_lang_config(&trust) {
-        Ok(conf) => conf,
-        Err(err) => {
-            let stderr = std::io::stderr();
-            let mut stderr = stderr.lock();
-
-            writeln!(
-                stderr,
-                "{}: {}",
-                "Error parsing user language config".red(),
-                err
-            )?;
-            writeln!(stderr, "{}", "Using default language config".yellow())?;
-            default_lang_config()
-        }
-    };
 
     let mut headings = vec!["Language", "Language servers", "Debug adapter", "Formatter"];
 
@@ -280,27 +313,9 @@ fn languages(selection: Option<HashSet<String>>) -> std::io::Result<()> {
 
 /// Display diagnostics pertaining to a particular language (LSP,
 /// highlight queries, etc).
-pub fn language(lang_str: String) -> std::io::Result<()> {
+fn language(lang_str: String, syn_loader_conf: Configuration) -> std::io::Result<()> {
     let stdout = std::io::stdout();
     let mut stdout = stdout.lock();
-
-    let trust = helix_loader::workspace_trust::WorkspaceTrust::fully_trusted();
-    let syn_loader_conf = match user_lang_config(&trust) {
-        Ok(conf) => conf,
-        Err(err) => {
-            let stderr = std::io::stderr();
-            let mut stderr = stderr.lock();
-
-            writeln!(
-                stderr,
-                "{}: {}",
-                "Error parsing user language config".red(),
-                err
-            )?;
-            writeln!(stderr, "{}", "Using default language config".yellow())?;
-            default_lang_config()
-        }
-    };
 
     let lang = match syn_loader_conf
         .language
@@ -436,23 +451,24 @@ fn probe_treesitter_feature(lang: &str, feature: TsFeature) -> std::io::Result<(
 }
 
 pub fn print_health(health_arg: Option<String>) -> std::io::Result<()> {
+    let (config, languages) = effective_configuration()?;
     match health_arg.as_deref() {
-        Some("languages") => languages_selection()?,
-        Some("all-languages") => languages_all()?,
-        Some("clipboard") => clipboard()?,
+        Some("languages") => languages_selection(languages)?,
+        Some("all-languages") => languages_all(languages)?,
+        Some("clipboard") => clipboard(&config)?,
         None => {
             general()?;
-            clipboard()?;
+            clipboard(&config)?;
             writeln!(std::io::stdout().lock())?;
-            languages_selection()?;
+            languages_selection(languages)?;
         }
         Some("all") => {
             general()?;
-            clipboard()?;
+            clipboard(&config)?;
             writeln!(std::io::stdout().lock())?;
-            languages_all()?;
+            languages_all(languages)?;
         }
-        Some(lang) => language(lang.to_string())?,
+        Some(lang) => language(lang.to_string(), languages)?,
     }
     Ok(())
 }

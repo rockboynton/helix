@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+      - neohelix
     tags:
       - '*'
 
@@ -29,6 +30,12 @@ jobs:
           mdbook-version: '0.5.3'
 
       - run: mdbook build book
+
+      - name: Check local documentation links
+        run: |
+          python3 contrib/check-book.py book/book
+          python3 -m unittest discover -s contrib -p test_check_book.py -v
+          python3 -m unittest discover -s contrib -p test_neohelix_test_fixture.py -v
 
       - name: Set output directory
         run: |

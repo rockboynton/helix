@@ -22,7 +22,7 @@ See [Icons](icons.md) for the format.
 - [`[editor.clipboard-provider]` Section](#editorclipboard-provider-section)
 - [`[editor.statusline]` Section](#editorstatusline-section)
 - [`[editor.lsp]` Section](#editorlsp-section)
-- [`[editor.inline-blame]` Section](#editorinlineblame-section)
+- [`[editor.inline-blame]` Section](#editorinline-blame-section)
 - [`[editor.cursor-shape]` Section](#editorcursor-shape-section)
 - [`[editor.file-picker]` Section](#editorfile-picker-section)
 - [`[editor.file-explorer]` Section](#editorfile-explorer-section)
@@ -188,9 +188,10 @@ The following statusline elements can be configured:
 | `enable`              | Enables LSP integration. Setting to false will completely disable language servers regardless of language settings.| `true` |
 | `display-messages`    | Display LSP `window/showMessage` messages below statusline[^1] | `true` |
 | `display-progress-messages` | Display LSP progress messages below statusline[^1]    | `false` |
-| `shared` | Share compatible language servers and unsaved buffers between Neohelix processes (Unix only; applies to newly started servers). See [Shared LSP](https://github.com/rockboynton/helix/blob/neohelix/docs/shared-lsp.md) for restrictions. | `true` |
+| `shared` | Share compatible language servers and unsaved buffers between Neohelix processes (Unix only; applies to newly started servers). See [Shared LSP](./neohelix/shared-lsp.md) for restrictions. | `true` |
 | `auto-signature-help` | Enable automatic popup of signature help (parameter hints)  | `true`  |
 | `auto-document-highlight` | Automatically highlight symbol references at the cursor | `false` |
+| `semantic-tokens` | Overlay LSP semantic colors on Tree-sitter highlighting. Servers without semantic tokens retain syntax highlighting. | `true` |
 | `display-inlay-hints` | Display inlay hints[^2]                                     | `false` |
 | `inlay-hints-length-limit` | Maximum displayed length (non-zero number) of inlay hints | Unset by default  |
 | `display-color-swatches` | Show color swatches next to colors | `true` |
@@ -213,15 +214,21 @@ Inline blame is virtual text that appears at the end of a line, displaying infor
 | `format` | Inline blame message format | `"{author}, {time-ago} • {title} • {commit}"` |
 
 `show` can be one of the following:
+
 - `"all-lines"`: Inline blame is on every line.
 - `"cursor-line"`: Inline blame is only on the line of the primary cursor.
-- `"hidden"`: Inline blame is hidden.
+- `"never"`: Do not render inline blame.
 
 With `auto-fetch` set to `false`, blame for the current file is fetched only when explicitly requested, such as when using `space + B` to display the blame for the line of the cursor. There may be a little delay when loading the blame.
 
-When `auto-fetch` is set to `true`, blame for the file is fetched in the background; this will have no effect on performance, but will use a little bit extra resources in the background. Directly requesting the blame with `space + B` will be instant. Inline blame will show as soon as the blame is available when loading new files.
+When `auto-fetch` is `true`, blame loads in the background and becomes available
+when the lookup finishes. This is not a guarantee of zero latency or no rendering
+cost, especially with `show = "all-lines"`.
 
-When opening new files, even with `show` set to `"all-lines"` or `"cursor-line"`, the inline blame won't show. It needs to be fetched first in order to become available, which can be triggered manually with `space + B`.
+With automatic fetching disabled, inline blame needs an explicit request before
+it can appear. `Space B` is the fork's default statusline-blame shortcut, but user
+keymaps can replace it with the [GitLens popup](./neohelix/gitlens.md). That plugin
+and the full-file `:blame-toggle` gutter are independent of inline blame display.
 
 #### `format`
 

@@ -45,8 +45,9 @@ and is unchanged; it requires that command to be available.
 
 | Key | Action |
 | --- | --- |
-| `Space E` | Toggle sidebar visibility, retaining expansion, selection and review state |
-| `Space e` | Original file explorer |
+| `Space e` | Toggle sidebar visibility, retaining expansion, selection and review state |
+| `Space E` | Original file explorer in the current buffer's directory |
+| `Ctrl-w e` | Toggle focus between the sidebar and editor |
 | `Space Alt-r` | Open interactive workspace refactoring |
 | `Space Alt-R` | Apply refactoring results to source buffers, without saving |
 | `Space W` | Trim trailing whitespace in current selections |
@@ -74,4 +75,4 @@ Aliases share the original command's argument rules and path completion.
 | `:ft` | `:file-tree` | `:ft src` |
 
 `:ds other.rs` compares against the current file. `:dr` without paths reviews
-the current workspace. `:ft` opens/focuses the sidebar; `Space E` toggles it.
+the current workspace. `:ft` opens/focuses the sidebar; `Space e` toggles it.

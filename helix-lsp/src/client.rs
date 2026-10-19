@@ -442,6 +442,16 @@ impl Client {
                 )
             ),
             LanguageServerFeature::DocumentLinks => capabilities.document_link_provider.is_some(),
+            LanguageServerFeature::SemanticTokens => crate::semantic_tokens::options(capabilities)
+                .is_some_and(|options| {
+                    matches!(
+                        options.full,
+                        Some(
+                            lsp::SemanticTokensFullOptions::Bool(true)
+                                | lsp::SemanticTokensFullOptions::Delta { .. }
+                        )
+                    ) || options.range == Some(true)
+                }),
             LanguageServerFeature::WorkspaceCommand => {
                 capabilities.execute_command_provider.is_some()
             }
@@ -675,6 +685,9 @@ impl Client {
                     inlay_hint: Some(lsp::InlayHintWorkspaceClientCapabilities {
                         refresh_support: Some(false),
                     }),
+                    semantic_tokens: Some(lsp::SemanticTokensWorkspaceClientCapabilities {
+                        refresh_support: Some(true),
+                    }),
                     workspace_edit: Some(lsp::WorkspaceEditClientCapabilities {
                         document_changes: Some(true),
                         resource_operations: Some(vec![
@@ -734,6 +747,7 @@ impl Client {
                         content_format: Some(vec![lsp::MarkupKind::Markdown]),
                         ..Default::default()
                     }),
+                    semantic_tokens: Some(crate::semantic_tokens::capabilities()),
                     signature_help: Some(lsp::SignatureHelpClientCapabilities {
                         signature_information: Some(lsp::SignatureInformationSettings {
                             documentation_format: Some(vec![lsp::MarkupKind::Markdown]),
@@ -1318,6 +1332,59 @@ impl Client {
         };
 
         Some(self.call::<lsp::request::SignatureHelpRequest>(params))
+    }
+
+    /// Use full tokens when available, otherwise request the complete document
+    /// through the range endpoint. Delta support is deliberately not advertised.
+    pub fn semantic_tokens(
+        &self,
+        text_document: lsp::TextDocumentIdentifier,
+        range: lsp::Range,
+    ) -> futures_util::future::BoxFuture<'static, Result<Vec<lsp::SemanticToken>>> {
+        let Some(options) = crate::semantic_tokens::options(self.capabilities()) else {
+            return Box::pin(async { Ok(Vec::new()) });
+        };
+        if matches!(
+            options.full,
+            Some(
+                lsp::SemanticTokensFullOptions::Bool(true)
+                    | lsp::SemanticTokensFullOptions::Delta { .. }
+            )
+        ) {
+            let future =
+                self.call::<lsp::request::SemanticTokensFullRequest>(lsp::SemanticTokensParams {
+                    text_document,
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                });
+            Box::pin(async move {
+                let result = future.await?;
+                Ok(match result {
+                    Some(lsp::SemanticTokensResult::Tokens(tokens)) => tokens.data,
+                    Some(lsp::SemanticTokensResult::Partial(tokens)) => tokens.data,
+                    None => Vec::new(),
+                })
+            })
+        } else if options.range == Some(true) {
+            let future = self.call::<lsp::request::SemanticTokensRangeRequest>(
+                lsp::SemanticTokensRangeParams {
+                    text_document,
+                    range,
+                    work_done_progress_params: Default::default(),
+                    partial_result_params: Default::default(),
+                },
+            );
+            Box::pin(async move {
+                let result = future.await?;
+                Ok(match result {
+                    Some(lsp::SemanticTokensRangeResult::Tokens(tokens)) => tokens.data,
+                    Some(lsp::SemanticTokensRangeResult::Partial(tokens)) => tokens.data,
+                    None => Vec::new(),
+                })
+            })
+        } else {
+            Box::pin(async { Ok(Vec::new()) })
+        }
     }
 
     pub fn text_document_range_inlay_hints(

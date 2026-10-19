@@ -1,4 +1,21 @@
-# Installing Helix
+# Installing Neohelix
+
+To get this fork's features, [build the `neohelix` branch from source](./building-from-source.md),
+or use its Nix flake package:
+
+```sh
+nix build 'github:rockboynton/helix?ref=neohelix#helix'
+./result/bin/hx --version
+```
+
+The Nix package includes its runtime. Building does not install your user config
+or switch a NixOS/Home Manager generation. Use matching Neohelix binary/runtime
+versions, particularly for the bundled Steel modules.
+
+## Upstream Helix packages
+
+The installation methods below describe upstream Helix, not Neohelix. They do
+not include this fork's extra commands or plugins.
 
 The typical way to install Helix is via [your operating system's package manager](./package-managers.md).
 

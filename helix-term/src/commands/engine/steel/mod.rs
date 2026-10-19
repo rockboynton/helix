@@ -3214,6 +3214,9 @@ impl HelixConfiguration {
         if let Some(display) = config.get("display-color-swatches") {
             app_config.editor.lsp.display_color_swatches = bool::from_steelval(display)?;
         }
+        if let Some(enabled) = config.get("semantic-tokens") {
+            app_config.editor.lsp.semantic_tokens = bool::from_steelval(enabled)?;
+        }
 
         if let Some(snippets) = config.get("snippets") {
             app_config.editor.lsp.snippets = bool::from_steelval(snippets)?;
@@ -3331,7 +3334,7 @@ pub(crate) fn load_headless_configuration(
         .map_err(|error| anyhow::anyhow!("{error}"))?;
     run_initialization_script(cx, configuration, language_configuration, None);
     if let Some((message, Severity::Error)) = &cx.editor.status_msg {
-        anyhow::bail!("Failed to load Steel configuration for diff rendering: {message}");
+        anyhow::bail!("Failed to load Steel configuration: {message}");
     }
     Ok(())
 }

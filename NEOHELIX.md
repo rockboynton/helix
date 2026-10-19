@@ -4,6 +4,8 @@ PNG/PDF file-picker previews use native terminal graphics, with asynchronous
 Poppler CLI rendering for PDFs; see [media previews](docs/media-previews.md).
 
 Start with the [review and GitLens cheat sheet](docs/neohelix-cheatsheet.md).
+For a repeatable hands-on check, use the [feature acceptance walkthrough](docs/test-plan.md).
+The mdBook includes these same guides in its [Neohelix section](book/src/neohelix/index.md).
 The author's [optional keymap](docs/keybindings.md) documents the folding/Git
 menus and short aliases for path-taking commands.
 
@@ -36,6 +38,10 @@ Current priorities and queued work are tracked in the [development queue](docs/r
 Experimental [shared LSP instances](docs/shared-lsp.md) let compatible editor
 processes share one backend and live unsaved documents, with coordinated workspace
 edits and file moves. Sharing defaults on for Unix; restrictions and an opt-out apply.
+
+[Semantic highlighting](docs/lsp-extensions.md) augments Tree-sitter with native
+LSP tokens, using existing theme scopes. The same guide audits missing standard
+LSP and rust-analyzer extensions and recommends a development order.
 
 The stack is based on [upstream Helix](https://github.com/helix-editor/helix).
 Its original integration base was
@@ -82,9 +88,11 @@ boundaries, and the remaining streaming/ANSI limitations.
 ### Editable side-by-side diff
 
 `hx --review` opens a full Git/JJ working-copy changeset with an expandable file
-sidebar and directly editable working files. Two-directory and multi-file patch
-reviews support split and editable inline layouts. `Space E` opens the same
-reusable tree for ordinary filesystem browsing. See the
+sidebar and directly editable working files. Two-directory reviews support split
+and editable inline layouts; multi-file patch reviews are read-only in both layouts.
+`:file-tree` opens the same reusable tree for ordinary filesystem browsing
+(fork default: `Space E`; the author's optional keymap uses `Space e` to toggle
+it and `Space E` for the current-directory explorer). See the
 [changeset review guide](docs/diff-review.md) for commands and boundaries.
 
 `:jj-review [revset]` opens a native JJ revision picker driving that same review
@@ -110,8 +118,11 @@ without acquiring a terminal; `--diff-theme` remains an explicit override.
 or inline flow text using the native Tree-sitter renderer; it can be registered
 as a jj external formatter for jjui's built-in diff view. See the
 [file comparison guide](docs/file-diff.md) for usage and current boundaries.
-On Unix, file-based flow rendering automatically reuses a private background
-worker to retain Steel configuration and parsed documents between invocations.
+Flow rendering defaults to a fresh process with validated disk caches. On Unix,
+`HELIX_DIFF_WORKER=1` opts into a private background worker retaining Steel
+configuration and parsed documents between invocations. The author's jjui launcher
+enables that worker for jjui's process tree; ordinary shell/editor invocations
+do not inherit that opt-in automatically.
 See the [worker guide](docs/diff-render-worker.md) for lifecycle, invalidation,
 and opt-out controls, and the [performance measurements](docs/diff-render-performance.md).
 
@@ -127,11 +138,12 @@ and a full local commit diff. PR URLs retain GitHub's canonical repository inste
 of being blindly rewritten to a fork's origin. Commit-message hints are marked
 unverified; offline failures still leave local metadata available.
 
-With the documented normal-mode `B` binding installed:
+The plugin installs no global shortcut. The author's keymap uses `Space B`;
+the plugin guide also shows a minimal normal-mode `B` binding. With either installed:
 
 | Key | Action |
 | --- | --- |
-| `B` | Inspect the current line |
+| Configured shortcut (`Space B` in the author's keymap) | Inspect the current line |
 | `Tab` / `Shift-Tab` | Choose a commit or PR link |
 | `Enter` | Open the selected link |
 | `c` | Copy the selected link |
@@ -249,8 +261,8 @@ JSON supplied through `set-lsp-config!` replaces existing JSON; merge it explici
 when you want to retain built-in server options. The language regression fixtures
 are test data, not a bundled user configuration.
 
-`--health` runs before Steel initialization, so it reports the built-in/TOML
-language layer rather than runtime Steel overrides.
+`--health` loads user and trusted-project Steel overrides headlessly, so its
+tool checks reflect the active configuration without launching language servers.
 
 ## Build and try it
 

@@ -1,6 +1,6 @@
 # Neohelix development queue
 
-## Active: cold flow-diff performance
+## Diff rendering: measured status and remaining work
 
 Target: within 50 ms of Delta on matched file/revision/layout/width comparisons
 for the first view of unseen source after shared initialization. The user now
@@ -27,7 +27,7 @@ Keep the default worker-free; opting in is explicit. See the performance notes
 for the current matched sequence, startup distinction and reproducible harness.
 
 Automatic jjui warmup and explicitly shared preview/full-view workers are
-implemented locally. The actual-host PTY harness now measures startup and
+implemented on `neohelix`. The actual-host PTY harness now measures startup and
 unseen-revision navigation, not formatter subprocesses alone. Packaged runtime
 startup and empty-query-cache initialization remain distinct performance cases;
 neither is covered by initialized-worker parity. Final packaged Linux PTY
@@ -38,19 +38,29 @@ launch-time parity. Native macOS is pending.
 
 ## Queued
 
+- rust-analyzer integrations: start with macro expansion/navigation, runnables
+  and actionable hovers; see the [extension audit](lsp-extensions.md). Native
+  semantic tokens are implemented; delta transport and dynamic registration are
+  still follow-ups. Real-server and native-platform checks remain separate from
+  deterministic protocol/render tests.
+
+- Zellij-only PNG picker stall: direct Ghostty works and Escape recovers,
+  including with small PNGs. Media/terminal-write diagnostics are available;
+  live multiplexer/host reproduction remains unresolved.
+
 - Native JJ workspace: the revision picker now drives the existing review UI;
   see [usage and boundaries](jj-workspace.md). Next are a persistent graph/list,
   selection-driven previews, and explicit, buffer-safe history operations.
 
 - Shared LSP follow-up: native macOS runtime validation and additional real
-  servers/configurations. The experimental Unix broker is implemented locally,
+  servers/configurations. The experimental Unix broker is available on `neohelix`,
   enabled by default on Unix, with live shared unsaved documents, coordinated workspace
   edits and file-path rebinding; private fallback handles incompatible clients
   and backend failures;
   see [restrictions, tests and measurements](shared-lsp.md). Request latency
   overhead must remain within a few milliseconds of the direct server.
 
-## Implemented locally, pending release
+## Available on the Neohelix development branch
 
 - Full-file Git/JJ blame gutter highlights author, date, commit and uncommitted
   metadata separately, with theme-aware defaults. Source syntax is unchanged.

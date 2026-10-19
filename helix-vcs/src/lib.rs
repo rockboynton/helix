@@ -124,7 +124,7 @@ impl DiffProviderRegistry {
     ) -> Result<Vec<JjRevision>> {
         match self.provider_for(path) {
             #[cfg(feature = "jj")]
-            Some(DiffProvider::JJ(root)) => jj::revisions(root, expression, limit),
+            Some(DiffProvider::JJ(root, _)) => jj::revisions(root, expression, limit),
             _ => anyhow::bail!("JJ history requires a trusted JJ workspace"),
         }
     }
@@ -132,7 +132,7 @@ impl DiffProviderRegistry {
     pub fn jj_revision_files(&self, path: &Path, commit: &str) -> Result<Vec<RevisionFile>> {
         match self.provider_for(path) {
             #[cfg(feature = "jj")]
-            Some(DiffProvider::JJ(root)) => jj::revision_files(root, commit),
+            Some(DiffProvider::JJ(root, _)) => jj::revision_files(root, commit),
             _ => anyhow::bail!("JJ review requires a trusted JJ workspace"),
         }
     }
@@ -147,7 +147,7 @@ impl DiffProviderRegistry {
             #[cfg(feature = "git")]
             DiffProvider::Git { repo, .. } => git::review_files(repo),
             #[cfg(feature = "jj")]
-            DiffProvider::JJ(repo) => {
+            DiffProvider::JJ(repo, _) => {
                 let files = std::cell::RefCell::new(Vec::new());
                 provider.for_each_changed_file(|change| {
                     files.borrow_mut().push(change.map(|change| {
@@ -181,7 +181,7 @@ impl DiffProviderRegistry {
                 repo.to_thread_local().workdir().map(Path::to_path_buf)
             }
             #[cfg(feature = "jj")]
-            DiffProvider::JJ(root) => Some(root.to_path_buf()),
+            DiffProvider::JJ(root, _) => Some(root.to_path_buf()),
             #[cfg(not(any(feature = "git", feature = "jj")))]
             _ => None,
         }
@@ -195,7 +195,7 @@ impl DiffProviderRegistry {
             #[cfg(feature = "git")]
             DiffProvider::Git { repo, .. } => git::review_base(repo, path),
             #[cfg(feature = "jj")]
-            DiffProvider::JJ(_) => provider.get_diff_base(path),
+            DiffProvider::JJ(..) => provider.get_diff_base(path),
             #[cfg(not(any(feature = "git", feature = "jj")))]
             _ => anyhow::bail!("VCS support is not compiled in"),
         }
@@ -237,7 +237,7 @@ impl DiffProviderRegistry {
     pub fn get_watched_paths(&self, workspace: &Path) -> Vec<PathBuf> {
         self.providers
             .values()
-            .filter_map(|provider| provider.get_watched_path(workspace))
+            .flat_map(|provider| provider.get_watched_paths(workspace))
             .collect()
     }
 
@@ -448,15 +448,17 @@ impl DiffProviderRegistry {
             .context("failed to canonicalize potential jj repo path")?;
 
         // Don't build a JJ repo object if there is already one for that path.
-        if let Some((key, DiffProvider::JJ(_))) = self.providers.get_key_value(&*repo_path) {
+        if let Some((key, DiffProvider::JJ(..))) = self.providers.get_key_value(&*repo_path) {
             return Ok((Arc::clone(key), PossibleDiffProvider::JJ));
         }
 
         match jj::open_repo(&repo_path) {
-            Ok(()) => {
+            Ok(shared_repo) => {
                 let key = Arc::from(repo_path);
-                self.providers
-                    .insert(Arc::clone(&key), DiffProvider::JJ(Arc::clone(&key)));
+                self.providers.insert(
+                    Arc::clone(&key),
+                    DiffProvider::JJ(Arc::clone(&key), shared_repo.into()),
+                );
                 Ok((key, PossibleDiffProvider::JJ))
             }
             Err(err) => Err(err),
@@ -473,9 +475,10 @@ pub enum DiffProvider {
         repo: Box<gix::ThreadSafeRepository>,
         trust_full: bool,
     },
-    /// A Jujutsu workspace, queried through jj-lib without spawning processes.
+    /// A Jujutsu workspace and its resolved shared repository (which may live
+    /// outside a linked workspace), queried without spawning processes.
     #[cfg(feature = "jj")]
-    JJ(Arc<Path>),
+    JJ(Arc<Path>, Arc<Path>),
 }
 
 #[cfg_attr(not(any(feature = "git", feature = "jj")), allow(unused))]
@@ -484,8 +487,16 @@ impl DiffProvider {
     pub fn needs_reload(&self, fs_event: &helix_core::file_watcher::Event) -> bool {
         match *self {
             #[cfg(feature = "git")]
-            DiffProvider::Git { .. } => {
+            DiffProvider::Git { ref repo, .. } => {
                 let path = fs_event.path.as_std_path();
+                let local = repo.to_thread_local();
+                // A commit on a named branch updates its ref, not the symbolic
+                // HEAD file. Also handle packed refs and shared worktree refs.
+                if path.starts_with(local.common_dir().join("refs"))
+                    || path == local.common_dir().join("packed-refs")
+                {
+                    return true;
+                }
                 // Check for regular .git/HEAD
                 if path.ends_with(".git/HEAD") {
                     return true;
@@ -504,7 +515,11 @@ impl DiffProvider {
                 false
             }
             #[cfg(feature = "jj")]
-            DiffProvider::JJ(_) => false,
+            DiffProvider::JJ(ref root, ref repo) => {
+                let path = fs_event.path.as_std_path();
+                path == root.join(".jj/working_copy/checkout")
+                    || path.starts_with(repo.join("op_heads/heads"))
+            }
         }
     }
 
@@ -515,7 +530,7 @@ impl DiffProvider {
             #[cfg(feature = "git")]
             Self::Git { ref repo, .. } => git::get_diff_base(repo, file),
             #[cfg(feature = "jj")]
-            Self::JJ(ref repo) => jj::get_diff_base(repo, file),
+            Self::JJ(ref repo, _) => jj::get_diff_base(repo, file),
         }
     }
 
@@ -524,7 +539,7 @@ impl DiffProvider {
             #[cfg(feature = "git")]
             Self::Git { ref repo, .. } => git::get_current_head_name(repo),
             #[cfg(feature = "jj")]
-            Self::JJ(ref repo) => jj::get_current_head_name(repo),
+            Self::JJ(ref repo, _) => jj::get_current_head_name(repo),
         }
     }
 
@@ -533,17 +548,27 @@ impl DiffProvider {
             #[cfg(feature = "git")]
             Self::Git { ref repo, .. } => git::for_each_changed_file(repo, f),
             #[cfg(feature = "jj")]
-            Self::JJ(ref repo) => jj::for_each_changed_file(repo, f),
+            Self::JJ(ref repo, _) => jj::for_each_changed_file(repo, f),
         }
     }
 
-    /// Get the path to watch for VCS state changes (e.g., HEAD file).
-    fn get_watched_path(&self, _workspace: &Path) -> Option<PathBuf> {
+    /// Metadata indicating a new diff baseline, not immutable object writes.
+    fn get_watched_paths(&self, _workspace: &Path) -> Vec<PathBuf> {
         match *self {
             #[cfg(feature = "git")]
-            Self::Git { ref repo, .. } => Some(repo.to_thread_local().git_dir().join("HEAD")),
+            Self::Git { ref repo, .. } => {
+                let local = repo.to_thread_local();
+                vec![
+                    local.git_dir().join("HEAD"),
+                    local.common_dir().join("refs"),
+                    local.common_dir().join("packed-refs"),
+                ]
+            }
             #[cfg(feature = "jj")]
-            Self::JJ(_) => None,
+            Self::JJ(ref root, ref repo) => vec![
+                repo.join("op_heads/heads"),
+                root.join(".jj/working_copy/checkout"),
+            ],
         }
     }
 }

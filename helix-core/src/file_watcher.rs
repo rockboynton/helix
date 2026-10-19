@@ -89,6 +89,8 @@ pub struct Watcher {
     filter: Arc<WatchFilter>,
     roots: Vec<(PathBuf, usize)>,
     review_roots: Vec<PathBuf>,
+    /// Narrow metadata directories outside the workspace (linked VCS repos).
+    extra_roots: Vec<PathBuf>,
     active_roots: Arc<Mutex<Vec<PathBuf>>>,
     config: Config,
     /// Extra paths that need polling (e.g., VCS HEAD files outside workspace)
@@ -110,6 +112,7 @@ impl Watcher {
             }),
             roots: Vec::new(),
             review_roots: Vec::new(),
+            extra_roots: Vec::new(),
             active_roots: Arc::default(),
             config: config.clone(),
             extra_watched_paths: Vec::new(),
@@ -123,7 +126,10 @@ impl Watcher {
         let (workspace, no_workspace) = helix_loader::find_workspace();
 
         if !config.enable
-            || config.require_workspace && no_workspace && self.review_roots.is_empty()
+            || config.require_workspace
+                && no_workspace
+                && self.review_roots.is_empty()
+                && self.extra_roots.is_empty()
         {
             self.watcher = None;
             self.active_roots = Arc::default();
@@ -135,7 +141,8 @@ impl Watcher {
             self.roots
                 .iter()
                 .map(|(it, _)| &**it)
-                .chain(self.review_roots.iter().map(|path| &**path)),
+                .chain(self.review_roots.iter().map(|path| &**path))
+                .chain(self.extra_roots.iter().map(|path| &**path)),
         ));
         let watcher = match &mut self.watcher {
             Some((watcher, _)) => {
@@ -185,6 +192,10 @@ impl Watcher {
             .iter()
             .map(|(root, _)| root)
             .chain(&self.review_roots)
+            .chain(self.extra_roots.iter().filter(|extra| {
+                !self.roots.iter().any(|(root, _)| extra.starts_with(root))
+                    && !self.review_roots.iter().any(|root| extra.starts_with(root))
+            }))
         {
             let active = self.active_roots.clone();
             let path = root.clone();
@@ -260,6 +271,9 @@ impl Watcher {
     /// Poll extra watched paths for changes and return paths that have changed.
     /// Updates internal mtime tracking for the changed paths.
     pub fn poll_extra_paths(&mut self) -> Vec<PathBuf> {
+        if !self.config.enable || !self.config.watch_vcs {
+            return Vec::new();
+        }
         let mut changed = Vec::new();
         for (path, last_mtime) in &mut self.extra_watched_paths {
             let current_mtime = path.metadata().ok().and_then(|m| m.modified().ok());
@@ -276,22 +290,53 @@ impl Watcher {
         !self.extra_watched_paths.is_empty()
     }
 
-    /// Set extra paths to watch via polling.
-    /// These are paths outside the main watched workspace that need change detection.
-    /// Only paths outside the workspace are added (paths inside are already watched).
+    /// Watch external VCS metadata natively, with polling as a backstop.
+    /// Only metadata outside the workspace needs additional native roots.
     pub fn set_extra_watched_paths(&mut self, paths: Vec<PathBuf>) {
         let (workspace, _) = helix_loader::find_workspace();
+        let mut paths = paths
+            .into_iter()
+            .filter(|path| self.config.watch_vcs && !path.starts_with(&workspace))
+            .collect::<Vec<_>>();
+        paths.sort();
+        paths.dedup();
+        if paths
+            .iter()
+            .eq(self.extra_watched_paths.iter().map(|(path, _)| path))
+        {
+            return;
+        }
+        // Watching the parent handles atomic file replacement, and watching
+        // op_heads/heads catches both head creation and deletion. Never crawl
+        // the shared repository's immutable object store.
+        let mut roots = paths
+            .iter()
+            .filter_map(|path| {
+                let root = if path.is_dir() {
+                    path.as_path()
+                } else {
+                    path.parent()?
+                };
+                root.canonicalize().ok()
+            })
+            .collect::<Vec<_>>();
+        roots.sort();
+        roots.dedup();
         self.extra_watched_paths = paths
             .into_iter()
-            .filter(|path| !path.starts_with(&workspace))
             .map(|path| {
                 let mtime = path.metadata().ok().and_then(|m| m.modified().ok());
                 (path, mtime)
             })
             .collect();
+        if roots != self.extra_roots {
+            self.extra_roots = roots;
+            self.watcher = None;
+            self.reload(&self.config.clone());
+        }
         if !self.extra_watched_paths.is_empty() {
             log::info!(
-                "added {} extra paths for polling: {:?}",
+                "watching {} extra VCS metadata paths (with polling backstop): {:?}",
                 self.extra_watched_paths.len(),
                 self.extra_watched_paths
                     .iter()
@@ -328,13 +373,25 @@ impl Watcher {
             return;
         }
         self.roots.insert(i, (root.clone(), 1));
+        if self
+            .extra_roots
+            .iter()
+            .any(|extra| extra.starts_with(&root))
+        {
+            // Replace child metadata watches with the new enclosing root.
+            // Filesentry cannot recursively add a parent of an existing root.
+            self.watcher = None;
+            self.reload(&self.config.clone());
+            return;
+        }
         self.filter = Arc::new(WatchFilter::new(
             &self.config,
             &workspace,
             self.roots
                 .iter()
                 .map(|(it, _)| &**it)
-                .chain(self.review_roots.iter().map(|path| &**path)),
+                .chain(self.review_roots.iter().map(|path| &**path))
+                .chain(self.extra_roots.iter().map(|path| &**path)),
         ));
         if let Some((watcher, _)) = &self.watcher {
             watcher.set_filter(self.filter.clone(), false);
