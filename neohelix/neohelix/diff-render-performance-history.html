@@ -1,0 +1,792 @@
+<!DOCTYPE HTML>
+<html lang="en" class="colibri sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Historical measurements - Neohelix</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-d5706b94.svg">
+        <link rel="shortcut icon" href="../favicon-cc1a8b51.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom-10faeed5.css">
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "colibri";
+            const default_dark_theme = "colibri";
+            window.path_to_searchindex_js = "../searchindex-0293515e.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-467877a3.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('colibri')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-colibri">Colibri</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Neohelix</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/rockboynton/helix" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/rockboynton/helix/edit/neohelix/book/src/neohelix/diff-render-performance-history.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <!-- Canonical source: docs/diff-render-performance-history.md. Edit that file, not this include. -->
+<h1 id="historical-diff-renderer-experiments"><a class="header" href="#historical-diff-renderer-experiments">Historical diff renderer experiments</a></h1>
+<p>These are development-time measurements, preserved for provenance. For the
+current implementation, acceptance target and results, see
+<a href="diff-render-performance.html">diff renderer performance</a>.</p>
+<h2 id="historical-serial-worker-across-unseen-revisions-2026-10-16"><a class="header" href="#historical-serial-worker-across-unseen-revisions-2026-10-16">Historical serial worker across unseen revisions: 2026-10-16</a></h2>
+<p>The following measurements describe the earlier serial implementation, before
+the parallel retained-renderer changes above.</p>
+<p>Benchmarked eight adjacent first-parent revisions, newest to oldest, starting at
+<code>930c788a5</code>. Each sequence visits every revision <strong>once</strong>, with a new worker per
+trial/layout, three trials and alternating mode order. Complete before/after
+snapshots use different directories for every revision, as jj exports do. Normal
+user Steel/Gruvbox configuration, width 160, Linux release, no concurrent builds.
+Shared disk configuration/query resources were explicitly primed; source-style
+caches started empty for each sequence and remained available within it. This is
+not an entirely cold installation or an OS-cache-flushed benchmark.</p>
+<p>The worker’s <strong>first request includes starting its process and renderer</strong>;
+subsequent rows are different, previously unseen revisions, not repeat views.
+Client traces confirmed worker use with no one-shot fallback, and PID files
+confirmed the same process handled every request within a sequence. Each output
+matched cache-disabled, non-incremental, full-forest reference output exactly.
+All benchmark workers were stopped afterward. Native macOS is unmeasured.</p>
+<p>Three-run medians, milliseconds:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Request / revision</th><th style="text-align: right">One-shot inline</th><th style="text-align: right">Worker inline</th><th style="text-align: right">Delta inline</th><th style="text-align: right">One-shot split</th><th style="text-align: right">Worker split</th><th style="text-align: right">Delta split</th></tr>
+</thead>
+<tbody>
+<tr><td>0 / <code>930c788a5</code></td><td style="text-align: right">260.06</td><td style="text-align: right">542.30</td><td style="text-align: right">106.44</td><td style="text-align: right">260.57</td><td style="text-align: right">545.38</td><td style="text-align: right">119.03</td></tr>
+<tr><td>1 / <code>e25ef77fa</code></td><td style="text-align: right">219.95</td><td style="text-align: right">281.09</td><td style="text-align: right">130.41</td><td style="text-align: right">220.42</td><td style="text-align: right">281.61</td><td style="text-align: right">136.02</td></tr>
+<tr><td>2 / <code>f36d57681</code></td><td style="text-align: right">193.74</td><td style="text-align: right">220.22</td><td style="text-align: right">80.54</td><td style="text-align: right">194.84</td><td style="text-align: right">227.75</td><td style="text-align: right">87.80</td></tr>
+<tr><td>3 / <code>1891050b8</code></td><td style="text-align: right">74.55</td><td style="text-align: right">92.23</td><td style="text-align: right">60.07</td><td style="text-align: right">74.28</td><td style="text-align: right">91.55</td><td style="text-align: right">61.99</td></tr>
+<tr><td>4 / <code>b99057045</code></td><td style="text-align: right">323.04</td><td style="text-align: right">519.28</td><td style="text-align: right">167.36</td><td style="text-align: right">327.22</td><td style="text-align: right">530.09</td><td style="text-align: right">177.99</td></tr>
+<tr><td>5 / <code>897feed4e</code></td><td style="text-align: right">39.09</td><td style="text-align: right">32.32</td><td style="text-align: right">55.38</td><td style="text-align: right">37.41</td><td style="text-align: right">32.61</td><td style="text-align: right">54.90</td></tr>
+<tr><td>6 / <code>469aaa72e</code></td><td style="text-align: right">57.27</td><td style="text-align: right">71.49</td><td style="text-align: right">52.60</td><td style="text-align: right">57.20</td><td style="text-align: right">72.89</td><td style="text-align: right">53.47</td></tr>
+<tr><td>7 / <code>fce83e615</code></td><td style="text-align: right">73.38</td><td style="text-align: right">82.95</td><td style="text-align: right">59.11</td><td style="text-align: right">73.08</td><td style="text-align: right">84.24</td><td style="text-align: right">61.77</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>The existing worker is not a performance win for this unseen-revision suite.</strong>
+It retains the loader/configuration and a bounded exact-content document cache,
+but performs serial file rendering; the one-shot path uses up to four threads.
+Document reuse additionally requires matching displayed coverage and theme.
+There is no cross-revision, changed-source incremental tree lookup: incremental
+updates currently copy only the same request’s before tree into its after tree.
+Matching source bytes alone do not prove a tree/style-cache hit.</p>
+<p>These results do not rule out a persistent parallel renderer with broader AST
+reuse, but they do not justify enabling the existing worker by default. Its
+serial architecture must not be presented as that future implementation.</p>
+<h3 id="serial-control-without-source-style-disk-caches"><a class="header" href="#serial-control-without-source-style-disk-caches">Serial control, without source-style disk caches</a></h3>
+<p>A separate three-trial inline run disabled source-style disk caches in all
+modes. Shared configuration/query disk caches remained enabled; the worker
+retained in-memory documents. Every output again matched the full reference:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Request / revision</th><th style="text-align: right">One-shot, four threads</th><th style="text-align: right">One-shot, serial</th><th style="text-align: right">Worker, serial</th><th style="text-align: right">Delta</th></tr>
+</thead>
+<tbody>
+<tr><td>0 / <code>930c788a5</code></td><td style="text-align: right">262.72</td><td style="text-align: right">519.41</td><td style="text-align: right">542.09</td><td style="text-align: right">107.98</td></tr>
+<tr><td>1 / <code>e25ef77fa</code></td><td style="text-align: right">218.19</td><td style="text-align: right">314.37</td><td style="text-align: right">288.45</td><td style="text-align: right">129.73</td></tr>
+<tr><td>2 / <code>f36d57681</code></td><td style="text-align: right">195.17</td><td style="text-align: right">246.27</td><td style="text-align: right">223.84</td><td style="text-align: right">82.02</td></tr>
+<tr><td>3 / <code>1891050b8</code></td><td style="text-align: right">73.19</td><td style="text-align: right">104.01</td><td style="text-align: right">88.23</td><td style="text-align: right">59.77</td></tr>
+<tr><td>4 / <code>b99057045</code></td><td style="text-align: right">316.83</td><td style="text-align: right">565.41</td><td style="text-align: right">539.57</td><td style="text-align: right">163.65</td></tr>
+<tr><td>5 / <code>897feed4e</code></td><td style="text-align: right">37.03</td><td style="text-align: right">39.12</td><td style="text-align: right">30.02</td><td style="text-align: right">54.22</td></tr>
+<tr><td>6 / <code>469aaa72e</code></td><td style="text-align: right">56.16</td><td style="text-align: right">80.15</td><td style="text-align: right">67.77</td><td style="text-align: right">52.27</td></tr>
+<tr><td>7 / <code>fce83e615</code></td><td style="text-align: right">72.34</td><td style="text-align: right">92.99</td><td style="text-align: right">80.87</td><td style="text-align: right">59.90</td></tr>
+</tbody>
+</table>
+</div>
+<p>After startup, retaining resources/documents saves roughly 9–26 ms versus
+serial one-shot rendering here, but not enough to offset losing parallelism.
+The process/transport startup is included, not subtracted from request zero.
+There is no measured justification yet for claiming daemon-based Delta parity.
+The next daemon experiment would need persistent thread-owned renderers and a
+separately bounded syntax-tree cache independent of displayed style coverage,
+with verified invalidation and incremental updates across changed revisions.</p>
+<p>Reproduce with private temporary caches and automatic benchmark-worker cleanup:</p>
+<pre><code class="language-sh">HELIX_RUNTIME="$PWD/runtime" python contrib/bench-diff-worker-sequence.py \
+  --hx target/rust-1.99/release/hx --iterations 3
+</code></pre>
+<p>Add <code>--serial-control</code> to compare serial one-shot rendering. Add
+<code>--no-source-disk-cache</code> to disable source-style disk caches in every mode while
+retaining the worker’s in-memory document cache. <code>--anchor</code>/<code>--count</code> choose an
+adjacent sequence, or <code>--revisions</code> supplies an explicit unique sequence.</p>
+<h2 id="syntax-derived-injection-selection-2026-10-16"><a class="header" href="#syntax-derived-injection-selection-2026-10-16">Syntax-derived injection selection: 2026-10-16</a></h2>
+<p>The complete-source renderer now keeps the full outer syntax tree and full
+local-scope analysis, but skips injected-language groups unrelated to displayed
+hunk/context ranges. Selected groups retain <strong>all</strong> their original ranges, not
+just the visible slice: Rustdoc fences, Markdown code blocks and definitions
+outside a hunk remain available. This is not isolated-hunk parsing or a
+language-specific attempt to guess enclosing-function boundaries. The ordinary
+interactive editor still builds complete forests.</p>
+<p>Same release executable with <code>HELIX_DIFF_SYNTAX_RANGES=0</code> versus its default,
+four invocation-local threads, width 160, normal Steel/Gruvbox configuration,
+three-run medians. Shared resources were primed; source-style caches were
+cleared before every fresh process. No worker, GC or compilation ran during
+measurement. Values are milliseconds:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Revision</th><th style="text-align: right">Full inline</th><th style="text-align: right">Selective inline</th><th style="text-align: right">Full split</th><th style="text-align: right">Selective split</th><th style="text-align: right">Delta inline / split</th></tr>
+</thead>
+<tbody>
+<tr><td><code>930c788a</code></td><td style="text-align: right">328.89</td><td style="text-align: right">261.81</td><td style="text-align: right">329.40</td><td style="text-align: right">262.14</td><td style="text-align: right">107.95 / 118.15</td></tr>
+<tr><td><code>e25ef77fa</code></td><td style="text-align: right">256.92</td><td style="text-align: right">219.42</td><td style="text-align: right">261.51</td><td style="text-align: right">221.00</td><td style="text-align: right">126.30 / 136.44</td></tr>
+<tr><td><code>f36d57681</code></td><td style="text-align: right">227.11</td><td style="text-align: right">193.50</td><td style="text-align: right">223.21</td><td style="text-align: right">195.72</td><td style="text-align: right">80.79 / 84.61</td></tr>
+<tr><td><code>1891050b8</code></td><td style="text-align: right">82.68</td><td style="text-align: right">74.28</td><td style="text-align: right">83.06</td><td style="text-align: right">76.16</td><td style="text-align: right">60.46 / 62.38</td></tr>
+</tbody>
+</table>
+</div>
+<p>This improves inline first views by roughly <strong>10–20%</strong>, but <strong>does not achieve
+Delta parity</strong>. Every measured result matched serial, cache-disabled,
+non-incremental full parsing byte-for-byte in both layouts. The second revision
+reused three identical source results within each request; no source styles
+survived between requests. Delta values above are from the selective run; its
+separate full-run control measured 108.56/116.82, 128.86/137.78, 82.36/86.49
+and 59.12/62.14 ms respectively.</p>
+<p>The initial resource-prime render of the largest revision took 1143.97 ms
+(full-forest control 1308.38 ms). These shared-resource-warm first-source results
+do not imply that ordinary editor startup already primes all formatter caches.
+Native macOS timings remain unverified.</p>
+<p>The tree-house additions are locally vendored and described in
+<a href="https://github.com/rockboynton/helix/blob/neohelix/vendor/tree-house/NEOHELIX-PATCH.md"><code>vendor/tree-house/NEOHELIX-PATCH.md</code></a>.
+Targeted tests compare styles against full forests inside multiline comments,
+raw strings, combined Rustdoc injections, macros, Markdown fences, Scheme
+scopes and HTML scripts, including incremental edits. A separate subprocess
+corpus compares complete rendered output across layouts, themes, Unicode and
+custom injection-language aliases.</p>
+<h2 id="invocation-local-parallelism-and-incremental-parsing-2026-10-16"><a class="header" href="#invocation-local-parallelism-and-incremental-parsing-2026-10-16">Invocation-local parallelism and incremental parsing: 2026-10-16</a></h2>
+<p>Complete-source first views now use bounded parallel directory rendering and
+before-to-after incremental syntax reuse. The baseline tree remains unchanged;
+an unavailable baseline tree or failed incremental update falls back to fresh
+complete parsing. Background output is ordered and spills past 1 MiB to private
+temporary storage; at most three background file renders run at once. Inputs
+above 512 KiB per side stay on the main thread to avoid concurrent large forests.
+The first file still streams directly. There is no persistent process.</p>
+<p>Linux release, normal user Steel configuration/Gruvbox, width 160, three-run
+medians, no concurrent compilation, warmed configuration/query resources, and
+<strong>all source-style snapshots removed before every measured fresh process</strong>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Revision, inline</th><th style="text-align: right">Serial ms</th><th style="text-align: right">2 threads ms</th><th style="text-align: right">4 threads ms</th><th style="text-align: right">Delta ms</th></tr>
+</thead>
+<tbody>
+<tr><td><code>930c788a</code></td><td style="text-align: right">631.71</td><td style="text-align: right">422.63</td><td style="text-align: right">324.29</td><td style="text-align: right">107.83</td></tr>
+<tr><td><code>e25ef77fa</code></td><td style="text-align: right">377.18</td><td style="text-align: right">303.61</td><td style="text-align: right">256.85</td><td style="text-align: right">131.33</td></tr>
+<tr><td><code>f36d57681</code></td><td style="text-align: right">295.23</td><td style="text-align: right">258.01</td><td style="text-align: right">220.64</td><td style="text-align: right">81.87</td></tr>
+<tr><td><code>1891050b8</code></td><td style="text-align: right">124.51</td><td style="text-align: right">108.95</td><td style="text-align: right">82.39</td><td style="text-align: right">58.93</td></tr>
+</tbody>
+</table>
+</div>
+<p>The separate initial experiment without incremental parsing measured
+<code>930c788a</code> at 817.42/559.87/429.16 ms for 1/2/4 threads (Delta 111.09 ms).
+Thus parallelism and incremental reuse both help, but <strong>complete-source first
+views still do not meet Delta parity</strong>. Each output was checked byte-for-byte
+against serial, disk-cache-disabled, non-incremental full parsing. Duplicate
+contents within one invocation may reuse newly computed styles; nothing is
+retained from previous source trials. Native macOS performance is unverified.</p>
+<h3 id="separate-comparison-identical-unified-patches"><a class="header" href="#separate-comparison-identical-unified-patches">Separate comparison: identical unified patches</a></h3>
+<p>Both tools received the same precomputed unified patch bytes on stdin; patch
+generation is outside these timings for both tools. Shared resources were primed,
+each process was fresh, no worker ran, and source-style caches were cleared.
+The patch frontend uses Tree-sitter on supplied fragments, not complete omitted
+file contents; these results must not be presented as full-source accuracy.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Revision</th><th style="text-align: right">Neohelix inline ms</th><th style="text-align: right">Delta inline ms</th><th style="text-align: right">Neohelix split ms</th><th style="text-align: right">Delta split ms</th></tr>
+</thead>
+<tbody>
+<tr><td><code>930c788a</code></td><td style="text-align: right">114.12</td><td style="text-align: right">94.24</td><td style="text-align: right">123.93</td><td style="text-align: right">108.83</td></tr>
+<tr><td><code>e25ef77fa</code></td><td style="text-align: right">121.35</td><td style="text-align: right">115.20</td><td style="text-align: right">129.00</td><td style="text-align: right">122.96</td></tr>
+<tr><td><code>f36d57681</code></td><td style="text-align: right">77.50</td><td style="text-align: right">68.94</td><td style="text-align: right">80.01</td><td style="text-align: right">76.26</td></tr>
+<tr><td><code>1891050b8</code></td><td style="text-align: right">54.97</td><td style="text-align: right">51.82</td><td style="text-align: right">56.41</td><td style="text-align: right">54.41</td></tr>
+</tbody>
+</table>
+</div>
+<p>The patch-sized-work contract is substantially closer to Delta than parsing
+entire unseen source files. This is a potential explicit fast-preview mode,
+not an automatic semantic downgrade of the complete-source formatter/editor.</p>
+<h2 id="delta-source-audit-2026-10-16"><a class="header" href="#delta-source-audit-2026-10-16">Delta source audit: 2026-10-16</a></h2>
+<p>Inspected Delta <strong>0.20.1</strong>, commit <code>b88d2290468449d75950bfa150ea7c1291fe2977</code>,
+the version used in the comparisons. Its relevant design choices are:</p>
+<ul>
+<li>It consumes the patch stream, not complete source syntax trees. Each hunk
+resets the Syntect highlighter; omitted source is not parsed for context.
+See <a href="https://github.com/dandavison/delta/blob/0.20.1/src/handlers/hunk_header.rs">hunk headers</a>
+and <a href="https://github.com/dandavison/delta/blob/0.20.1/src/paint.rs">line highlighting</a>.</li>
+<li>Nearby changed lines are buffered for word alignment, with a default buffer
+limit of 32, rather than waiting for an unlimited changed block. See
+<a href="https://github.com/dandavison/delta/blob/0.20.1/src/handlers/hunk.rs">hunk processing</a>.</li>
+<li>Highlighting is capped at 400 characters per line by default. Remaining text
+is rendered without syntax styles; the source explicitly notes possible
+subsequent highlighting errors until the next hunk reset. See
+<a href="https://github.com/dandavison/delta/blob/0.20.1/src/cli.rs">defaults</a> and
+<a href="https://github.com/dandavison/delta/blob/0.20.1/src/paint.rs">the highlighting branch</a>.</li>
+<li>Syntax/theme assets load from Bat’s asset cache or its embedded bundle, and
+styled output accumulates in strings before being emitted. See
+<a href="https://github.com/dandavison/delta/blob/0.20.1/src/utils/bat/assets.rs">assets</a>
+and <a href="https://github.com/dandavison/delta/blob/0.20.1/src/paint.rs">painting</a>.</li>
+<li>Comparing paths invokes <code>git diff --no-index</code> (or <code>diff</code> for some process
+substitutions), then processes that resulting patch; it does not build full
+source ASTs. See <a href="https://github.com/dandavison/delta/blob/0.20.1/src/subcommands/diff.rs">path comparison</a>.</li>
+</ul>
+<p>Directly reusable without changing syntax semantics: bounded buffering, reused
+output storage, and prebuilt/validated resource caches. Neohelix’s flow emitter
+now appends sanitized cell text into reusable row storage and writes once per
+row, avoiding an allocated string and tiny write for every cell. Output remains
+byte-identical, including SGR, wide/combining characters and control sanitization.</p>
+<p>Not silently adopted: replacing complete-source Tree-sitter context with isolated
+hunks, truncating syntax highlighting, or changing word matching merely to meet
+a timing target. Neohelix’s explicit raw-patch input already has a fragment-based
+contract; the benchmark supports <code>--patch</code> to compare that separately with Delta
+using identical patch bytes, without claiming complete-source syntax accuracy.</p>
+<p>Reproduce first views of complete-source revisions with shared resources primed
+but <strong>source-style caches cleared before every measured invocation</strong>:</p>
+<pre><code class="language-sh">HELIX_RUNTIME="$PWD/runtime" python contrib/bench-diff-first-view.py \
+  --hx target/rust-1.99/release/hx --iterations 3
+</code></pre>
+<p>The harness interleaves 1/2/4-thread fresh processes and checks every result
+against serial, cache-disabled, non-incremental full parsing. Add <code>--patch --threads 1</code> for the distinct patch-stream comparison. No worker runs and the OS
+filesystem cache is not flushed. Exact duplicate sources inside a single
+invocation may reuse work; no source styles survive from earlier trials.</p>
+<h2 id="hunk-only-style-collection-2026-10-16"><a class="header" href="#hunk-only-style-collection-2026-10-16">Hunk-only style collection: 2026-10-16</a></h2>
+<p>First-view cache population no longer highlights the entire source file. Full
+Tree-sitter parsing preserves context, while cached style events cover only the
+displayed hunk/context ranges. Those ranges are included in cache identity so a
+different comparison cannot use incomplete highlighting. Serialization and disk
+writes follow output flushing rather than blocking the first emitted content.</p>
+<p>Measured with the same release setup, no worker and no concurrent compilation:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Revision, inline</th><th style="text-align: right">First visit ms</th><th style="text-align: right">Source cache hits</th><th style="text-align: right">Revisit median ms</th><th style="text-align: right">Delta ms</th></tr>
+</thead>
+<tbody>
+<tr><td><code>930c788a</code></td><td style="text-align: right">1521.25</td><td style="text-align: right">0</td><td style="text-align: right">74.97</td><td style="text-align: right">105.67</td></tr>
+<tr><td><code>e25ef77fa</code></td><td style="text-align: right">530.70</td><td style="text-align: right">1</td><td style="text-align: right">73.66</td><td style="text-align: right">124.76</td></tr>
+<tr><td><code>f36d57681</code></td><td style="text-align: right">382.55</td><td style="text-align: right">0</td><td style="text-align: right">59.25</td><td style="text-align: right">82.91</td></tr>
+<tr><td><code>1891050b8</code></td><td style="text-align: right">153.54</td><td style="text-align: right">0</td><td style="text-align: right">43.96</td><td style="text-align: right">61.45</td></tr>
+</tbody>
+</table>
+</div>
+<p>The first row also fills shared configuration/query resources after the executable
+changed. Later rows reuse those resources but encounter unseen source/range
+combinations. These are not a controlled before/after comparison with the older
+table: range-specific identity changes which unchanged sources can be reused.
+All four revisions, both layouts, matched uncached Tree-sitter output byte for
+byte. Split followed inline and therefore is not an independent first visit.</p>
+<p>This removes avoidable cache-filling work, but <strong>new-diff parity with Delta is
+still not achieved</strong>. Moving writes after output alone cannot fix a host which
+captures until process exit. The native JJ workspace separately keeps an editor
+open for revision navigation, reusing initialization without a background worker;
+it does not itself remove the cost of parsing unseen source contents.</p>
+<h2 id="source-highlights-and-dependency-validation-2026-10-16"><a class="header" href="#source-highlights-and-dependency-validation-2026-10-16">Source highlights and dependency validation: 2026-10-16</a></h2>
+<p>Fresh processes with populated, validated configuration/query/source-highlight
+caches, no running worker, same Linux release setup as below. Dependency
+validation now avoids duplicate <code>stat</code> calls and per-directory <code>realpath</code> walks;
+cache hits use one dependency snapshot taken at request start.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Layout</th><th style="text-align: right">Delta ms</th><th style="text-align: right">Neohelix ms</th></tr>
+</thead>
+<tbody>
+<tr><td>One text line</td><td>Inline</td><td style="text-align: right">40.34</td><td style="text-align: right">35.82</td></tr>
+<tr><td>One Rust line</td><td>Inline</td><td style="text-align: right">43.01</td><td style="text-align: right">35.14</td></tr>
+<tr><td>1,000 Rust lines</td><td>Inline</td><td style="text-align: right">138.28</td><td style="text-align: right">112.42</td></tr>
+<tr><td>1,000 Rust lines</td><td>Split</td><td style="text-align: right">231.59</td><td style="text-align: right">102.77</td></tr>
+<tr><td>12-file revision <code>930c788a</code></td><td>Inline</td><td style="text-align: right">106.54</td><td style="text-align: right">84.55</td></tr>
+<tr><td>12-file revision <code>930c788a</code></td><td>Split</td><td style="text-align: right">118.57</td><td style="text-align: right">88.04</td></tr>
+<tr><td>Same revision through <code>jj diff</code></td><td>Inline</td><td style="text-align: right">146.17</td><td style="text-align: right">119.20</td></tr>
+<tr><td>Same revision through <code>jj diff</code></td><td>Split</td><td style="text-align: right">153.77</td><td style="text-align: right">126.18</td></tr>
+</tbody>
+</table>
+</div>
+<p>These are fresh-process timings, <strong>not empty-cache timings</strong>. An isolated empty
+disk cache for the small Rust input took 521.00 ms on its first fill, then
+34.46 ms median in fresh processes. Previously unseen small Rust contents took
+39.56 ms with configuration/query resources already cached, versus 502.85 ms
+with all caching disabled.</p>
+<p>First visits to other revisions still expose the outstanding parsing cost:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Revision, inline</th><th style="text-align: right">First visit ms</th><th style="text-align: right">Source cache hits</th><th style="text-align: right">Revisit median ms</th><th style="text-align: right">Delta ms</th></tr>
+</thead>
+<tbody>
+<tr><td><code>e25ef77fa</code></td><td style="text-align: right">482.10</td><td style="text-align: right">6</td><td style="text-align: right">75.55</td><td style="text-align: right">131.71</td></tr>
+<tr><td><code>f36d57681</code></td><td style="text-align: right">504.11</td><td style="text-align: right">2</td><td style="text-align: right">60.81</td><td style="text-align: right">81.44</td></tr>
+<tr><td><code>1891050b8</code></td><td style="text-align: right">174.95</td><td style="text-align: right">1</td><td style="text-align: right">44.42</td><td style="text-align: right">60.99</td></tr>
+</tbody>
+</table>
+</div>
+<p>Visited in this order after <code>930c788a</code>, no worker. Different temporary snapshot
+paths do not prevent content reuse. Both layouts of all four revisions matched
+uncached full Tree-sitter output byte-for-byte, including the user’s theme and
+word backgrounds. Split was measured after inline, so its first request already
+had the source highlights populated; it is not a second source-cache-miss result.</p>
+<p>Conclusion: populated-cache fresh processes now beat Delta in the matched suite,
+but <strong>general first-visit/empty-cache parity is not solved</strong>. Whole-document
+syntax construction on new source contents remains the next target. Native
+macOS performance and jjui terminal drawing are not established by these tests.</p>
+<h2 id="earlier-configurationquery-only-disk-caches-2026-10-16"><a class="header" href="#earlier-configurationquery-only-disk-caches-2026-10-16">Earlier configuration/query-only disk caches: 2026-10-16</a></h2>
+<p>The default renderer now runs without a background worker. Validated native
+configuration snapshots skip Steel initialization, and validated query-analysis
+snapshots skip Tree-sitter’s expensive grammar analysis. Full source parsing
+still happens in each process. See the <a href="diff-render-worker.html">cache/worker guide</a>
+for validation, bounds, controls and external-configuration dependencies.</p>
+<p>Linux release measurements: five fresh processes per case, median milliseconds,
+warm filesystem and validated resource caches, width 160, forced color, user’s
+Steel configuration and Gruvbox theme; Delta 0.20.1 with paging disabled. No
+concurrent compilation. These are <strong>not cold-cache-miss measurements</strong>. Different
+inputs are rendered normally; final output is not memoized.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Layout</th><th style="text-align: right">Delta</th><th style="text-align: right">Neohelix</th></tr>
+</thead>
+<tbody>
+<tr><td>One text line</td><td>Inline</td><td style="text-align: right">39.77</td><td style="text-align: right">56.68</td></tr>
+<tr><td>One Rust line</td><td>Inline</td><td style="text-align: right">44.93</td><td style="text-align: right">60.27</td></tr>
+<tr><td>1,000 Rust lines</td><td>Inline</td><td style="text-align: right">147.43</td><td style="text-align: right">213.45</td></tr>
+<tr><td>1,000 Rust lines</td><td>Split</td><td style="text-align: right">231.16</td><td style="text-align: right">202.52</td></tr>
+<tr><td>12-file revision <code>930c788a</code></td><td>Inline</td><td style="text-align: right">108.60</td><td style="text-align: right">842.63</td></tr>
+<tr><td>12-file revision <code>930c788a</code></td><td>Split</td><td style="text-align: right">114.68</td><td style="text-align: right">863.90</td></tr>
+<tr><td>Same revision through <code>jj diff</code></td><td>Inline</td><td style="text-align: right">149.91</td><td style="text-align: right">886.27</td></tr>
+<tr><td>Same revision through <code>jj diff</code></td><td>Split</td><td style="text-align: right">158.43</td><td style="text-align: right">899.53</td></tr>
+</tbody>
+</table>
+</div>
+<p>The prior fresh-process renderer took roughly 490 ms for the small Rust case
+and 1.5 s for the revision. This improves startup substantially but <strong>does not
+meet the target of beating Delta</strong>, especially for multi-file reviews. Full
+source parsing remains the main outstanding cost. Native macOS measurements
+are still needed.</p>
+<p>An isolated empty disk cache for the small Rust case took 543.05 ms on its
+first fill; subsequent fresh processes took 58.68 ms median. Changing the source
+to previously unseen Rust text took 59.18 ms with the validated resource cache,
+versus 482.19 ms with caching disabled. Cached and uncached output matched
+byte-for-byte; all three constructed queries used cached analysis. This confirms
+the speedup is resource reuse, not replaying a previously rendered diff.</p>
+<h2 id="historical-end-to-end-worker-verification-2026-10-16"><a class="header" href="#historical-end-to-end-worker-verification-2026-10-16">Historical end-to-end worker verification: 2026-10-16</a></h2>
+<p>Linux, Rust 1.99.0, optimized ThinLTO release, actual user Steel configuration,
+warm filesystem caches, captured output and no concurrent compilation. Every
+worker output matched its one-shot baseline byte-for-byte; trace output was
+required to confirm worker use rather than accepting fallback as a success.</p>
+<p>Four revisions, newest first: <code>930c788a5</code>, <code>e25ef77fa</code>, <code>f36d57681</code>,
+<code>1891050b8</code>. One-shot columns are medians of three complete CLI invocations per
+revision. Worker columns are individual complete invocations, first visiting
+each revision and then revisiting them in reverse order. Width is 160.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Layout</th><th style="text-align: right">One-shot range</th><th style="text-align: right">First cold worker request</th><th style="text-align: right">Subsequent new revisions</th><th style="text-align: right">Revisits</th></tr>
+</thead>
+<tbody>
+<tr><td>Inline</td><td style="text-align: right">787–1,465 ms</td><td style="text-align: right">1,566 ms</td><td style="text-align: right">126–345 ms</td><td style="text-align: right">54–97 ms</td></tr>
+<tr><td>Side-by-side</td><td style="text-align: right">791–1,484 ms</td><td style="text-align: right">1,558 ms</td><td style="text-align: right">128–343 ms</td><td style="text-align: right">59–106 ms</td></tr>
+</tbody>
+</table>
+</div>
+<p>Actual <code>jj diff -r 930c788a --tool neohelix</code>, including snapshot export and
+process overhead, measured 1,502 ms one-shot (median of three). The cold worker
+request took 1,600 ms; three subsequent invocations took 145, 147 and 139 ms.
+All outputs matched. This verifies the jj formatter path, not terminal drawing
+or a measured end-to-end jjui interaction on macOS.</p>
+<p>The actual-jj check exposed an essential configuration detail: jj normally
+changes into a different temporary directory for every invocation, preventing
+workspace-scoped reuse. Set <code>diff-do-chdir = false</code> on both inline and split
+formatter definitions. With the default setting, repeated jj requests still
+took about 1.6 seconds despite exercising the worker transport. We keep workspace
+isolation rather than guessing the real repository from inherited <code>PWD</code>.</p>
+<p>Verification passed: eight subprocess lifecycle/robustness tests, three worker
+unit tests, ten renderer unit tests plus the renderer argument-validation test,
+optimized release build, and Clippy including tests/examples with existing
+unrelated lint exceptions. Lifecycle coverage includes concurrent startup,
+cancelled clients, truncated replies without partial stdout, config imports,
+trust grant/revocation, workspace isolation, option/content changes, idle exit
+and insecure-directory fallback. Native macOS validation remains pending.</p>
+<h2 id="session-experiments"><a class="header" href="#session-experiments">Session experiments</a></h2>
+<p>The session experiments below preceded the Unix worker transport. File-based
+<code>hx --render-diff</code> now automatically uses that transport; see the
+<a href="diff-render-worker.html">worker guide</a>. Historical session timings below exclude
+IPC and are not end-to-end worker measurements. Set <code>HELIX_DIFF_WORKER=0</code> when
+reproducing a fresh-process baseline.</p>
+<p><code>diff_render::RenderSession</code> retains the evaluated configuration, theme/icon
+resources and language loader across sequential requests in one workspace.
+Each request still reads the input files. A content-addressed LRU now retains
+read-only parsed documents (64 entries, 16 MiB of source bytes; document/tree
+allocations add memory beyond that budget). Lookup verifies exact bytes and detected
+language, not just a hash or file metadata. This survives jj’s temporary snapshot
+paths without reusing a tree for changed contents or the wrong language. Failed
+syntax parses and entries larger than the byte budget are not retained.
+The session does not cache rendered output or diff results. The worker owns its
+session and recreates the process when configuration, runtime or trust changes.</p>
+<p>Build the production CLI and benchmark with the same release profile:</p>
+<pre><code class="language-sh">cargo build --locked --release -p helix-term --bin hx --example diff-render-bench
+HELIX_RUNTIME="$PWD/runtime" target/release/examples/diff-render-bench \
+  /absolute/path/before /absolute/path/after inline 20
+</code></pre>
+<p>Use the same working directory and environment as the CLI comparison so user
+and trusted-project configuration are identical. The example evaluates Steel
+once, measures initialization and the first render separately, then reports
+the median/minimum/maximum of subsequent renders. All repeated outputs must
+match byte-for-byte. Both files and directory pairs are accepted, in <code>inline</code>
+or <code>side-by-side</code> layout. <code>DIFF_BENCH_OUTPUT=/tmp/session-output</code> optionally
+saves the first output for comparison with the normal CLI.</p>
+<p>Compare against multiple fresh CLI invocations using the same width (160),
+layout, paths, and <code>--color always</code>. Measure elapsed wall time through process
+exit; redirect/capture output identically for every run. Report warm filesystem
+cache results as such, not as cold starts. Repeated identical inputs isolate
+retained resources, including parsed documents; they do not by themselves
+demonstrate how the cache behaves when navigating different revisions.</p>
+<p>Set <code>DIFF_BENCH_PROFILE=1</code> to report average per-file read, document preparation,
+syntax, diff and rendering times over the warmed requests. These times cover
+changed non-binary text pairs with hunks; totals exclude traversal/setup/cleanup
+and other overhead. The <code>document</code> total includes both <code>prepare</code> and <code>syntax</code>.</p>
+<p>For navigation, set <code>DIFF_BENCH_SEQUENCE</code> to a JSON manifest of
+<code>[["left-directory", "right-directory", "expected-CLI-output-file"], ...]</code>.
+The example then executes each request once, starting with an empty cache, and
+checks every output against independently captured CLI output. No requests are
+warmed before this sequence. Supply the desired layout through the normal
+positional argument. Include reversed requests to measure revisiting revisions.
+The example also accepts <code>DIFF_BENCH_CACHE_ENTRIES</code> and <code>DIFF_BENCH_CACHE_BYTES</code>
+to compare limits without rebuilding. Zero entries disables parsed-document
+caching. Navigation reports entry/source-byte usage, not total process memory.</p>
+<p>The worker now handles session invalidation, workspace isolation, serialized
+requests, lifecycle and transport failure separately from this benchmark.
+These session measurements exclude jj’s snapshot/export work, IPC, and terminal rendering.</p>
+<h2 id="initial-measurements-2026-10-16-before-parsed-document-caching"><a class="header" href="#initial-measurements-2026-10-16-before-parsed-document-caching">Initial measurements: 2026-10-16 (before parsed-document caching)</a></h2>
+<p>Linux, Rust 1.99.0, production release profile, actual user Steel configuration
+and <code>modified_gruvbox</code>, width 160, forced color, warm filesystem caches. No
+compilation ran during this suite. Fresh-process numbers are medians of seven
+CLI invocations with captured output. Session numbers are medians of twenty
+renders after its first request, writing to a fresh in-memory output buffer.
+They exclude process startup and future worker IPC costs.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Layout</th><th style="text-align: right">Fresh process</th><th style="text-align: right">Warm session</th></tr>
+</thead>
+<tbody>
+<tr><td>One changed plaintext line</td><td>Inline</td><td style="text-align: right">365.43 ms</td><td style="text-align: right">0.15 ms</td></tr>
+<tr><td>One changed plaintext line</td><td>Split</td><td style="text-align: right">361.40 ms</td><td style="text-align: right">0.16 ms</td></tr>
+<tr><td>One changed Rust line</td><td>Inline</td><td style="text-align: right">495.73 ms</td><td style="text-align: right">0.31 ms</td></tr>
+<tr><td>One changed Rust line</td><td>Split</td><td style="text-align: right">503.07 ms</td><td style="text-align: right">0.33 ms</td></tr>
+<tr><td>1,000 changed Rust lines</td><td>Inline</td><td style="text-align: right">648.97 ms</td><td style="text-align: right">134.01 ms</td></tr>
+<tr><td>1,000 changed Rust lines</td><td>Split</td><td style="text-align: right">629.02 ms</td><td style="text-align: right">127.24 ms</td></tr>
+<tr><td>12-file revision</td><td>Inline</td><td style="text-align: right">1,491.86 ms</td><td style="text-align: right">725.86 ms</td></tr>
+<tr><td>12-file revision</td><td>Split</td><td style="text-align: right">1,486.59 ms</td><td style="text-align: right">742.17 ms</td></tr>
+</tbody>
+</table>
+</div>
+<p>Synthetic Rust files contain functions of the form
+<code>fn example_N() { let value = 1; }</code>, changing every value to <code>2</code>. Plaintext uses
+the same single line with <code>.txt</code> filenames. The revision fixture is the changed
+file set between <code>930c788a515808f0fb8bb0cbba865ba189e70ae9^</code> and
+<code>930c788a515808f0fb8bb0cbba865ba189e70ae9</code>, with both complete file versions
+materialized into temporary directories. All cases run from the same Helix
+workspace to keep configuration/trust selection consistent.</p>
+<p>Session initialization measured 347–360 ms. Its first Rust-line render took
+120–121 ms; subsequent renders took about 0.3 ms. The first 12-file render took
+1,062–1,073 ms <em>after</em> initialization; its warm requests still took 721–767 ms.
+Retaining initialization therefore helps substantially but is not enough to
+make the larger revision instant. The remaining file reading, document parsing,
+diff calculation and rendering costs have not been separately profiled here.</p>
+<p>Every repeated output matched the first session output byte-for-byte, and every
+case matched both the refactored CLI and the previous <code>930c788a</code> release binary.
+Eight renderer unit tests passed, including repeated-request option isolation
+and rereading changed files. Both CLI layouts also retained the user’s Steel
+theme exactly. These are renderer measurements, not an end-to-end jjui latency
+claim; the normal CLI still initializes a new session on each invocation.</p>
+<h2 id="phase-profiling-and-parsed-document-caching"><a class="header" href="#phase-profiling-and-parsed-document-caching">Phase profiling and parsed-document caching</a></h2>
+<p>An instrumented repeat of the same revision isolated the remaining cost. These
+are per-phase averages over twenty warm inline requests, not a partition of the
+request median (traversal, setup and destruction are outside the phase totals):</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Phase</th><th style="text-align: right">Before parsed-document caching</th></tr>
+</thead>
+<tbody>
+<tr><td>File reads</td><td style="text-align: right">2.90 ms</td></tr>
+<tr><td>Decoding/document preparation</td><td style="text-align: right">2.48 ms</td></tr>
+<tr><td>Tree-sitter detection/parsing</td><td style="text-align: right">652.75 ms</td></tr>
+<tr><td>Diff calculation</td><td style="text-align: right">7.88 ms</td></tr>
+<tr><td>Row rendering and output</td><td style="text-align: right">38.73 ms</td></tr>
+</tbody>
+</table>
+</div>
+<p>The two large Rust files <code>helix-term/src/commands.rs</code> and
+<code>helix-term/src/commands/typed.rs</code> accounted for about 394 ms of parsing. This
+motivated retaining parsed documents rather than changing the row renderer.
+With a 32-entry parsed cache, the same inline revision measured 49.03 ms warmed;
+split measured 60.04 ms. The syntax/cache-lookup portion of the split profile
+dropped to 0.43 ms (480 hits across twenty requests), while row rendering remained
+48.72 ms. All repeat cases still matched the previous release and CLI exactly.</p>
+<p>However, a sequence across four different revisions exposed eviction at that
+limit: returning to the first revision took about 621 ms instead of its 49 ms
+repeat time. This is why navigation and capacity controls were added to the
+benchmark; an unchanged-input repeat alone is not a browsing latency claim.</p>
+<h2 id="navigation-comparison-32-versus-64-entries"><a class="header" href="#navigation-comparison-32-versus-64-entries">Navigation comparison: 32 versus 64 entries</a></h2>
+<p>The final binary was tested with both entry limits, keeping the 16 MiB source
+budget unchanged. Each sequence started with an empty cache and visited
+<code>930c788a5</code>, <code>e25ef77fa</code>, <code>f36d57681</code>, and <code>1891050b8</code>, then returned through
+them in reverse order. The table uses inline medians from three independent
+sessions; fresh CLI comparisons use three independent invocations per revision.
+First visits and revisits are timed request bodies, excluding session startup
+(about 350 ms), future IPC, jj snapshot export and terminal display.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Revision</th><th style="text-align: right">Fresh CLI</th><th style="text-align: right">First visit, 64 entries</th><th style="text-align: right">Revisit, 64 entries</th></tr>
+</thead>
+<tbody>
+<tr><td><code>930c788a5</code></td><td style="text-align: right">1,454 ms</td><td style="text-align: right">1,108 ms</td><td style="text-align: right">50 ms</td></tr>
+<tr><td><code>e25ef77fa</code></td><td style="text-align: right">1,134 ms</td><td style="text-align: right">298 ms</td><td style="text-align: right">53 ms</td></tr>
+<tr><td><code>f36d57681</code></td><td style="text-align: right">1,047 ms</td><td style="text-align: right">280 ms</td><td style="text-align: right">29 ms</td></tr>
+<tr><td><code>1891050b8</code></td><td style="text-align: right">831 ms</td><td style="text-align: right">81 ms</td><td style="text-align: right">11 ms</td></tr>
+</tbody>
+</table>
+</div>
+<p>The first row’s first visit must also pay session startup, so its full cold cost
+is essentially unchanged. Subsequent unseen revisions benefit from retained
+Steel/configuration, loaded grammars/queries, and shared file versions. They
+are not required to be repeats of a previously viewed revision. Completely new
+contents still need full syntax parsing; the cache does not perform incremental
+parsing between different contents.</p>
+<p>With 32 entries, the return to <code>930c788a5</code> measured 613 ms inline / 631 ms split.
+With 64 entries it measured 50 ms / 60 ms, respectively. The larger cache retained
+59 documents and 2,388,655 source bytes (2.28 MiB) across this sequence, below both
+limits. This supports the 64-entry default for this measured workload, not a
+guarantee of zero evictions for other histories. All sequence outputs matched
+independently captured CLI output byte-for-byte. Both layouts and all three
+independent runs passed.</p>
+<p>Ten renderer tests pass, including changed-file freshness, cross-path content
+reuse, language isolation, forced hash collisions, source/entry limits, LRU
+eviction, disabled-cache mode, and cached-versus-fresh theme changes. Clippy
+passes with only the four existing unrelated Rust 1.99 lint allowances used by
+this fork. A persistent worker and its lifecycle/invalidation/cancellation
+policies remain unimplemented; ordinary <code>hx --render-diff</code> still starts a fresh
+session each invocation.</p>
+<hr>
+<p><a href="https://github.com/rockboynton/helix/edit/neohelix/docs/diff-render-performance-history.md">Edit this guide’s source</a>.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../neohelix/diff-render-performance.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../neohelix/roadmap.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../neohelix/diff-render-performance.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../neohelix/roadmap.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../ts-query-56018970.js"></script>
+
+        <script src="../book-c22b7243.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

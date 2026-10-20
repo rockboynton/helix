@@ -1,0 +1,503 @@
+<!DOCTYPE HTML>
+<html lang="en" class="colibri sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>Shared LSP instances - Neohelix</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-d5706b94.svg">
+        <link rel="shortcut icon" href="../favicon-cc1a8b51.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom-10faeed5.css">
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "colibri";
+            const default_dark_theme = "colibri";
+            window.path_to_searchindex_js = "../searchindex-0293515e.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-467877a3.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('colibri')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-colibri">Colibri</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Neohelix</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/rockboynton/helix" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/rockboynton/helix/edit/neohelix/book/src/neohelix/shared-lsp.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <!-- Canonical source: docs/shared-lsp.md. Edit that file, not this include. -->
+<h1 id="shared-lsp-instances"><a class="header" href="#shared-lsp-instances">Shared LSP instances</a></h1>
+<p>Status: experimental Unix implementation, <strong>enabled by default</strong>. Set
+<code>editor.lsp.shared = false</code> to use ordinary independent language servers.
+Review the restrictions below for your workflow. Native macOS runtime testing is pending.
+The target is independent Neohelix processes, including separate Zellij panes;
+sharing must not depend on the terminal multiplexer.</p>
+<p>In Steel configuration:</p>
+<pre><code class="language-scheme">(require "helix/configuration.scm")
+(lsp (hash 'shared #f)) ; opt out of sharing
+</code></pre>
+<p>Or in TOML:</p>
+<pre><code class="language-toml">[editor.lsp]
+shared = false # opt out of sharing
+</code></pre>
+<p>Changes apply to newly started language servers; already attached servers are
+not migrated. Close and reopen the editor to switch an existing workspace.
+<code>:lsp-restart</code> deliberately starts a private server without disturbing peers.
+The former <code>HELIX_SHARED_LSP</code> opt-in is no longer used.</p>
+<h2 id="behavior-and-restrictions"><a class="header" href="#behavior-and-restrictions">Behavior and restrictions</a></h2>
+<p>Compatible Neohelix processes opening <strong>the same or different files in a workspace</strong>
+can share a server. Each editor owns a small stdio proxy; a private Unix-socket
+broker owns the actual language server. These helpers skip configuration/Steel
+initialization and use single-threaded asynchronous I/O runtimes.</p>
+<ul>
+<li>The broker remaps request IDs, cancellation and progress tokens. Document
+diagnostics go to synchronized views, with their local versions translated;
+diagnostics for unopened files can go to all attached editors. Watcher
+notifications come from one frontend at a time;
+registrations are replayed to peers and pending registrations survive leader
+departure.</li>
+<li>A file has one authoritative unsaved document. Typing in either editor updates
+the other through version-checked transactions, without saving or reloading
+from disk. Cursors, selections and scroll positions remain independent.
+Incremental edits are transformed using their actual operations; full-text
+changes use Unicode-aware differences. Simultaneous
+typing can interleave characters. This is text coordination, not semantic merging.
+A clean newly opened buffer joins the existing unsaved contents. A preexisting
+divergent edited buffer instead isolates, preserving both versions.</li>
+<li>Peer changes do not echo back into the same server. Each view has at most one
+pending synchronization request per file; newer changes coalesce behind it.
+Saving clears a peer’s modified marker only if its version/text still match
+what was saved. Moving a file or directory inside Helix rebinds peer buffers
+while retaining text and selections. This does not promise tracking arbitrary
+external filesystem renames.</li>
+<li>Normal navigation, completion, diagnostics, formatting, semantic tokens,
+symbols, folding, rename, code actions and execute-command requests are routed.
+Workspace edits carry one-shot, expiring version-check tokens. The requesting
+editor applies its files; the broker applies edits for peer-only open files to
+their shared unsaved documents. Closed files use the requesting editor’s normal
+workspace-edit path. Server-initiated workspace edits choose one driver, not
+every window. File creation and rename operations use that driver too.</li>
+<li>Stale versions, overlapping edits, repeated sequential edits to one shared
+file, creating/deleting an open shared file, and destination-buffer collisions
+are rejected. Workspace edits are not globally atomic: if a peer changes after
+preparation, local edits may already be applied. Inspect or undo those before
+retrying. A driver disconnect never replays a potentially applied edit to a peer.
+Unknown extensions still isolate before execution; retry the cancelled request
+after isolation. Mutating requests are never automatically replayed. User
+prompts/show-document requests are not broadcast.</li>
+<li>Changed effective settings also cause isolation. Backend failure cancels
+pending requests and starts independent servers with each frontend’s unsaved
+buffers. Requests need retrying. Fallback requires unchanged capabilities;
+otherwise restart the LSP explicitly. Buffer text remains in Helix.</li>
+<li><code>:lsp-restart</code> starts a fresh <strong>private</strong> server for the current editor. It
+neither reattaches to the old backend nor restarts another editor’s server.
+Exiting one editor leaves surviving peers running. Exiting the last attached
+editor shuts down/reaps the backend and removes the socket (with a bounded
+two-second graceful shutdown before forced cleanup); no
+unwatched workspace index is retained for a future session.</li>
+</ul>
+<p>This is an editor-aware protocol, not a transparent multiplexer for arbitrary
+LSP clients. Read-only views that cannot accept synchronization and other
+incompatible frontends fall back rather than pretending their text is synchronized.
+Custom servers with pane-dependent environments may not share; disable sharing
+if independent editor-local state is required.</p>
+<h2 id="compatibility-discovery-and-bounds"><a class="header" href="#compatibility-discovery-and-bounds">Compatibility, discovery and bounds</a></h2>
+<p>Compatibility hashes include the resolved executable and its filesystem
+identity, arguments, canonical workspace directory, effective server environment,
+complete initialize parameters except editor PID, and broker/editor identity.
+Capabilities, initialization options, root URI and workspace folders must match.
+Settings are also checked when delivered after initialization. Mutable scripts
+or server dependencies referenced by arguments are not recursively fingerprinted;
+restart after changing those. No configuration or credentials are written to
+socket metadata or logs.</p>
+<p>Presentation-only <code>_</code>, <code>SHLVL</code>, <code>OLDPWD</code>, <code>COLUMNS</code>, <code>LINES</code>, and
+<code>ZELLIJ_PANE_ID</code> are removed from both identity and the server environment.
+<code>PWD</code> is the canonical workspace directory. Other environment differences
+conservatively prevent sharing. Workspace trust stays enforced by normal Helix
+server startup; the broker does not run a second workspace-config loader.</p>
+<p>Sockets default to <code>/tmp/neohelix-lsp-&lt;uid&gt;</code>; <code>HELIX_SHARED_LSP_DIR</code> can select
+another short absolute directory. Directories must be owned by the user with
+mode 0700, sockets use 0600, peers must have the same effective UID, lock files
+reject symlinks/hardlinks/public permissions, and startup uses exclusive locks.
+The shared wire protocol is separate from the diff worker. It supports Linux
+and macOS peer-credential APIs; native macOS remains unverified.</p>
+<p>Limits are 8 brokers per discovery directory, 8 clients per broker, 16 MiB
+messages/control frames, bounded queues, 1024 outstanding routed requests,
+256 registrations and 128 pending server requests. Replay retains up to 512
+documents/8 MiB of current document snapshots per frontend; exceeding replay capacity
+switches that frontend to a private backend without dropping the triggering
+notification. Incremental and peer changes are compacted into replayable full-text
+opens, so ordinary typing does not exhaust a growing edit log. Workspace-edit
+tokens are bounded to 128 and expire after 60 seconds. An oversized/malformed wire
+message closes the affected transport; Helix retains its buffers, but the LSP
+may need restarting. Slow readers are disconnected, upstream writes time out,
+and initialization has a deadline. Never treat these limits as support for
+arbitrarily large documents.</p>
+<p>An unused startup broker expires within the default 120-second idle budget
+(<code>HELIX_SHARED_LSP_IDLE_SECS</code>, bounded to 1–3600); initialization has its own
+60-second deadline. These do not extend the last-attached-client lifecycle.</p>
+<h2 id="verification-and-reproduction"><a class="header" href="#verification-and-reproduction">Verification and reproduction</a></h2>
+<p><code>contrib/test-shared-lsp.py</code> exercises real <code>hx</code> proxy/broker processes with a
+deterministic instrumented server, plus actual PTY-backed editor processes.
+Coverage includes simultaneous startup, disjoint sharing, overlapping unsaved
+buffers, UTF-16 incremental replay, large-buffer fallback, malformed peers,
+unsafe discovery permissions, backend crashes, restart, opt-out and cleanup.
+<code>HX=/path/to/hx</code> selects another build. Rust routing/wire tests additionally
+cover colliding request IDs, cancellation, diagnostics, compatibility,
+configuration, progress and registration success/failure/leader transfer.
+The live-document rewrite adds actual two-editor tests for unsaved joining,
+bidirectional/concurrent typing, peer-save state, cross-file rename, file moves,
+rename-then-edit resource operations and crash replay. The optional real-analyzer
+test exercises cross-file rename as well as useful hover and backend process count.
+This is not native macOS or live Zellij validation.</p>
+<p>Final Linux checks for the live-document rewrite: 38 LSP/transport tests both
+with and without Steel, 24 release-build process/editor tests including real
+rust-analyzer, 231 editor integration tests, 16 serial diff-worker regressions,
+strict Clippy and a build without default features. Test concurrency was bounded
+to avoid exhausting worker/thread limits. The no-default-features build retains
+preexisting unused-variable warnings outside this subsystem.</p>
+<pre><code class="language-sh">python contrib/test-shared-lsp.py -v
+RUST_ANALYZER=/absolute/path/to/rust-analyzer python contrib/test-shared-lsp.py -v
+cargo test -p helix-lsp --features steel
+cargo test -p helix-lsp
+</code></pre>
+<p>For matched real-server measurements, run without concurrent builds/tests:</p>
+<pre><code class="language-sh">CARGO_NET_OFFLINE=true python contrib/bench-shared-lsp.py \
+  --root "$PWD" --files helix-lsp/src/client.rs helix-lsp/src/lib.rs \
+  --server /absolute/path/to/rust-analyzer --hx target/release/hx \
+  --settle 5 --requests 500 --edit-requests 100
+</code></pre>
+<p>This opens two disjoint source files and measures initialization, first useful
+hover and aggregate Linux PSS including proxies/broker/server descendants. It
+does not measure editor startup or prove full indexing has finished. The default
+options disable checks, build scripts and procedural macros. Use <code>--options</code>
+for a different configuration; native macOS has no <code>/proc</code> PSS measurement.
+Each client gets 20 warmup hovers and <code>--requests</code> measured hovers (default 200), reporting median,
+p95, p99 and maximum round-trip latency. Increase <code>--requests</code> for longer runs.
+The acceptance goal is no more than a few milliseconds of added request latency
+versus the matched direct server; initialization/attachment is reported separately.
+<code>--edit-requests</code> adds in-memory newline edits followed by useful-hover barriers
+(default 100 per file). Use <code>--reverse</code> to repeat both modes in reverse order.</p>
+<h2 id="live-document-release-measurements"><a class="header" href="#live-document-release-measurements">Live-document release measurements</a></h2>
+<p>2026-10-17, Linux, implementation <code>6ed8cdc1</code>, Rust 1.99.0 thin-LTO release;
+Nix rust-analyzer 1.101.0-nightly-2026-10-11. Same Helix workspace and two files
+as the command above. Two trials ran direct/shared, then shared/direct using
+<code>--reverse</code>, with no concurrent builds or tests. Each file received 20 warmup
+hovers, 500 measured hovers and 100 in-memory newline edits, each followed by a
+useful hover barrier. Totals per mode: <strong>2,000 warm requests and 400 edit barriers</strong>.
+Checks, build scripts and procedural macros were disabled. OS caches were not
+flushed. This is protocol latency, not full editor startup or rendering latency.</p>
+<p>Ranges across the four per-file samples:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Operation / mode</th><th style="text-align: right">Median</th><th style="text-align: right">p95</th><th style="text-align: right">p99</th></tr>
+</thead>
+<tbody>
+<tr><td>Warm hover, direct</td><td style="text-align: right">0.344–0.495 ms</td><td style="text-align: right">0.577–0.672 ms</td><td style="text-align: right">0.658–1.231 ms</td></tr>
+<tr><td>Warm hover, shared</td><td style="text-align: right">0.347–0.371 ms</td><td style="text-align: right">0.414–0.438 ms</td><td style="text-align: right">0.437–0.500 ms</td></tr>
+<tr><td>Edit + hover, direct</td><td style="text-align: right">8.133–10.799 ms</td><td style="text-align: right">11.339–13.682 ms</td><td style="text-align: right">16.052–26.729 ms</td></tr>
+<tr><td>Edit + hover, shared</td><td style="text-align: right">8.940–11.407 ms</td><td style="text-align: right">10.529–13.213 ms</td><td style="text-align: right">11.042–16.097 ms</td></tr>
+</tbody>
+</table>
+</div>
+<p>Comparing matching files within each trial, shared edit-barrier medians added
+<strong>0.479, 0.807, 0.608 and 0.657 ms</strong>. Warm-hover median overhead was at most
+0.006 ms. Shared p95 values did not exceed their paired direct values for either
+operation. This meets the few-millisecond overhead target in this workload, not
+a universal bound: edit-barrier maxima reached 255.0 ms direct and 188.6 ms
+shared. Lower sampled shared percentiles do not prove the proxy makes analysis
+intrinsically faster.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Mode</th><th style="text-align: right">First initialize</th><th style="text-align: right">Second initialize</th><th style="text-align: right">Second useful hover</th><th style="text-align: right">Aggregate PSS</th></tr>
+</thead>
+<tbody>
+<tr><td>Two direct analyzers</td><td style="text-align: right">11.30–12.04 ms</td><td style="text-align: right">15.49–15.81 ms</td><td style="text-align: right">730.87–1356.27 ms</td><td style="text-align: right">5,686,622–5,688,268 KiB</td></tr>
+<tr><td>One shared analyzer and three helpers</td><td style="text-align: right">26.64–32.25 ms</td><td style="text-align: right">5.87–6.03 ms</td><td style="text-align: right">9.46–9.69 ms</td><td style="text-align: right">2,883,991–2,890,220 KiB</td></tr>
+</tbody>
+</table>
+</div>
+<p>First useful hover remained about 6.6 seconds in both modes. Starting the first
+broker added 15.34–20.21 ms to initialization; subsequent clients reused the
+loaded analyzer. Aggregate PSS fell by <strong>49.2–49.3%</strong>, approximately 5.42 GiB to
+2.75–2.76 GiB, including 16.6–16.8 MiB for the three helpers. Memory was sampled
+after edit barriers, includes live descendants, and is not a claim of complete
+indexing or the same savings in another workspace. Native macOS measurements
+are still pending.</p>
+<h2 id="earlier-single-owner-release-measurements"><a class="header" href="#earlier-single-owner-release-measurements">Earlier single-owner release measurements</a></h2>
+<p>These results predate the live-document/workspace-edit rewrite. Do not assume
+they establish the rewritten implementation’s latency; rerun the matched harness.</p>
+<p>2026-10-17, Linux, Helix workspace, Rust 1.99.0 release build with thin LTO;
+Nix <code>rust-analyzer-preview</code> 1.101.0-nightly-2026-10-11. Two trials reversed order:
+direct/shared, then shared/direct. Each mode/trial opened the two files above,
+waited five seconds after useful hovers, then measured 500 hovers per file after
+20 warmups: <strong>2,000 measured requests per mode</strong>. No builds/tests ran concurrently.
+The analyzer’s own schema confirms <code>checkOnSave=false</code>; build scripts and
+procedural macros were also disabled. OS filesystem caches were not flushed.</p>
+<p>Ranges below are across the four per-client samples in each mode. These are
+whole protocol round trips through the same Python harness, not estimated IPC
+costs or an editor-rendering benchmark.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Mode</th><th style="text-align: right">Median</th><th style="text-align: right">p95</th><th style="text-align: right">p99</th><th style="text-align: right">Maximum</th></tr>
+</thead>
+<tbody>
+<tr><td>Direct analyzer</td><td style="text-align: right">0.400–0.471 ms</td><td style="text-align: right">0.580–0.673 ms</td><td style="text-align: right">0.676–0.803 ms</td><td style="text-align: right">4.375 ms</td></tr>
+<tr><td>Shared analyzer</td><td style="text-align: right">0.338–0.373 ms</td><td style="text-align: right">0.406–0.465 ms</td><td style="text-align: right">0.432–0.601 ms</td><td style="text-align: right">1.759 ms</td></tr>
+</tbody>
+</table>
+</div>
+<p>The shared path stays within the few-millisecond request-overhead target here;
+no added latency was observed in these samples. Its slightly lower times are
+not a claim that multiplexing inherently accelerates a cached analyzer query.
+This covers warm hovers, not every LSP method, operating system or workload.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Mode</th><th style="text-align: right">First initialize</th><th style="text-align: right">Second initialize</th><th style="text-align: right">Second useful hover</th><th style="text-align: right">Aggregate sampled PSS</th></tr>
+</thead>
+<tbody>
+<tr><td>Two independent analyzers</td><td style="text-align: right">11.85–11.89 ms</td><td style="text-align: right">15.58–32.96 ms</td><td style="text-align: right">1251.78–1411.46 ms</td><td style="text-align: right">5,556,810–5,565,811 KiB</td></tr>
+<tr><td>One shared analyzer plus three helpers</td><td style="text-align: right">27.45–28.13 ms</td><td style="text-align: right">5.55–5.75 ms</td><td style="text-align: right">9.10–10.99 ms</td><td style="text-align: right">2,861,181–2,861,520 KiB</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Starting the first broker adds about 16 ms to initialization</strong> in this setup;
+that is separate from warm request latency. First useful hover remained about
+6.6 seconds in both modes because the analyzer still has to load the workspace.
+The measured aggregate PSS saving was about 48.5%, including all three helper
+processes; the helpers themselves consumed roughly 15 MiB combined. These are
+sampled process-memory results, not proof that indexing is complete or a promise
+of the same ratio for another project. PSS apportions shared memory mappings.</p>
+<p>The earlier independent-only pilot is retained in Git history. It supplied an
+unrecognized <code>check.enable=false</code> option, so its claim of disabled checks should
+not be used for comparison. The corrected matched results above supersede it.
+Neither harness writes source files, but servers may create normal caches or run
+tools according to their configuration. Native macOS still needs the process
+tests and latency measurements run on an actual Mac.</p>
+<p>The ownership and lifecycle constraints follow the
+<a href="https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/">LSP specification</a>.
+Shared documents, versioned peer transactions and coordinated workspace edits
+are Neohelix policies, not synchronization features supplied by LSP itself.</p>
+<hr>
+<p><a href="https://github.com/rockboynton/helix/edit/neohelix/docs/shared-lsp.md">Edit this guide’s source</a>.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../neohelix/gitlens.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../neohelix/media-previews.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../neohelix/gitlens.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../neohelix/media-previews.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../ts-query-56018970.js"></script>
+
+        <script src="../book-c22b7243.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

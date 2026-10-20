@@ -1,0 +1,496 @@
+<!DOCTYPE HTML>
+<html lang="en" class="colibri sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>GitLens and blame - Neohelix</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-d5706b94.svg">
+        <link rel="shortcut icon" href="../favicon-cc1a8b51.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-0392ca55.css">
+        <link rel="stylesheet" href="../css/chrome-fc474251.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../custom-10faeed5.css">
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "colibri";
+            const default_dark_theme = "colibri";
+            window.path_to_searchindex_js = "../searchindex-0293515e.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-467877a3.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('colibri')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-colibri">Colibri</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">Neohelix</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/rockboynton/helix" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/rockboynton/helix/edit/neohelix/book/src/neohelix/gitlens.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <!-- Canonical source: docs/gitlens.md. Edit that file, not this include. -->
+<h1 id="gitlens-style-blame"><a class="header" href="#gitlens-style-blame">GitLens-style blame</a></h1>
+<h3 id="try-it"><a class="header" href="#try-it">Try it</a></h3>
+<p>Load the <a href="https://github.com/rockboynton/helix/tree/neohelix/runtime/plugins/gitlens/">GitLens modules</a> through your Steel configuration
+as described below. Importing the plugin does not install keybindings.</p>
+<ol>
+<li>Launch this build with <code>hx path/to/file</code>.</li>
+<li>Trust the repository with <code>:workspace-trust</code>.</li>
+<li>Put the cursor on a committed line and use your configured shortcut:
+<strong>Space B</strong> in the author’s keymap, or <strong>B</strong> in the minimal example below.</li>
+<li>Use <strong>Tab</strong> to select a link, <strong>Enter</strong> to open it, or <strong>d</strong> to inspect the commit diff.</li>
+<li>Press <strong>d</strong> again to return to blame details, or <strong>Esc</strong> to close the popup.</li>
+</ol>
+<p>The example <code>B</code> binding overrides Helix’s default backward-WORD motion. Without
+a user override, <code>Space B</code> invokes native statusline blame instead. The popup is independent
+of inline blame; it does not require enabling it.</p>
+<h3 id="installation-and-configuration"><a class="header" href="#installation-and-configuration">Installation and configuration</a></h3>
+<p>Neohelix packages GitLens under <code>runtime/plugins/gitlens/</code>. Steel searches the
+runtime automatically, so no copy or symlink in your user config is needed.
+It is optional: your configuration must import it and install its shortcut.
+For a separate installation, copy or symlink that directory into
+<code>~/.config/helix/plugins/gitlens/</code>, keeping both Scheme files together. These
+modules require Neohelix’s native Steel bindings; they are not standalone plugins
+for an unmodified upstream build. Your own configuration stays outside this repo.</p>
+<p>In your user <code>helix.scm</code>, import and export the commands:</p>
+<pre><code class="language-scheme">(require "plugins/gitlens/gitlens.scm")
+(provide gitlens-blame gitlens-clear-cache)
+</code></pre>
+<p>In your separate keybindings module, add <code>"B" ":gitlens-blame"</code> to the normal-mode
+keymap. A minimal standalone binding installer would be:</p>
+<pre><code class="language-scheme">(require "helix/keymaps.scm")
+(provide configure-keybindings!)
+
+(define (configure-keybindings!)
+  (add-global-keybinding
+    (hash "normal" (hash "B" ":gitlens-blame"))))
+</code></pre>
+<p>Call that installer from your user startup configuration. Your existing full
+keybindings module can keep the binding alongside all your other shortcuts.
+The plugin retains popup-local controls such as <code>d</code> and <code>y</code>.</p>
+<p>Steel startup runs user configuration first, then a trusted project’s
+<code>.helix/helix.scm</code> and <code>.helix/init.scm</code> when both exist. Each layer resolves its
+own relative imports; a project does not need to import the user’s absolute path.
+<code>HELIX_STEEL_CONFIG</code>, when set, selects the user layer rather than bypassing
+project trust. Missing TOML files use built-in defaults. <code>--health</code> includes user
+and trusted-project Steel overrides without starting the terminal UI or language servers.</p>
+<h3 id="what-the-popup-shows"><a class="header" href="#what-the-popup-shows">What the popup shows</a></h3>
+<ul>
+<li>The current line’s commit author and email.</li>
+<li>A human-readable authored date and time, including the original timezone
+(for example, <code>Oct 11, 2026 at 01:49 (UTC-07:00)</code>).</li>
+<li>The full commit SHA, commit title, and commit-message body.</li>
+<li>Associated GitHub PR numbers, titles, and open/closed/merged status.</li>
+<li>Selectable commit and PR links, with the commit selected initially when available.</li>
+<li>Immediate PR hints from recognizable <code>Title (#123)</code> or merge-commit messages.
+These are explicitly unverified until GitHub confirms the association.</li>
+<li>Original upstream PR hints from <code>Source:</code> provenance in ported commits.
+<code>Source:</code> is part of the commit message, not an extra metadata service.</li>
+</ul>
+<p>There is no separate line-number section or keybinding hint line in the popup.
+The layout is compact, with blank rows before headings and between headings and
+their body. Height fits the content; long content scrolls. Near the bottom of the
+screen, the popup prefers to expand upward when that offers more room.</p>
+<h3 id="controls"><a class="header" href="#controls">Controls</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Key / command</th><th>Action</th></tr>
+</thead>
+<tbody>
+<tr><td><code>B</code> in normal mode</td><td>Open blame details for the current line</td></tr>
+<tr><td><code>Tab</code> / <code>Shift-Tab</code></td><td>Select the next / previous commit or PR link</td></tr>
+<tr><td><code>Enter</code></td><td>Open the selected link in your default browser</td></tr>
+<tr><td><code>c</code></td><td>Copy the selected link</td></tr>
+<tr><td><code>y</code></td><td>Copy the full commit hash, including from the diff view</td></tr>
+<tr><td><code>d</code></td><td>Open the full commit diff; press again to return to blame details</td></tr>
+<tr><td><code>Ctrl-d</code> / <code>Ctrl-u</code>, <code>Page Down</code> / <code>Page Up</code></td><td>Scroll the popup</td></tr>
+<tr><td><code>Esc</code></td><td>Dismiss the popup</td></tr>
+<tr><td><code>:gitlens-blame</code></td><td>Open the popup without using the keybinding</td></tr>
+<tr><td><code>:gitlens-clear-cache</code></td><td>Clear saved PR metadata</td></tr>
+</tbody>
+</table>
+</div>
+<p>Both copy actions write Helix’s default yank register and the system clipboard.
+If the clipboard is unavailable, the value remains available for <code>p</code>. Links are
+keyboard-actionable, not mouse-click/OSC-8 terminal hyperlinks; only HTTPS links
+can be opened.</p>
+<h3 id="commit-diff"><a class="header" href="#commit-diff">Commit diff</a></h3>
+<p><strong>d</strong> opens the full local commit patch in a syntax-highlighted diff block,
+independent of GitHub. This is a unified Git patch, not a Delta-style side-by-side
+or word-level diff renderer.</p>
+<p>Press <strong>d</strong> again, even while loading, to restore the original GitLens popup’s
+selected link and scroll position without repeating the PR lookup. PR enrichment
+can finish in the background while the diff is open and appears on return.</p>
+<p>The patch is loaded through asynchronous <code>git show</code>, with a five-second timeout
+and a 1 MiB output limit. External diff commands and textconv are disabled.
+Oversized patches display an explicit error. Merge commits compare against their
+first parent; binary changes use Git’s summary.</p>
+<h3 id="performance-and-caching"><a class="header" href="#performance-and-caching">Performance and caching</a></h3>
+<p>Local metadata is native and loaded in a background worker. GitHub enrichment uses
+native Octocrab HTTP with your existing GitHub authentication, a five-second timeout, no shell
+interpolation, bounded output, and a five-minute/128-entry persistent cache. Only
+Shift-B initiates a plugin lookup; no plugin network work runs on startup or render.
+Saved metadata survives editor restarts; stale details remain visible while
+refreshing, for up to seven days. The cache is lazy-loaded on the first request,
+stored in Helix’s cache directory under <code>plugins/gitlens-pr-v1.json</code> (normally
+<code>$XDG_CACHE_HOME/helix/plugins/gitlens-pr-v1.json</code>, or
+<code>~/.cache/helix/plugins/gitlens-pr-v1.json</code> on Linux), and contains metadata only,
+never authentication tokens. Unix files are mode <code>0600</code>; private repository titles
+may be present. Run <code>:gitlens-clear-cache</code> to discard saved details.
+The existing <code>inline-blame.auto-fetch</code> setting is independent of this plugin.
+Enrichment preserves selection and scroll position. Replies for changed
+documents/versions/cursor lines are ignored, and late replies cannot reopen
+dismissed popups or replace a diff view you have already left.</p>
+<h3 id="forks-and-upstream-pr-links"><a class="header" href="#forks-and-upstream-pr-links">Forks and upstream PR links</a></h3>
+<p>Origin is preferred for actual commit lookups and commit links. Upstream provides
+original commit-message PR hints in forks. Up to 20 associated PRs are displayed
+using the <a href="https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit">commit-to-PR API</a>.</p>
+<p>Ported commits with <code>Source:</code> provenance use the fork for commit association
+checks and retain the upstream PR as a separate unverified message hint.
+Verified PR links retain GitHub’s canonical repository, which can differ from
+the commit lookup repository. Bare message references remain unverified hints.
+Older cache records with rewritten links are invalidated automatically.
+Confirmed unpublished commits omit the dead commit link; publishing the branch
+makes that hash available on GitHub.</p>
+<h3 id="toggleable-full-file-annotations"><a class="header" href="#toggleable-full-file-annotations">Toggleable full-file annotations</a></h3>
+<p><code>:blame-toggle</code> toggles a GitLens-style strip to the left of the focused view’s
+source text: abbreviated commit, commit date and author for each real source
+line. It reserves actual gutter width and scrolls with the file, including when
+soft wrapping is enabled. Continuation rows stay blank. The strip hides on panes
+narrower than 60 columns and otherwise uses up to 38 columns (at most one third
+of the pane). The file-tree sidebar remains independent.</p>
+<p>This is a native core command, not the Steel popup plugin. It reuses the full-file
+blame worker/cache; no repository or network requests are started by rendering.
+It requires a saved path and workspace trust. Inserted/uncommitted lines are
+marked <code>Uncommitted</code>. Toggle on again to request a fresh snapshot; reloaded files
+also refresh visible annotations. The base theme scope is <code>ui.virtual.blame</code>
+with <code>ui.virtual.inline-blame</code> as fallback. Individual fields use
+<code>ui.virtual.blame.commit</code>, <code>.date</code>, <code>.author</code>, and <code>.uncommitted</code>; if absent,
+they use your theme’s <code>constant</code>, <code>comment</code>, <code>variable.parameter</code>, and <code>warning</code>
+colors respectively. This applies in both Git and colocated JJ repositories.
+No shortcut is installed by importing
+the plugin; bind <code>:blame-toggle</code> in your keymap (the author’s config uses <code>' g b</code>).
+The existing on-demand popup shortcut remains separate.</p>
+<h3 id="requirements-and-limitations"><a class="header" href="#requirements-and-limitations">Requirements and limitations</a></h3>
+<p>Blame resolves directory aliases on both the file path and Git worktree root
+before computing the repository-relative path. This supports symlinked checkout
+paths and linked worktrees, including macOS-style temporary-directory aliases.
+Older builds could report only <code>prefix not found</code> for this mismatch; remaining
+outside-worktree errors now identify the two paths. This happens before GitHub
+authentication or API lookup.</p>
+<ul>
+<li>
+<p>The repository must be trusted. Uncommitted lines have no historical blame.</p>
+</li>
+<li>
+<p>GitHub enrichment uses a pooled native Octocrab client—no <code>gh</code> subprocess is
+needed for requests or credential lookup. Offline/authentication failures and
+non-GitHub repositories still show local commit metadata.</p>
+</li>
+<li>
+<p>GitHub.com and GitHub Enterprise hosts are derived from repository remotes;
+no hostname configuration is needed. HTTPS, <code>git@host:owner/repo.git</code>, and
+<code>ssh://git@host/owner/repo.git</code> forms are supported. Lookups use
+the host’s native HTTPS API and that host’s existing authentication.
+Public and Enterprise PR caches are isolated by hostname. Canonical PR URLs
+may point to another repository on the same host, but never another host.
+A Git remote alone cannot identify its forge; non-GitHub hosts fall back to
+local details when the GitHub API lookup fails. SSH aliases must resolve to
+the actual web/API hostname in the remote; ports and credential-bearing URLs
+are not currently supported.</p>
+</li>
+<li>
+<p>Authentication follows the GitHub CLI’s token precedence: <code>GH_TOKEN</code> then
+<code>GITHUB_TOKEN</code> for GitHub.com/Enterprise Cloud; <code>GH_ENTERPRISE_TOKEN</code> then
+<code>GITHUB_ENTERPRISE_TOKEN</code> for Enterprise Server. Otherwise the client reads
+the selected host/account from <code>hosts.yml</code> and its native credential store
+(Linux Secret Service, macOS Keychain, Windows Credential Manager). No tokens
+enter Steel, popups, logs, or the PR cache. <code>GH_CONFIG_DIR</code>/<code>XDG_CONFIG_HOME</code>
+are respected. You can still use <code>gh auth login</code> to set up a saved login.
+A nonempty environment token bypasses credential-store access entirely; use
+<code>GH_ENTERPRISE_TOKEN</code> for custom Enterprise hosts when Keychain access by <code>hx</code>
+is unavailable. Inject it with your approved secret tooling into the process
+that launches Helix, not into version-controlled Nix or Steel configuration.
+Restart Helix after setting it. SSH keys authenticate Git transport, not PR
+API requests. No <code>gh</code> credential-helper subprocess is used.</p>
+<p>For a one-session token supplied manually, Bash and Zsh can prompt without
+echoing it or putting the token itself in shell history:</p>
+<pre><code class="language-sh">printf 'Enterprise token: '
+read -r -s neohelix_token
+printf '\n'
+GH_ENTERPRISE_TOKEN="$neohelix_token" hx
+unset neohelix_token
+</code></pre>
+</li>
+<li>
+<p>HTTP clients are reused for up to eight hosts. After changing credentials,
+run <code>gitlens-clear-cache</code> or restart Helix to rebuild clients. Requests have a
+five-second total deadline and a 1 MiB response limit; redirects and retries
+are disabled. System TLS roots are used; certificate verification stays on.</p>
+</li>
+<li>
+<p>The full commit patch requires the <code>git</code> executable and local commit history.</p>
+</li>
+<li>
+<p>This is line/commit inspection, not the entire VS Code GitLens feature set:
+there is no file-history browser or general issue-reference resolver.</p>
+</li>
+</ul>
+<h3 id="creating-a-token-without-keychain"><a class="header" href="#creating-a-token-without-keychain">Creating a token without Keychain</a></h3>
+<p>Create the token on the <strong>same GitHub host as the repository</strong>: sign in to your
+company’s Enterprise instance for company repositories, not github.com.</p>
+<ol>
+<li>Open <strong>Settings → Developer settings → Personal access tokens → Fine-grained
+tokens → Generate new token</strong>.</li>
+<li>Name it <code>Neohelix</code>, choose an expiration, and select the organization/resource
+owner and only the repositories you need.</li>
+<li>Under repository permissions, grant <strong>Pull requests: Read-only</strong>. That is the
+permission required by GitLens’s commit-to-PR endpoint; write/admin permissions
+are not needed. Repository contents and blame are read from your local clone.</li>
+<li>Generate the token and complete any required organization approval before
+accessing private repositories. Treat the token as a password.</li>
+<li>Supply it to a fresh Helix process using the prompt above:
+<code>GH_ENTERPRISE_TOKEN</code> for custom Enterprise hosts, or <code>GH_TOKEN</code> for github.com
+and <code>*.ghe.com</code>. A nonempty environment token bypasses Keychain entirely.</li>
+</ol>
+<p>GitHub’s authoritative instructions cover
+<a href="https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token">creating a fine-grained token</a>
+and the
+<a href="https://docs.github.com/en/rest/commits/commits#list-pull-requests-associated-with-a-commit">commit-to-PR endpoint’s required permissions</a>.
+For Enterprise Server, select your server’s version in GitHub Docs; token options
+depend on the installed version and company policy. If fine-grained tokens are
+unavailable or blocked, follow your administrator’s approved authentication
+process rather than granting broad classic-token scopes as a workaround.
+Never put the token in committed Nix/Steel configuration, logs, or issue reports.
+After replacing or rotating it, restart Helix or run <code>:gitlens-clear-cache</code>.</p>
+<h3 id="implementation-and-disabling"><a class="header" href="#implementation-and-disabling">Implementation and disabling</a></h3>
+<p>The core Steel bindings provide asynchronous native metadata, generic bounded
+process execution, native Octocrab HTTP/authentication, private JSON cache
+storage, and a linked Markdown popup. Remote selection, cache policy,
+formatting, and popup-local controls live in the plugin module. The global <code>B</code>
+binding lives in <code>keybindings.scm</code>; importing GitLens does not install keybindings.
+To disable the shortcut, remove or remap <code>"B" ":gitlens-blame"</code> in that keymap.
+To remove the plugin entirely, also remove its import and command re-exports from
+<code>helix.scm</code>.</p>
+<p>The PR cache holds 128 repository–commit pairs total, not 128 lines. Lines
+sharing a commit share an entry. Adding a 129th distinct commit evicts the
+oldest-fetched entry; reading an entry does not update its timestamp. Revisiting
+an evicted commit shows local blame first and fetches PR metadata again. A rebase
+that changes the blamed commit hash uses a new cache key on the next request.</p>
+<hr>
+<p><a href="https://github.com/rockboynton/helix/edit/neohelix/docs/gitlens.md">Edit this guide’s source</a>.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../neohelix/folding.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../neohelix/shared-lsp.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../neohelix/folding.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../neohelix/shared-lsp.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../ts-query-56018970.js"></script>
+
+        <script src="../book-c22b7243.js"></script>
+
+
+
+    </div>
+    </body>
+</html>
